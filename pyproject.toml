@@ -1,0 +1,46 @@
+[project]
+name = "acm"
+version = "0.1.0"
+description = "The Unified, Non-Destructive Model Configuration & Snapshot Manager for AI Coding Agents."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Stanford", email = "bigfatsea@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "ruamel-yaml>=0.18.0",
+    "tomlkit>=0.13.0",
+    "typer>=0.12.0",
+]
+
+[project.scripts]
+acm = "acm:main"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.3",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
