@@ -1,7 +1,11 @@
 # ACM（Agent Config Manager）最终版项目规格说明书
 
-<!-- Version: 1.1.0-FINAL | Status: Approved Baseline | Date: 2026-08-17 -->
-<!-- 本文档取代以下前置文档，是 ACM 项目的唯一权威规格：
+<!-- Version: 1.1.0 | Status: Implementation Reference（已被 v2.0 取代治理地位）| Date: 2026-08-17 -->
+<!-- ⚠️ 角色变更（2026-08-17）：本文档已降级为**实现参考**（implementation reference）。
+     治理性规格（原则、边界、数据模型、命令语义）见 docs/ACM_PROJECT_SPEC_v2.0.md。
+     实现可偏离本文档的实现层细节（事务步骤、数据结构字段、状态机枚举、文案、目录布局等），
+     前提是不违反 v2.0 的原则；偏离积累后回写更新本文档。两者冲突时以 v2.0 为准。 -->
+<!-- 本文档在其作为治理规格期间取代以下前置文档（历史沿革，裁决记录见附录 A）：
      - ACM_PROJECT_INIT_glm5.3.md（骨架来源）
      - ACM_PROJECT_SPEC_sonnet4.6.md（MVP 克制与测试方法来源）
      - ACM_INITIALIZATION_SPEC_gemini3.7flash.md（适配器与工程细节来源）
@@ -12,7 +16,8 @@
      Agent 状态机、投影损失告警、并发锁、密钥全链路防护、退出码规范、
      环境变量引用规则、非破坏性保证等级措辞修正。 -->
 
-> **文档性质**：ACM 项目的 Single Source of Truth。
+> **文档性质**：ACM 项目的实现参考（事务协议、数据结构、适配矩阵、历史裁决与核查记录）。
+> **治理规格**：docs/ACM_PROJECT_SPEC_v2.0.md（原则、边界、数据模型、命令语义）。
 > **生成方法**：以 GLM 版为骨架，对建议文档逐项裁决（附录 A），对 docs/feedback-for-v1.0.md 三轮反馈逐项评估吸收（处理记录见 feedback-for-v1.0.md 末尾），关键事实性 claim 全部溯源核实（附录 B），矛盾点按第一性原理独立裁决（§6）。
 
 ---
@@ -134,7 +139,7 @@
 |---|---|---|
 | **L1 连接与凭据** | `base_url`、`protocol`（openai / anthropic / openai-responses）、`api_key`（credential 引用，规则见 §7.3.1）、自定义 headers、proxy、org_id | 含写入 Agent 支持的 env 块（如 Claude Code `settings.json` 的 `env` 字段） |
 | **L2 模型规格与行为** | 模型选择（主模型 + 角色模型，如 Aider 的 main/weak/editor）、`context_window`、`max_output_tokens`、reasoning（`effort` low/medium/high + `budget_tokens`）、`temperature`、能力位（vision / tool-call 方言 native/xml/markdown / json mode） | ACM 统一建模，由适配器转换为目标 Agent 的专有字段；**无法表达的字段必须产生投影损失告警，绝不静默丢弃**（§7.4.1） |
-| **Profile 管理** | 多 Profile 定义、激活态、版本快照、字段级回滚、diff | MVP 仅支持**全局单一激活 Profile**；Agent 级持久绑定（`acm bind`）为 P1 规划（§12）；项目级 Profile（repo 内 `.acm/`）明确不进 MVP，作为 P3 开放问题评估 |
+| **Profile 管理** | 多 Profile 定义、激活态、版本快照、字段级回滚、diff | MVP 仅支持**全局单一激活 Profile**；Agent 级持久绑定（`acm bind`）为 Phase 2 规划（§12）；项目级 Profile（repo 内 `.acm/`）明确不进 MVP，作为 P3 开放问题评估 |
 | **VMR 集成** | 自动探测本地 VMR、导入虚拟模型列表、一键投影 | 第一方集成，非架构依赖（§9） |
 
 ### 5.3 不管什么（Out of Scope）
@@ -248,9 +253,9 @@ Homebrew Tap 与 pyapp 打包各自需要持续 CI 维护成本，触发式后�
 
 3. 结论：P0 三件套已覆盖 JSON/TOML 双格式、单/多文件、覆盖式/注册式两种投影形态；唯一未覆盖项由 P1 首位的 Aider 承担。**MVP 的架构验证充分性不受损，同时不做无用功。**
 
-### D7：动态适配器热加载 = 架构预留，P2 落地
+### D7：动态适配器热加载 = 架构预留，Phase 2 落地
 
-**结论：MVP 不实现 `~/.acm/adapters/*.py` 热加载，但 Adapter Protocol（§7.4）从一开始就按"用户模块可实现"设计（纯 Python Protocol、无内部 API 依赖）。P2 交付 importlib 加载器 + 协议文档 + 模板。**
+**结论：MVP 不实现 `~/.acm/adapters/*.py` 热加载，但 Adapter Protocol（§7.4）从一开始就按"用户模块可实现"设计（纯 Python Protocol、无内部 API 依赖）。Phase 2 交付 importlib 加载器 + 协议文档 + 模板。**
 
 理由：先回答"官方适配器能否稳定、安全地完成投影"，再回答"第三方能否自己写适配器"。
 
@@ -264,7 +269,7 @@ Homebrew Tap 与 pyapp 打包各自需要持续 CI 维护成本，触发式后�
 Core Config / SSOT              # ACM 认为模型世界是什么
         ↓
 Profile Resolution              # 解析出无环境引用的 ResolvedProfile
-        ↓                       #（P1 起：叠加 per-agent 绑定）
+        ↓                       #（Phase 2 起：叠加 per-agent 绑定）
 Desired State                   # 该 Agent "应当处于"的字段级状态
         ↓
 Adapter（语义编译）              # 目标 Agent 怎么表达--产出 ChangeSet + 投影告警，不碰文件
@@ -284,7 +289,7 @@ Journal / Manifest / Snapshot   # 怎么追踪和恢复（+ 启动崩溃恢复�
 
 **两个正式状态概念（CLI 语义的地基）：**
 
-- **Desired State**：Active Profile（P1 起含 per-agent 绑定）经 Adapter 编译后的字段级期望状态。
+- **Desired State**：Active Profile（Phase 2 起含 per-agent 绑定）经 Adapter 编译后的字段级期望状态。
 - **Current State**：各 Agent 配置文件中管理字段的实际落盘值。
 
 由此，CLI 动作获得统一语义：`use` = 改变 Desired State（换激活 Profile）并立即收敛；`apply` = Current -> Desired 的幂等收敛；`status` / `diff` = Current vs Desired（及 vs 上次 ACM 写入值）；**drift** = Current ≠ 上次 ACM 写入值（说明有外部改动）。
@@ -297,7 +302,7 @@ Journal / Manifest / Snapshot   # 怎么追踪和恢复（+ 启动崩溃恢复�
 ┌─────────────────────────────────────────────────────────────┐
 │                        acm CLI（typer + rich）                │
 │  init/use/apply/status/diff/history/rollback/release/        │
-│  doctor/import/bind(P1)                                      │
+│  doctor/import/bind(Phase 2)                                 │
 ├─────────────────────────────────────────────────────────────┤
 │                      Core（纯逻辑，无 I/O）                    │
 │  CoreConfig 加载校验 · Profile 解析 · Desired State ·         │
@@ -310,7 +315,7 @@ Journal / Manifest / Snapshot   # 怎么追踪和恢复（+ 启动崩溃恢复�
 │  崩溃恢复 · 快照保留策略     │   内置适配器（每 Agent 一个模块）    │
 │  字段级回滚 · 密钥掩码      │   claude_code·codex·pi·...        │
 │                          │   用户适配器 ~/.acm/adapters/*.py   │
-│                          │   （P2：importlib 动态加载）         │
+│                          │   （Phase 2：importlib 动态加载）    │
 ├──────────────────────────┴──────────────────────────────────┤
 │                    Format Writers（共用库，声明保真能力）        │
 │  JSON 保序编辑 · ruamel round-trip · tomlkit · JSONC · .env   │
@@ -371,6 +376,7 @@ main  = "cheap"
 ```
 
 - **激活态存放于 `~/.acm/state/active`**（仅 profile 名），只能通过 `acm use` 改变（配置/状态分离，见 D3）。
+- 单模型 Agent 消费 `profile.main`；多角色 Agent（如 Aider）由适配器将 Profile 中的角色槽位映射到目标字段。
 - Pi 类注册式 Agent 消费完整 models 定义；覆盖式 Agent（如 Claude Code）只消费被 profile 引用的模型。
 
 #### 7.3.1 Credential 引用规则（Core Config 不承担 secret storage）
@@ -383,12 +389,12 @@ main  = "cheap"
 2. 任一字段只允许单一来源（引用或明文二选一），**不存在优先级问题**；同时出现视为 schema 错误。
 3. **解析时机**：投影时（use/apply/doctor）实时解析，不在 config 加载时固化--环境变量变更后无需刷新。
 4. **失败处理**：变量不存在且无默认值 -> **硬错误，任何文件写入发生之前整体中止**（退出码 1），doctor 列出所有未解析引用。
-5. 明文存储 = 显式 escape hatch（直接写字面量），`acm doctor` 持续告警；`credential = "name"`（命名凭据，接 keychain）为预留字段，P2 前不实现。
+5. 明文存储 = 显式 escape hatch（直接写字面量），`acm doctor` 持续告警；`credential = "name"`（命名凭据，接 keychain）为预留字段，后续可选，MVP 与 Phase 2 均不实现。
 
 #### 7.3.2 Schema 版本与迁移
 
 - `version = 1` 是 **config schema 版本**，非 ACM 软件版本；manifest / journal / snapshot 各自携带自己的格式版本。
-- ACM 启动时校验版本：低版本配置向前兼容读取；不兼容版本由 `acm doctor` 检测并提示，`acm config migrate`（P2 交付）执行迁移。
+- ACM 启动时校验版本：低版本配置向前兼容读取；不兼容版本由 `acm doctor` 检测并提示，`acm config migrate`（Phase 2 交付）执行迁移。
 - 现在 only 定义位置与语义，MVP 不实现迁移命令。
 
 ### 7.4 Adapter 契约（Python Protocol）
@@ -503,7 +509,7 @@ class ChangeSet:
 
 #### 7.5.2 管理字段清单（Managed Manifest）与漂移检测
 
-`~/.acm/state/<agent>/manifest.json`，每个 `(file, path)` 记录：
+`~/.acm/state/<agent>/manifest.json` 记录 ACM 对该 Agent 的管理字段与所有权状态，核心记录每个管理项的：
 
 ```json
 {
@@ -523,7 +529,7 @@ class ChangeSet:
 manifest 的三个用途：
 
 1. **ownership 状态查询**：status / doctor / diff 判断"这个字段现在归不归我管、有没有被动过"。
-2. **`release` 的精确语义**：所有管理字段恢复 `pre_acm`（ACM 接管前的状态）；ACM 新建的字段（`created_by_acm`）直接删除；**完全由 ACM 创建且接管前不存在的文件**（如 Pi 的 models.json 用户原本没有）整文件删除；其余情况只动管理字段，用户内容与注释保留。
+2. **`release` 的精确语义**：所有管理字段恢复 `pre_acm`（ACM 接管前的状态）；ACM 新建的字段（`created_by_acm`）直接删除；完全由 ACM 创建且接管前不存在的文件（如 Pi 的 models.json 用户原本没有）整文件删除；其余情况只动管理字段，用户内容与注释保留。
 3. **幂等判断**：期望值 == current 且磁盘无漂移 -> ChangeSet 为空 -> no-op。
 
 #### 7.5.3 文件快照（Safety Net，非默认回滚机制）
@@ -611,7 +617,8 @@ manifest 的三个用途：
 ```
 ~/.acm/
 ├── config.toml                 # Core Config（SSOT；仅声明式内容，可入 dotfiles git）
-├── adapters/                   # 用户自定义适配器（P2 启用动态加载，目录先预留）
+├── .gitignore                  # 由 acm init 自动创建（忽略 state/、logs/、.lock）
+├── adapters/                   # 用户自定义适配器（Phase 2 启用动态加载，目录先预留）
 ├── state/                      # 0700（含敏感内容）
 │   ├── active                  # 当前激活 profile 名（仅 acm use 可改）
 │   ├── .lock                   # 全局写入锁（flock）
@@ -622,7 +629,7 @@ manifest 的三个用途：
 └── logs/                       # 运行日志；--verbose = DEBUG 级入日志，默认 INFO 摘要
 ```
 
-推荐用法（写入 README）：`config.toml` 纳入个人 dotfiles 仓库；`state/`、`logs/` 加入 gitignore（ACM 提供标准 .gitignore 片段）；快照与 manifest 不建议纳入版本控制。
+推荐用法（写入 README 与 init 自动化）：`acm init` 会默认自动生成 `~/.acm/.gitignore`（排除 `state/`、`logs/` 与 `.lock`）。用户可放心将 `~/.acm/config.toml` 纳入个人 dotfiles 仓库，明文密钥、快照与状态数据绝不会误入版本控制。
 
 ---
 
@@ -673,7 +680,7 @@ $ acm status                # 总览：各 Agent 状态机 + 漂移
 - **零依赖原则**：无 VMR 时一切功能照常（直连 OpenRouter / DeepSeek / SiliconFlow / Ollama / 任意兼容端点）。
 - **VMR 侧零改动**：只需暴露标准的模型列表查询端点；ACM 对 VMR 的全部"感知"就是一次 import。
 - **退出对等**：`acm release` 一键解除所有 Agent 与 VMR 的绑定，零残留。
-- `acm use-vmr <virtual_model>`（P2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（P2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足"≤3 条命令"成功标准。
+- `acm use-vmr <virtual_model>`（Phase 2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（Phase 2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足"≤3 条命令"成功标准。
 
 ---
 
@@ -716,20 +723,20 @@ acm release [<agent>] [--force]
 
 # ── VMR ────────────────────────────────────────────────
 acm import vmr [--url <url>] [--dry-run]
-acm vmr status              # P2
-acm use-vmr [<model>]       # P2 薄糖层
+acm vmr status              # Phase 2
+acm use-vmr [<model>]       # Phase 2 薄糖层
 
 # ── Profile / 绑定 ─────────────────────────────────────
-acm profile list | show <name>          # P1
-acm profile create <name>               # P2（交互式/模板）
-acm bind <profile> --agent <id>         # P1：Agent 级持久绑定（MVP 仅全局激活）
+acm profile list | show <name>          # Phase 2
+acm profile create <name>               # Phase 2（交互式/模板）
+acm bind <profile> --agent <id>         # Phase 2：Agent 级持久绑定（MVP 仅全局激活）
 
 # ── 全局选项 ───────────────────────────────────────────
 --dry-run                   # 只计算 ChangeSet 并展示，不写任何文件
 --force                     # 覆盖漂移阻断 / 进程阻断
 --verbose                   # DEBUG 级日志（stderr + ~/.acm/logs/）
 --no-color                  # 输出管道友好
---json                      # P2：机器可读输出（状态机枚举直出；密钥默认掩码）
+--json                      # Phase 2：机器可读输出（状态机枚举直出；密钥默认掩码）
 --show-secrets              # 显式输出明文密钥（默认掩码）
 ```
 
@@ -856,7 +863,7 @@ Integration： import vmr
 | VSCode 系扩展迁移到 SQLite 私有存储 | 中 | 高（仅 P2 Agent） | 铁律 2：没有干净通道就不支持，绝不写私有 DB |
 | 密钥泄露 | 中 | 中 | credential 引用模型（§7.3.1）+ state 目录 0700 / 文件 0600 + 输出默认掩码 + doctor 明文告警；keychain 为后续可选项 |
 | 多文件事务部分失败 | 低 | 中 | 指纹校验 + 跨文件按序提交 + 内存字节回滚 + 崩溃恢复 + 金样事务测试 |
-| 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；本文档为唯一权威持续演进 |
+| 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；治理规格（v2.0）+ 实现参考（本文档）分层持续演进 |
 
 ---
 
@@ -884,7 +891,7 @@ Integration： import vmr
 | MVP 首批适配器 | Claude Code + OpenClaw + Aider | Claude Code + Codex + Pi | **P0 = Claude Code + Codex + Pi；Aider 升为 P1 首位（压力测试）** | 本机实证：Aider/OpenClaw 未实际使用，第一动因是服务真实场景；架构覆盖缺口（YAML/角色模型/跨文件派生）由 P1 首位 Aider + Helper 级前置单测补齐（§6 D6） |
 | Core Config 格式 | TOML -> YAML | 保持 TOML | **保持 TOML** | 双向读写场景 TOML 无歧义性更优；实际嵌套仅 3 层；Codex P0 使 tomlkit 零新增依赖（§6 D3） |
 | 分发渠道 | 全通道矩阵 | 压缩为主路径 | **单一主路径（PyPI + uvx/uv tool），brew/pyapp 触发式后置 P3** | 为想象中的用户建设 CI 渠道是浪费（§6 D5） |
-| 动态适配器热加载 | 尽早交付 | 推迟出 MVP | **架构预留、P2 落地** | 先验证官方适配器质量，再开放第三方扩展（§6 D7） |
+| 动态适配器热加载 | 尽早交付 | 推迟出 MVP | **架构预留、Phase 2 落地** | 先验证官方适配器质量，再开放第三方扩展（§6 D7） |
 
 ### A.2 V1 逐项裁决（新增补全类）
 
@@ -895,7 +902,7 @@ Integration： import vmr
 | 一.3 | protected_paths 黑名单 | **采纳** | 与白名单构成双重防线，进 ChangeSet 结构与阶段 1 校验 |
 | 一.4 | 快照保留策略（20/Agent FIFO 可配置） | **采纳** | §7.5.3 |
 | 一.5 | 三阶段事务提交标准化 | **采纳（v1.1 升级为 crash-safe）** | §7.5.1，v1.1 增加事务状态机与启动恢复 |
-| 一.6 | `acm doctor` | **采纳（P1）** | §10，扩展未完结事务/明文密钥/ENV 缺失检测 |
+| 一.6 | `acm doctor` | **采纳（纳入 Phase 1 / MVP）** | §10/§12，扩展未完结事务/明文密钥/ENV 缺失检测与崩溃恢复入口 |
 | 一.7 | `acm history` + 指定版本回滚 | **采纳（v1.1 修正语义）** | 显式分离为 `--to-tx`（字段级）与 `--snapshot`（`--hard`），见 §10.1 |
 | 一.8 | 金样回归测试三步断言 | **采纳（强化）** | §11.1 |
 | 一.9 | 进程守护交互 | **采纳（调整）** | 标准库实现不引入 psutil；v1.1 升级为分级表（§7.5.5） |
@@ -903,7 +910,7 @@ Integration： import vmr
 | 二.1 | Schema 表达能力升级 | **采纳** | §7.3；active_profile 存 state |
 | 二.2 | Core Config 改 YAML | **拒绝** | 见 A.1 |
 | 二.3 | 适配器契约标准化 | **采纳** | §7.4 |
-| 二.4 | VMR 快捷指令 | **采纳（P2）** | §9 |
+| 二.4 | VMR 快捷指令 | **采纳（Phase 2）** | §9 |
 | 二.5 | 多文件事务原子性 | **采纳（v1.1 强化）** | §7.5.1 + 崩溃恢复 §7.5.7 |
 | 二.6 | Diff 输出 rich 高亮 | **采纳** | §10.1 |
 | 三.1 | MVP 换 OpenClaw+Aider | **拒绝（吸收其内核）** | 见 A.1 |
@@ -991,7 +998,7 @@ Integration： import vmr
 | **Core Config** | `~/.acm/config.toml`：ACM 自有的 providers / models / profiles 三层声明式配置 |
 | **Profile** | 命名的模型角色组合（main/cheap 等槽位），是投影的最小单元 |
 | **Resolved Profile** | Profile 经 ENV 引用解析后的具体值集合 |
-| **Desired State** | 激活 Profile（P1 起含 per-agent 绑定）经编译后的字段级期望状态 |
+| **Desired State** | 激活 Profile（Phase 2 起含 per-agent 绑定）经编译后的字段级期望状态 |
 | **Current State** | 各 Agent 配置文件中管理字段的实际落盘值 |
 | **Projection / 投影** | 将 Desired State 转译写入目标 Agent 配置的动作 |
 | **Adapter** | 每 Agent 一个的语义编译器：profile -> ChangeSet，不碰文件 |
@@ -1009,4 +1016,4 @@ Integration： import vmr
 
 ---
 
-<!-- 最终版规格结束（v1.1.0）。本文件为 ACM 项目唯一权威文档；如与任何前置文档冲突，以本文件为准。 -->
+<!-- v1.1 实现参考结束。治理规格见 ACM_PROJECT_SPEC_v2.0.md；如与 v2.0 原则冲突，以 v2.0 为准，并回写修订本文档。 -->
