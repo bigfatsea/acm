@@ -1,0 +1,90 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller / binary builds
+*.manifest
+*.spec
+
+# Virtual Environments & Package Managers
+.venv/
+venv/
+ENV/
+env/
+.uv/
+
+# Testing & Coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+coverage.xml
+
+# Type Checking & Linting
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytype/
+.pyre/
+
+# Environment variables & secrets (API keys, VMR tokens, etc.)
+.env
+.env.local
+.env.*.local
+*.env
+
+# ACM local runtime / state / test output
+.acm/
+.acm_dev/
+local_state/
+*.log
+logs/
+
+# Research & Scraper artifacts
+.firecrawl/
+scrape_cache/
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
