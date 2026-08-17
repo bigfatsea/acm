@@ -6,14 +6,14 @@
      - ACM_PROJECT_SPEC_sonnet4.6.md（MVP 克制与测试方法来源）
      - ACM_INITIALIZATION_SPEC_gemini3.7flash.md（适配器与工程细节来源）
      以及《基于GLM版的ACM方案完善建议》（V1/V2/V3，裁决记录见附录 A）。
-     v1.1 变更：吸收 docs/feedback.md 三轮反馈（逐项处理结果见该文档末尾），
+     v1.1 变更：吸收 docs/feedback-for-v1.0.md 三轮反馈（逐项处理结果见该文档末尾），
      核心升级——回滚数据模型闭环（Manifest/Journal/Snapshot 三元职责）、
      crash-safe 事务与启动恢复、pre-commit 指纹校验、Desired State 形式化、
      Agent 状态机、投影损失告警、并发锁、密钥全链路防护、退出码规范、
      环境变量引用规则、非破坏性保证等级措辞修正。 -->
 
 > **文档性质**：ACM 项目的 Single Source of Truth。
-> **生成方法**：以 GLM 版为骨架，对建议文档逐项裁决（附录 A），对 feedback.md 三轮反馈逐项评估吸收（处理记录见 feedback.md 末尾），关键事实性 claim 全部溯源核实（附录 B），矛盾点按第一性原理独立裁决（§6）。
+> **生成方法**：以 GLM 版为骨架，对建议文档逐项裁决（附录 A），对 docs/feedback-for-v1.0.md 三轮反馈逐项评估吸收（处理记录见 feedback-for-v1.0.md 末尾），关键事实性 claim 全部溯源核实（附录 B），矛盾点按第一性原理独立裁决（§6）。
 
 ---
 
@@ -168,7 +168,7 @@
 3. **AI 辅助维护的自然语言**。LLM 生成/修改**代码**远比生成受 DSL 语法约束的补丁文件更自然可靠。上游 schema 漂移时，"贴上官方文档让 AI 改适配器"是本项目规划中的标准维护动作。
 4. **保留数据驱动的合理部分**。适配器内部当然可以用映射表（dict）描述简单字段映射--这是"代码使用数据"，与"把 DSL 产品化为外部扩展格式"有本质区别。
 
-### D2：语言 = Python 3.11+，而非 Go
+### D2：语言 = Python 3.12+，而非 Go
 
 **结论：纯 Python，最小依赖（typer+rich、ruamel.yaml、tomlkit；pydantic 可选，决策标准见下），uv 生态分发与锁定。**
 
@@ -182,9 +182,12 @@
 
 Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致命。**需求决定语言，而非相反。**
 
+版本基线取 3.12+：uv 可自动安装并锁定 Python 版本，版本可用性不构成部署约束；新项目无需为旧版本承担兼容测试成本。
+
 依赖预算与锁定（硬约束）：
 
-- 运行时依赖 ≤ 4 个：`typer`+`rich`（计 1 组）、`ruamel.yaml`、`tomlkit`，外加可选 `pydantic`。
+- MVP 运行时依赖 ≤ 4 个：`typer`+`rich`（计 1 组）、`ruamel.yaml`、`tomlkit`，外加可选 `pydantic`。
+- P1 引入 OpenCode（JSONC 注释保留）时，可放宽引入 1 个依赖（此时运行时依赖上限 ≤ 5 个）。**注意（附录 B 实证）**：现有候选 `commentjson` / `jstyleson` 均只在解析时剥离注释、写回即丢失，无法满足 §7.5.4 的注释保留硬要求（`commentjson` 还拖带 `lark-parser` 依赖且实测存在解析缺陷）；注释保留 Writer 预计需自研轻量 JSONC 编辑器（与 D1"适配器即代码"一致），放宽的名额仅用于届时评估确有必要时。
 - `pydantic` 引入标准：当 Core Config 校验逻辑超过 ~200 行或校验规则开始互相组合时引入；否则用 dataclass + 显式校验函数。引入即计入依赖预算。
 - 依赖以 uv lock 锁定，CI 中检查 lock 漂移；进程检测用标准库（`pgrep` / `tasklist`），**不引入 psutil**；文件锁用 `fcntl`/`msvcrt` 标准库实现。
 
@@ -376,7 +379,7 @@ main  = "cheap"
 
 语法与语义（刻意最小化，杜绝注入面）：
 
-1. 语法仅两种：`${VAR}` 与 `${VAR:-default}`。值以 `${` 开头即视为引用；**不支持嵌套引用、命令替换、运算**--这不是待办，是设计边界。
+1. 语法仅两种：`${VAR}` 与 `${VAR:-default}`。**严格采用整字段替换（Whole-value replacement）**：引用必须占据该字段的完整值，不支持字符串内子串插值（如 `http://${HOST}:8800` 不合法，动态端点请通过环境变量配置完整 URL）、不支持嵌套引用、命令替换与运算--彻底杜绝模版注入与转义歧义。
 2. 任一字段只允许单一来源（引用或明文二选一），**不存在优先级问题**；同时出现视为 schema 错误。
 3. **解析时机**：投影时（use/apply/doctor）实时解析，不在 config 加载时固化--环境变量变更后无需刷新。
 4. **失败处理**：变量不存在且无默认值 -> **硬错误，任何文件写入发生之前整体中止**（退出码 1），doctor 列出所有未解析引用。
@@ -410,13 +413,13 @@ class Adapter(Protocol):
         # 纯函数：产出字段级变更集 + 投影告警（§7.4.1）。值转换/方言适配/
         # 多文件协同全部在这里，用普通代码写。绝不直接写文件。
 
-    def verify(self, cs: ChangeSet) -> Report: ...
+    def verify(self, cs: ChangeSet) -> VerifyReport: ...
         # 落盘后断言：目标字段已正确写入、保护区域未变
 ```
 
 新增一个官方 Agent = 新增约 100–300 行模块 + 一组金样 fixtures（§11）。适配器应用顺序 = 注册表固定顺序（确定性，文档化）。
 
-**ChangeSet 结构**（Safety Engine 的输入契约）：
+**ChangeSet 及核心数据结构**（Safety Engine 的输入契约）：
 
 ```python
 @dataclass
@@ -428,8 +431,19 @@ class FieldOp:
     created: bool          # 该路径是否为本次新建
 
 @dataclass
+class ProjectionWarning:
+    field: str
+    agent_id: str
+    reason: str
+
+@dataclass
+class VerifyReport:
+    ok: bool
+    errors: list[str] = field(default_factory=list)
+
+@dataclass
 class ChangeSet:
-    txid: str                     # 事务 ID（journal 主键，rollback --to 引用）
+    txid: str                     # 事务 ID（journal 主键，rollback --to-tx 引用）
     agent_id: str
     profile: str                  # 来源 profile
     ops: list[FieldOp]
@@ -461,8 +475,8 @@ class ChangeSet:
 
 [阶段 1 · Prepare & Snapshot]
   1. 进程守护：按分级策略（§7.5.5）阻断或警告，--force 覆盖
-  2. 逐文件读取原始字节，计算指纹 H0
-  3. 保存文件快照至 ~/.acm/state/<agent>/snapshots/<ts>/
+  2. 逐文件读取原始字节，计算指纹 H0（文件若不存在则标记 H0 = NOT_EXIST）
+  3. 保存文件快照至 ~/.acm/state/<agent>/snapshots/<ts>/（记录初始状态）
   4. 写入 journal：txid、时间、命令、ChangeSet、状态 = PREPARED
   5. 黑白名单校验：
      - 白名单：每个 op.path ∈ managed_namespaces
@@ -476,14 +490,15 @@ class ChangeSet:
   4. 非管字段零篡改断言：解析树 diff 确认除 op.path 外结构不变
 
 [阶段 3 · Atomic Commit]
-  1. 逐文件：pre-commit 指纹校验（重读磁盘字节，哈希必须 == H0，
-     不等 = 外部并发修改 -> 整体中止并报告 drift，绝不覆盖）
-  2. 通过后写临时文件 <target>.acm_tmp -> os.replace 原子替换；
-     journal 状态更新为 COMMITTING（含已提交文件清单）
-  3. 全部完成 -> journal 状态 = COMMITTED；更新 manifest；
-     清理临时文件
-  4. 任一步骤异常：用内存中的原始字节回滚已提交文件，
-     journal = ABORTED，中止后续（跨文件一致性）
+  1. 逐文件 pre-commit 指纹校验（重读磁盘字节，哈希必须 == H0，
+     原不存在者仍须不存在；不等 = 外部并发修改 -> 整体中止并报告 drift，绝不覆盖）
+  2. 预备写入：在各目标文件同目录下写入临时文件 <target>.acm_tmp
+  3. 状态前置落盘：将 journal 状态更新并落盘为 COMMITTING
+     （确立提交意图，此后若崩溃，恢复程序确知需从快照回滚）
+  4. 逐文件原子替换：执行 os.replace(<target>.acm_tmp, <target>)
+  5. 提交完成：journal 状态更新为 COMMITTED；更新 manifest；清理临时文件
+  6. 任一步骤异常：用内存原始字节/快照逆向还原已替换文件，
+     journal 标记为 ABORTED，中止后续（跨文件一致性）
 ```
 
 #### 7.5.2 管理字段清单（Managed Manifest）与漂移检测
@@ -584,9 +599,12 @@ manifest 的三个用途：
 | `NOT_DETECTED` | 本机未检测到该 Agent |
 | `UNMANAGED` | 已安装，但 ACM 从未写入过 |
 | `SYNCED` | Current == Desired，无漂移 |
+| `OUT_OF_SYNC` | Current == ACM 最后写入值 ≠ Desired（ACM 侧配置已改动，无外部漂移，待 `apply` 收敛） |
 | `DRIFTED` | 管理字段的磁盘值 ≠ ACM 最后写入值（外部修改） |
 | `CONFLICT` | 环境冲突当前生效（Agent 进程运行中 / 写入锁被占 / 上次操作被阻断待处理） |
 | `ERROR` | 配置不可读/语法损坏/疑似上游 schema 漂移，需要 doctor 介入 |
+
+多条件并存时按优先级取唯一展示态：`ERROR` > `CONFLICT` > `DRIFTED` > `OUT_OF_SYNC` > `SYNCED`（`NOT_DETECTED` / `UNMANAGED` 由安装与接管状态先行判定，不参与该优先级）。
 
 ### 7.7 目录布局
 
@@ -648,14 +666,14 @@ $ acm init                  # 扫描本机 Agent + 探测 VMR（127.0.0.1:8800/h
                             #   -> 展示将要写入的内容，交互确认后才 import
                             #   （--yes 跳过确认供自动化；绝不静默修改用户 SSOT）
 $ acm import vmr            # 拉取虚拟模型列表 -> 生成 providers.vmr + models.*（增量合并进 config.toml）
-$ acm use daily --all       # 投影到本机所有已检测到的 Agent
+$ acm use daily             # 投影到本机所有已检测到的 Agent（默认全部；支持 --agent 指定）
 $ acm status                # 总览：各 Agent 状态机 + 漂移
 ```
 
 - **零依赖原则**：无 VMR 时一切功能照常（直连 OpenRouter / DeepSeek / SiliconFlow / Ollama / 任意兼容端点）。
 - **VMR 侧零改动**：只需暴露标准的模型列表查询端点；ACM 对 VMR 的全部"感知"就是一次 import。
 - **退出对等**：`acm release` 一键解除所有 Agent 与 VMR 的绑定，零残留。
-- `acm use-vmr <virtual_model>`（P2 薄糖层 = import-if-needed + 选 profile + `use --all`）与 `acm vmr status`（P2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足"≤3 条命令"成功标准。
+- `acm use-vmr <virtual_model>`（P2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（P2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足"≤3 条命令"成功标准。
 
 ---
 
@@ -683,13 +701,16 @@ acm apply [--agent <id|all>] [--dry-run] [--force]
 
 # ── 安全与审计 ─────────────────────────────────────────
 acm diff [<agent>] [--against desired|last-write|snapshot]
-                            # 彩色 unified diff + 漂移专项标注（外部改动值 vs 期望值）
+                            # 彩色 unified diff + 漂移专项标注（外部改动值 vs 期望值）；
+                            # 若目标 Agent 为 UNMANAGED，默认执行 Dry-run 虚拟比对（展示当前
+                            #   磁盘原始配置 vs 接管后的预期变更，并标注 [DRY-RUN / UNMANAGED]）
 acm history [<agent>]       # 事务时间线：txid、时间、来源 profile、命令、状态
-acm rollback [<agent>] [--to <txid>] [--hard [--to <snapshot-id>]] [--force]
-                            # 默认：字段级回滚最后一个事务（--to <txid> 则逆序回滚
-                            #   该事务之后的全部事务）--基于 journal，粒度是字段
-                            # --hard：整文件快照还原（灾难恢复），--to 引用 snapshot-id
-                            # 两套 --to 语义严格分离，不可混用
+acm rollback [<agent>] [--to-tx <txid>] [--hard [--snapshot <id>]] [--force]
+                            # 默认字段级回滚：逆序回滚最后一个事务（--to-tx <txid> 则逆序回滚
+                            #   至该事务之后的状态）--基于 journal，粒度是字段
+                            # --hard 灾难恢复：整文件快照还原（--snapshot <id> 恢复指定快照，
+                            #   缺省为最新快照）
+                            # 参数名显式分离（--to-tx vs --snapshot），杜绝多态混淆
 acm release [<agent>] [--force]
                             # 按管理清单恢复 pre-ACM 状态（§7.5.2），清空清单，零残留
 
@@ -795,11 +816,11 @@ Integration： import vmr
 
 **硬验收标准（全部可量化）**：
 
-1. 全新机器 VMR 场景：`acm init --yes` -> `acm use daily --all` 后，3 个 P0 Agent 全部正确指向 VMR 虚拟模型；全程 ≤ 3 条命令、零手工编辑。
+1. 全新机器 VMR 场景：`acm init --yes` -> `acm use daily` 后，3 个 P0 Agent 全部正确指向 VMR 虚拟模型；全程 ≤ 3 条命令、零手工编辑。
 2. `acm rollback` 后：管理字段恢复旧值；apply 与 rollback 之间模拟的 Agent 状态写入**存活**。
 3. 金样三步断言全绿（含 `--hard` 后 SHA-256 一致）+ 全部负面用例通过（§11.1）。
 4. 幂等：连续两次相同 `acm use` 第二次为 no-op（退出码 0）。
-5. 黑白名单断言：任何 op 触碰 `mcpServers` / `permissions` / `hooks` / `enabledPlugins` / `models-store.json` 即测试失败。
+5. 黑白名单断言：任何 op 触碰 `mcp_servers` / `mcpServers` / `permissions` / `hooks` / `enabledPlugins` / `models-store.json` 即测试失败。
 6. `acm release` 后：三 Agent 配置与 pre-ACM 状态一致（含"ACM 创建的文件被删除"场景），清单清空，零残留。
 7. 提交间隙 kill 进程后，任一 acm 命令可自动完成崩溃恢复，配置文件回到事务前一致状态。
 
@@ -833,7 +854,7 @@ Integration： import vmr
 | Agent 运行中写文件覆盖 ACM 变更 | 低 | 中 | 进程守护分级 + 漂移检测 + 指纹校验 + 快照兜底（四层防御） |
 | ACM 自身并发 / 崩溃导致中间状态 | 低 | 高 | 全局写入锁 + crash-safe 事务 journal + 启动恢复（§7.5.6/7.5.7）+ 故障注入测试 |
 | VSCode 系扩展迁移到 SQLite 私有存储 | 中 | 高（仅 P2 Agent） | 铁律 2：没有干净通道就不支持，绝不写私有 DB |
-| 密钥泄露 | 中 | 中 | credential 引用模型（§7.3.1）+ state 目录 0600/0700 + 输出默认掩码 + doctor 明文告警；keychain 为后续可选项 |
+| 密钥泄露 | 中 | 中 | credential 引用模型（§7.3.1）+ state 目录 0700 / 文件 0600 + 输出默认掩码 + doctor 明文告警；keychain 为后续可选项 |
 | 多文件事务部分失败 | 低 | 中 | 指纹校验 + 跨文件按序提交 + 内存字节回滚 + 崩溃恢复 + 金样事务测试 |
 | 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；本文档为唯一权威持续演进 |
 
@@ -854,7 +875,7 @@ Integration： import vmr
 
 ## 附录 A：前置文档逐项裁决记录
 
-> 《基于GLM版的ACM方案完善建议》V1/V2/V3 存在内部矛盾，下表为逐项独立裁决。裁决依据：第一性原理 + 事实核查（附录 B）+ 本机实证。feedback.md 三轮反馈的处理记录见该文档末尾，本附录不重复。
+> 《基于GLM版的ACM方案完善建议》V1/V2/V3 存在内部矛盾，下表为逐项独立裁决。裁决依据：第一性原理 + 事实核查（附录 B）+ 本机实证。docs/feedback-for-v1.0.md 三轮反馈的处理记录见该文档末尾，本附录不重复。
 
 ### A.1 建议文档内部四大矛盾的裁决
 
@@ -875,7 +896,7 @@ Integration： import vmr
 | 一.4 | 快照保留策略（20/Agent FIFO 可配置） | **采纳** | §7.5.3 |
 | 一.5 | 三阶段事务提交标准化 | **采纳（v1.1 升级为 crash-safe）** | §7.5.1，v1.1 增加事务状态机与启动恢复 |
 | 一.6 | `acm doctor` | **采纳（P1）** | §10，扩展未完结事务/明文密钥/ENV 缺失检测 |
-| 一.7 | `acm history` + 指定版本回滚 | **采纳（v1.1 修正语义）** | --to 分离为 txid（字段级）与 snapshot-id（--hard），见 §10.1 |
+| 一.7 | `acm history` + 指定版本回滚 | **采纳（v1.1 修正语义）** | 显式分离为 `--to-tx`（字段级）与 `--snapshot`（`--hard`），见 §10.1 |
 | 一.8 | 金样回归测试三步断言 | **采纳（强化）** | §11.1 |
 | 一.9 | 进程守护交互 | **采纳（调整）** | 标准库实现不引入 psutil；v1.1 升级为分级表（§7.5.5） |
 | 一.10 | 适配优先级矩阵 + 量化验收 | **采纳** | §8/§12 |
@@ -922,7 +943,7 @@ Integration： import vmr
 | 一.5–6 | 分层架构图 / init 自动化 | **采纳** | §7.2/§9 |
 | 二.1 | 三阶段伪代码等安全细节 | **采纳** | §7.5 |
 | 二.2 | active_profile | **采纳（一处修正：存 state）** | D3 |
-| 三.2 | Python 3.11+ / 依赖预算 | **采纳** | D2 |
+| 三.2 | Python 3.11+、依赖 ≤4、锁定 uv | **采纳（基线上调至 3.12+）** | D2 |
 | 三.5 | "过细伪代码不要" | **部分不采纳** | 三阶段提交与 ChangeSet 是安全语义的规范组成部分，保留 |
 
 ### A.5 从 Gemini/Sonnet 版直接吸收（需修正或未出现在建议文档）
@@ -933,7 +954,7 @@ Integration： import vmr
 | Gemini | Claude Code 写 `~/.claude.json` | **拒绝（修正）** | 该文件为运行时状态，本机实证 ✔；只写 `settings.json` |
 | Gemini/Sonnet | Pi 配置路径 | **拒绝（修正）** | 官方文档：用户文件为 `models.json`；`models-store.json` 为内部注册表绝不可写 ✔ |
 | Sonnet | RFC 6902 作为非破坏写入 | **拒绝（修正）** | §7.5.4；采纳其 protected_paths 概念 |
-| Sonnet | 内置 `core.yaml` 锚定 VRM | **部分吸收** | VMR 为默认初始 profile（init 生成），不内置于包内 |
+| Sonnet | 内置 `core.yaml` 锚定 VMR | **部分吸收** | VMR 为默认初始 profile（init 生成），不内置于包内 |
 | Sonnet | 快照 FIFO × 20 / Phase 验收 / init 流程 | **采纳** | §7.5.3/§12 |
 
 ---
@@ -958,6 +979,7 @@ Integration： import vmr
 | Aider / OpenClaw 在目标环境实际使用 | 各版（隐含假设） | ❌ 本机实证：非活跃使用--MVP 选型依据之一 |
 | VMR（127.0.0.1:8800、虚拟模型、healthz） | 三版一致 | ⚪ 内部项目约定，视为设计输入 |
 | "市场绝对空白" | Gemini 版 | ❌ 证伪；准确表述为细分生态位为空（§3.2） |
+| `commentjson` / `jstyleson` 可作为 JSONC 注释保留方案 | v1.1 草案 | ❌ 实测证伪：二者解析时即剥离注释，`dumps` 写回丢失全部注释，无法满足 §7.5.4 注释保留硬要求；`commentjson` 0.9.0 依赖 `lark-parser` 且实测无法解析值后块注释 |
 
 ---
 
@@ -979,6 +1001,7 @@ Integration： import vmr
 | **Journal / 事务** | `journal.jsonl`：每次 ChangeSet 事务的完整历史与状态机（PREPARED/COMMITTING/COMMITTED/ABORTED），字段级回滚的数据来源 |
 | **Snapshot** | 整文件快照，仅用于 `--hard` 灾难恢复、崩溃恢复与审计 |
 | **Drift（漂移）** | 管理字段的磁盘值 ≠ ACM 最后写入值，说明被外部修改 |
+| **OUT_OF_SYNC** | Current == ACM 最后写入值 ≠ Desired（ACM 侧配置已改动，无外部漂移，待 `apply` 收敛） |
 | **Projection Loss** | Desired State 中目标 Agent 无法表达的字段，必须告警，不得静默丢弃 |
 | **Round-trip** | 解析-修改-序列化过程中保留原文注释/键序/排版的能力 |
 | **Format Writer** | 按格式划分的写入器，必须声明其保真能力（语义/注释/键序/空白） |
