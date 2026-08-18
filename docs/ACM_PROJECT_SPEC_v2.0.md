@@ -1,12 +1,14 @@
 # ACM（Agent Config Manager）项目规格 v2.0（原则版）
 
-<!-- Version: 2.0.0 | Status: Governing Spec | Date: 2026-08-17 -->
+<!-- Version: 2.0.1 | Status: Governing Spec | Date: 2026-08-18 -->
 <!-- 本文档是 ACM 项目的治理性规格（governing spec），只保留四样东西：
      核心原则、边界定义、核心数据模型、命令语义。
      实现层面的细节（事务提交步骤、数据结构字段、状态机优先级、交互文案、
      目录布局、适配矩阵明细、竞品核查、历史裁决）全部下沉至
      docs/ACM_PROJECT_SPEC_FINAL_v1.1.md（降级为实现参考，implementation reference）。
-     两者冲突时，以本文档的原则为准；实现参考与原则冲突时，改实现参考。 -->
+     两者冲突时，以本文档的原则为准；实现参考与原则冲突时，改实现参考。
+     v2.0.1 变更：吸收 ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md §1
+     的核心诉求、双重所有权本质与快照正确定位，作为治理原则的组成部分。 -->
 
 > **文档性质**：对齐认知、防止走偏。不是照着抄代码的手册。
 > 编码阶段在本文原则框架内自由发挥；任何实现选择，只要不违反本文原则，均为合法。
@@ -24,6 +26,50 @@
 - **公理 3（可逆性）**：任何变更必须可精确撤销，回滚粒度是"ACM 管理的字段"而非整个文件。
 
 贯穿性原则：**ACM 管理的是字段，不是文件**。一切"ACM 不知道的事"（外部修改、无法表达的字段、并发与崩溃）都必须**显式暴露，绝不静默处理**。
+
+### 1.1 核心目标优先级
+
+```
+P0（第一优先）初始化便捷性
+  • 一键把本机多个 Agent 指向统一模型/Provider（VMR 或直连端点）
+  • 零手动编辑、≤ 3 条命令、零门槛开箱即用
+
+P1（第二优先）安全防坏与可逆性
+  • 切换 Profile 或回滚时，绝不搞坏 Agent 宿主已有的其他配置
+  • 精确的字段级逆操作 + 整文件快照安全兜底
+
+P2（第三优先）开放插件化与社区扩展
+  • 低成本接入新 Agent；标准 Python Protocol + 金样测试门禁
+
+P3（权衡取舍）其余复杂度一律让步
+  • 不做 Agent 全生命周期管理，不侵入私有 DB，不承担通用 Secret Storage
+```
+
+### 1.2 配置文件的双重所有权本质
+
+Agent 配置文件（如 `~/.claude/settings.json`、`~/.codex/config.toml`）同时受两个权力实体支配：
+
+1. **ACM**：希望若干字段（base_url、api_key、model 等）严格按意图版本演进；
+2. **Agent 运行时**：在运行期持续向同一文件写入会话状态、OAuth token、插件记录等。
+
+试图在原位文件上做全量版本控制，将陷入**双向控制权死锁（Dual-Authority Deadlock）**：ACM 的整文件回滚会误伤 Agent 刚写入的新状态，Agent 升级重构文件结构会使 patch 路径全部失效。
+
+**正确解法**（行业 40 年演进的终极答案，源自 Kubernetes Server-Side Apply 字段所有权机制）：
+
+```
+【ACM 强力控制区（Managed Fields）】      【宿主自治保护区（Unmanaged Fields）】
+ base_url / api_key / model / reasoning    permissions / hooks / plugins / history
+ 100% 确定性写入、幂等收敛、字段级回滚     零破坏保留（AST 解析树 diff 保护）
+ 外部修改视为 Drift → 触发安全阻断         只读审计快照留存；允许外部自由修改
+```
+
+"完全可控"的正确边界：**对受管字段 100% 绝对可控；对未受管内容 100% 零破坏保障 + 只读快照证据留存。**
+
+### 1.3 快照的正确定位
+
+第三方文件的完整快照，其核心定位是**只读审计证据（Audit Forensics）与灾难恢复（Disaster Recovery）**——而不是管理 Agent 自身的会话、Token 或 UI 状态。
+
+快照采用**Append-only 单纯追加留存**（写路径零轮转计算负担）。Agent 配置文件通常仅 5–20 KB，极重度使用 5 年（约 10,000 次变更）总快照约 150 MB，无需 FIFO 自动清理。若未来用户有强迫症清理诉求，仅通过显式命令（Phase 2+ 可选的 `acm clean`）主动触发，绝不在核心写入路径中静默删文件。
 
 技术栈基线（决策依据见 v1.1 §6）：Python 3.12+，最小依赖；适配器 = 普通 Python 模块（不是 DSL）；Core Config 用 TOML；分发主路径 PyPI / uvx。
 
@@ -150,7 +196,7 @@ acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.t
 
 1. **漂移没有自动修复路径**：任何写入命令遇外部漂移默认阻断，`--force` 或先 `diff` 确认，不存在静默收敛。
 2. **`use` 与 `apply` 语义不混淆**：use 改变 Desired State 并收敛；apply 只收敛不改变。
-3. **退出码规范**：0 = 成功/幂等 no-op；1 = 错误（配置错误/语法损坏/I/O异常）；2 = 安全阻断（检测到漂移/写锁冲突）。正常结果走 stdout，错误警告走 stderr。
+3. **退出码规范**：0 = 成功/幂等 no-op；1 = 配置错误（语法/schema/未解析引用）；2 = 安全阻断（漂移/写锁/黑白名单）；3 = I/O与权限失败；4 = 资源未找到（Agent/Profile/Tx/Snapshot）；130 = 用户中断（SIGINT）。正常结果走 stdout，错误警告走 stderr。
 4. 投影损失必须在 use/apply/diff/status 输出中聚合展示。
 5. 成功路径硬标准：VMR 用户从装好到本机 3+ Agent 全部指向虚拟模型，≤ 3 条命令、零手工编辑；`release` 后清爽解除托管。
 6. **跨 Agent 批处理原则**：批量投影按 Agent 独立执行，任一 Agent 发生错误或阻断时，在 stderr 明确指出失败 Agent，命令最终返回对应非零退出码，已成功的 Agent 保持生效。

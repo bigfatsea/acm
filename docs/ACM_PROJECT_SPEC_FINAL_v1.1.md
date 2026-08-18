@@ -1,20 +1,15 @@
 # ACM（Agent Config Manager）最终版项目规格说明书
 
-<!-- Version: 1.1.0 | Status: Implementation Reference（已被 v2.0 取代治理地位）| Date: 2026-08-17 -->
-<!-- ⚠️ 角色变更（2026-08-17）：本文档已降级为**实现参考**（implementation reference）。
+<!-- Version: 1.1.1 | Status: Implementation Reference（已被 v2.0 取代治理地位）| Date: 2026-08-18 -->
+<!-- ⚠️ 角色变更（2026-08-18）：本文档已降级为**实现参考**（implementation reference）。
      治理性规格（原则、边界、数据模型、命令语义）见 docs/ACM_PROJECT_SPEC_v2.0.md。
      实现可偏离本文档的实现层细节（事务步骤、数据结构字段、状态机枚举、文案、目录布局等），
-     前提是不违反 v2.0 的原则；偏离积累后回写更新本文档。两者冲突时以 v2.0 为准。 -->
-<!-- 本文档在其作为治理规格期间取代以下前置文档（历史沿革，裁决记录见附录 A）：
-     - ACM_PROJECT_INIT_glm5.3.md（骨架来源）
-     - ACM_PROJECT_SPEC_sonnet4.6.md（MVP 克制与测试方法来源）
-     - ACM_INITIALIZATION_SPEC_gemini3.7flash.md（适配器与工程细节来源）
-     以及《基于GLM版的ACM方案完善建议》（V1/V2/V3，裁决记录见附录 A）。
-     v1.1 变更：吸收 docs/feedback-for-v1.0.md 三轮反馈（逐项处理结果见该文档末尾），
-     核心升级——回滚数据模型闭环（Manifest/Journal/Snapshot 三元职责）、
-     crash-safe 事务与启动恢复、pre-commit 指纹校验、Desired State 形式化、
-     Agent 状态机、投影损失告警、并发锁、密钥全链路防护、退出码规范、
-     环境变量引用规则、非破坏性保证等级措辞修正。 -->
+     前提是不违反 v2.0 的原则；偏离积累后回写更新本文档。两者冲突时以 v2.0 为准。
+     v1.1.1 变更：根据 v2.0.1 治理规格与 Deep Dive 架构原则全面对齐——
+     将 Manifest 调整为内存派生视图（消除磁盘双写）、快照改为 Append-only 永久追加、
+     Adapter Protocol 简化为 3 个纯函数职责（verify 下沉至金样测试门禁）、
+     事务提交精简为写前快照与原子写回（去除重量级 WAL 状态机）、统一快照命名为 <txid>、
+     状态枚举保持 6 种配置主状态。 -->
 
 > **文档性质**：ACM 项目的实现参考（事务协议、数据结构、适配矩阵、历史裁决与核查记录）。
 > **治理规格**：docs/ACM_PROJECT_SPEC_v2.0.md（原则、边界、数据模型、命令语义）。
@@ -179,7 +174,7 @@
 
 | 需求特征 | Go | Python |
 |---|---|---|
-| 适配器 = 可独立编写/可动态加载的代码（D1） | ❌ 编译进二进制，新适配器 = 发版；Go plugin 在 macOS 基本不可用 | ✅ 模块即插即用；用户适配器放 `~/.acm/adapters/*.py` 用 importlib 加载 |
+| 适配器 = 可独立编写/可动态加载的代码（D1） | ❌ 编译进二进制，新适配器 = 发版；Go plugin 在 macOS 基本不可用 | ✅ 模块即插即用；用户适配器放 `~/.acm/adapters/*.py` 用 importlib 加载（Phase 2） |
 | 非破坏性 round-trip 编辑 | ⚠️ yaml.v3 Node 操作繁琐，TOML round-trip 库弱 | ✅ ruamel.yaml / tomlkit 是事实标准 |
 | 分发 | ✅ 单二进制（唯一显著优势） | ⚠️ 依赖 uv/pipx；但目标用户机器上 Python 几乎必然存在 |
 | 迭代速度 / 上游 schema 漂移应对 | 慢 | 快 |
@@ -209,16 +204,16 @@ Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致
 3. 依赖经济性：Codex 适配器是 P0，tomlkit 本来就是硬依赖，Core Config 用 TOML **零新增依赖**；与 Agent 端 YAML 文件（Aider/Hermes）在扩展名上天然区分，降低误编辑概率。
 4. ruamel/tomlkit 均具备注释保留的 round-trip 能力，ACM 改写自身配置时同样保用户注释。
 
-**配置与状态的边界（成文以防漂移）**：`config.toml` 只包含用户可版本控制的**声明式内容**（providers / models / profiles）；一切运行时状态（active profile、manifest、journal、snapshots、logs）只存在于 `~/.acm/state/` 与 `~/.acm/logs/`，**任何功能都不得把状态写回 config.toml**。
+**配置与状态的边界（成文以防漂移）**：`config.toml` 只包含用户可版本控制的**声明式内容**（providers / models / profiles）；一切运行时状态（active profile、journal、snapshots、logs）只存在于 `~/.acm/state/` 与 `~/.acm/logs/`，**任何功能都不得把状态写回 config.toml**。
 
-### D4：安全引擎 = 字段所有权清单为主 + 事务日志为脉 + 文件快照兜底
+### D4：安全引擎 = 事件日志为脉 + 内存所有权推导 + 物理快照兜底
 
 **结论：回滚数据模型三元分工，各司其职：**
 
 ```
-Manifest（管理字段清单）  = 当前 ownership 状态：ACM 现在拥有哪些字段、当前写入值、接管前的原始值
-Journal（事务日志）       = 每一次 ChangeSet 事务的完整历史（回滚的数据来源）
-Snapshot（文件快照）      = 整文件灾难恢复（--hard 专用，正常操作不依赖）
+Journal（事务日志）       = state 区唯一的持久化事务 SSOT，记录每次 ChangeSet 完整历史与字段逆操作来源
+Snapshot（物理快照）      = 物理原样字节备份（Append-only 单纯追加留存），用于 --hard 灾难恢复与只读审计
+Manifest（所有权视图）    = 内存派生视图（Derived View），从 Journal 与当前配置动态推导，磁盘不单独双写文件
 ```
 
 理由（公理 3 的直接推论）：Agent 在 ACM 写入之后可能又向同一文件写入了新状态。此时若回滚整个文件快照，会把 Agent 新写的状态一起抹掉。正确语义是三层恢复体系：
@@ -284,7 +279,7 @@ Format-specific Writer          # 怎么安全地改（声明保真能力的 rou
         ↓
 Atomic Write（串行加锁）         # temp + os.replace
         ↓
-Journal / Manifest / Snapshot   # 怎么追踪和恢复（+ 启动崩溃恢复）
+Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权推导
 ```
 
 **两个正式状态概念（CLI 语义的地基）：**
@@ -309,11 +304,11 @@ Journal / Manifest / Snapshot   # 怎么追踪和恢复（+ 启动崩溃恢复�
 │  ChangeSet 计算 · 幂等判断 · ENV 引用解析                      │
 ├──────────────────────────┬──────────────────────────────────┤
 │      Safety Engine       │          Adapter Layer           │
-│  三阶段提交 · 管理清单      │   Adapter Protocol（detect/       │
-│  黑白名单 · 漂移检测        │   config_paths/plan/verify）      │
+│  原子写回 · 内存所有权推导   │   Adapter Protocol（detect/       │
+│  黑白名单 · 漂移检测        │   config_paths/plan）             │
 │  指纹校验 · 并发锁          ├──────────────────────────────────┤
-│  崩溃恢复 · 快照保留策略     │   内置适配器（每 Agent 一个模块）    │
-│  字段级回滚 · 密钥掩码      │   claude_code·codex·pi·...        │
+│  快照留存 · 字段级回滚      │   内置适配器（每 Agent 一个模块）    │
+│  密钥掩码                │   claude_code·codex·pi·...        │
 │                          │   用户适配器 ~/.acm/adapters/*.py   │
 │                          │   （Phase 2：importlib 动态加载）    │
 ├──────────────────────────┴──────────────────────────────────┤
@@ -389,7 +384,7 @@ main  = "cheap"
 2. 任一字段只允许单一来源（引用或明文二选一），**不存在优先级问题**；同时出现视为 schema 错误。
 3. **解析时机**：投影时（use/apply/doctor）实时解析，不在 config 加载时固化--环境变量变更后无需刷新。
 4. **失败处理**：变量不存在且无默认值 -> **硬错误，任何文件写入发生之前整体中止**（退出码 1），doctor 列出所有未解析引用。
-5. 明文存储 = 显式 escape hatch（直接写字面量），`acm doctor` 持续告警；`credential = "name"`（命名凭据，接 keychain）为预留字段，后续可选，MVP 与 Phase 2 均不实现。
+5. 明文存储是单机合法选择（CLI 输出始终默认掩码，不持续骚扰告警；仅在团队共享配置或文件权限异常时提示）；`credential = "name"`（命名凭据，接 keychain）为预留字段，后续可选，MVP 与 Phase 2 均不实现。
 
 #### 7.3.2 Schema 版本与迁移
 
@@ -411,16 +406,14 @@ class Adapter(Protocol):
         # 探测失败的 Agent：跳过并在结果中汇总告警，不影响其他 Agent。
 
     def config_paths(self) -> list[Path]: ...
-        # 声明本适配器管理的所有文件路径--Safety Engine 据此统一做快照。
+        # 声明本适配器管理的所有文件路径--Safety Engine 据此统一做快照与加锁。
         # 必须使用统一路径 Helper：环境变量覆盖 -> XDG -> 平台默认 -> 探测，
         # 禁止硬编码绝对路径。
 
     def plan(self, profile: ResolvedProfile) -> ChangeSet: ...
         # 纯函数：产出字段级变更集 + 投影告警（§7.4.1）。值转换/方言适配/
-        # 多文件协同全部在这里，用普通代码写。绝不直接写文件。
-
-    def verify(self, cs: ChangeSet) -> VerifyReport: ...
-        # 落盘后断言：目标字段已正确写入、保护区域未变
+        # 多文件协同全部在这里，用普通代码写（100% 内存运算，运行时彻底零物理 I/O）。
+        # 校验职责 100% 下沉至开发期金样测试套件与 CI 门禁。
 ```
 
 新增一个官方 Agent = 新增约 100–300 行模块 + 一组金样 fixtures（§11）。适配器应用顺序 = 注册表固定顺序（确定性，文档化）。
@@ -443,7 +436,7 @@ class ProjectionWarning:
     reason: str
 
 @dataclass
-class VerifyReport:
+class VerifyReport:        # 仅用于开发期金样单测门禁断言，非运行时 Protocol
     ok: bool
     errors: list[str] = field(default_factory=list)
 
@@ -469,56 +462,48 @@ class ChangeSet:
 
 ### 7.5 Safety Engine（核心安全机制汇总）
 
-#### 7.5.1 三阶段事务提交（所有写入的唯一通道，crash-safe）
+#### 7.5.1 三阶段事务提交（所有写入的唯一通道，原子与 crash-safe）
 
 ```
 [入口] 获取全局写入锁 ~/.acm/state/.lock（flock，非阻塞；
-       占用中 -> 立即报错退出，绝不排队等待）
-
-[阶段 0 · Recovery Check]
-  检查 journal 中是否存在未完结事务（PREPARED / COMMITTING）：
-  存在 -> 执行崩溃恢复（§7.5.7）后才继续
+       占用中 -> 立即报错退出，退出码 2，绝不排队等待）
 
 [阶段 1 · Prepare & Snapshot]
-  1. 进程守护：按分级策略（§7.5.5）阻断或警告，--force 覆盖
+  1. 进程守护：按策略（§7.5.5）提示或警告，--force 覆盖
   2. 逐文件读取原始字节，计算指纹 H0（文件若不存在则标记 H0 = NOT_EXIST）
-  3. 保存文件快照至 ~/.acm/state/<agent>/snapshots/<ts>/（记录初始状态）
-  4. 写入 journal：txid、时间、命令、ChangeSet、状态 = PREPARED
-  5. 黑白名单校验：
+  3. 保存文件快照至 ~/.acm/state/<agent>/snapshots/<txid>/（写前原样备份，Append-only 留存）
+  4. 黑白名单校验：
      - 白名单：每个 op.path ∈ managed_namespaces
      - 黑名单：每个 op.path ∉ protected_paths
      - 任一违反即中止（退出码 2）
 
-[阶段 2 · In-Memory Mutate & Verify]
+[阶段 2 · In-Memory Mutate & AST Assert]
   1. round-trip 解析（ruamel / tomlkit / 保序 JSON 编辑器）
-  2. 仅对 op.path 赋值，内存中完成全部变更（含多文件）
+  2. 仅对 op.path 赋值，内存中完成全部变更（含多文件协同）
   3. 语法自检：修改后文本可再次无损解析
-  4. 非管字段零篡改断言：解析树 diff 确认除 op.path 外结构不变
+  4. 非管字段零篡改断言：解析树 diff 确认除 op.path 外结构 100% 不变
 
-[阶段 3 · Atomic Commit]
-  1. 逐文件 pre-commit 指纹校验（重读磁盘字节，哈希必须 == H0，
-     原不存在者仍须不存在；不等 = 外部并发修改 -> 整体中止并报告 drift，绝不覆盖）
+[阶段 3 · Atomic Commit & Journal Append]
+  1. 逐文件 pre-commit 指纹校验（重读磁盘字节，哈希必须 == H0；
+     不等 = 外部并发修改 -> 整体中止并报告 drift，退出码 2，绝不覆盖）
   2. 预备写入：在各目标文件同目录下写入临时文件 <target>.acm_tmp
-  3. 状态前置落盘：将 journal 状态更新并落盘为 COMMITTING
-     （确立提交意图，此后若崩溃，恢复程序确知需从快照回滚）
-  4. 逐文件原子替换：执行 os.replace(<target>.acm_tmp, <target>)
-  5. 提交完成：journal 状态更新为 COMMITTED；更新 manifest；清理临时文件
-  6. 任一步骤异常：用内存原始字节/快照逆向还原已替换文件，
-     journal 标记为 ABORTED，中止后续（跨文件一致性）
+  3. 逐文件原子替换：执行 os.replace(<target>.acm_tmp, <target>)（POSIX/Win 平台原子操作）
+  4. 提交完成：追加写入 journal（txid、时间、ChangeSet ops）；清理临时文件
+  5. 异常回退：若原子替换前发生任何异常，清理临时文件，原文件与快照均未受损
 ```
 
-#### 7.5.2 管理字段清单（Managed Manifest）与漂移检测
+#### 7.5.2 管理字段所有权内存视图（Managed Manifest）与漂移检测
 
-`~/.acm/state/<agent>/manifest.json` 记录 ACM 对该 Agent 的管理字段与所有权状态，核心记录每个管理项的：
+Manifest 在 ACM 中作为**内存派生视图（Derived View）**存在，在运行时从 `journal.jsonl` 事务历史与当前磁盘文件 AST 动态推导，**磁盘不单独双写 `manifest.json` 文件**，彻底消除双写一致性风险。
 
-```json
-{
-  "current":  "…",           // ACM 最后一次写入的值
-  "pre_acm":  "…",           // ACM 首次接管该字段之前的值（release 的恢复目标）
-  "existed_pre_acm": true,   // 该字段接管前是否存在
-  "created_by_acm": false,   // 该字段是否为 ACM 新建
-  "last_tx": "tx-…"          // 最后一次写入它的事务
-}
+内存视图核心维护每个管理字段项的：
+
+```python
+@dataclass
+class FieldOwnership:
+    current: object            # ACM 最后一次写入的值（从最新 Journal 事务提取）
+    created_by_acm: bool       # 该字段/文件是否由 ACM 首次创建
+    last_tx: str               # 最后一次写入它的事务 ID
 ```
 
 **漂移检测的统一语义（适用于所有写入类命令）**：任何写入命令（use / apply / rollback / release）在执行前检查管理路径的当前磁盘值：
@@ -526,17 +511,17 @@ class ChangeSet:
 - 磁盘值 == ACM 最后写入值：正常继续。
 - 磁盘值 ≠ ACM 最后写入值：**外部修改过，默认阻断**，要求 `--force` 或先 `acm diff` 确认。不存在任何"自动修复漂移"的路径--`apply` 的收敛也必须过这道闸门。
 
-manifest 的三个用途：
+Manifest 内存视图的用途：
 
 1. **ownership 状态查询**：status / doctor / diff 判断"这个字段现在归不归我管、有没有被动过"。
-2. **`release` 的精确语义**：所有管理字段恢复 `pre_acm`（ACM 接管前的状态）；ACM 新建的字段（`created_by_acm`）直接删除；完全由 ACM 创建且接管前不存在的文件（如 Pi 的 models.json 用户原本没有）整文件删除；其余情况只动管理字段，用户内容与注释保留。
+2. **`release` 的精确语义**：解除 ACM 托管，清空状态记录，原位物理文件完整保留；若某文件为 ACM 全新创建（`created_by_acm=true`，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。
 3. **幂等判断**：期望值 == current 且磁盘无漂移 -> ChangeSet 为空 -> no-op。
 
-#### 7.5.3 文件快照（Safety Net，非默认回滚机制）
+#### 7.5.3 文件快照（Safety Net，只读审计与灾难恢复）
 
-- 位置：`~/.acm/state/<agent>/snapshots/<ts>/`；**保留策略：每 Agent 默认保留最近 20 份，FIFO 自动清理，数量可配置**。
-- 用途：`--hard` 灾难恢复、崩溃恢复（§7.5.7）、审计。
-- 正常操作不依赖整文件恢复。
+- 位置：`~/.acm/state/<agent>/snapshots/<txid>/`。
+- **保留策略：Append-only 单纯追加留存**。写路径零轮转计算负担，全量留存以永久对齐 Journal 历史，不设 FIFO 自动删除。若未来用户有强迫症清理诉求，仅通过显式命令（Phase 2+ 可选的 `acm clean`）主动触发，绝不在核心写路径中静默删文件。
+- 用途：`--hard` 灾难恢复、`acm diff --against-snapshot` 审计与取证。
 
 #### 7.5.4 非破坏性保证等级（按格式与能力声明，诚实定义）
 
@@ -575,26 +560,23 @@ manifest 的三个用途：
 - 所有写入类命令（use/apply/rollback/release/import 的写路径）入口获取；占用中立即报错（退出码 2）：`⚠️ Another acm process is holding the write lock.` 不排队、不等待。
 - 目标：覆盖"脚本并行调用 / 双终端同时操作"导致的清单-磁盘竞态，与进程守护（防 Agent）互补。
 
-#### 7.5.7 崩溃恢复（Crash Recovery）
+#### 7.5.7 崩溃安全与恢复（Crash Safety）
 
-三阶段提交可处理运行期异常，但不能处理 ACM 进程在提交中途被 kill / 掉电。恢复协议：
+单机配置写入极其轻量（5~20ms）。ACM 通过**“写前快照留存 + 原子重命名（os.replace）”**在底层消除中间损坏态，无需引入重量级 WAL/COMMITTING 状态机：
 
-- journal 中每个事务有显式状态机：`PREPARED -> COMMITTING -> COMMITTED / ABORTED`。
-- **任何 acm 命令启动时**（以及 `acm doctor` / `acm init` 显式执行时）检查未完结事务：
-  - `PREPARED`（尚未动过磁盘）-> 清理临时文件，标记 ABORTED。
-  - `COMMITTING`（部分文件已 replace，内存丢失）-> 用该事务阶段 1 的**快照**把涉及文件整体还原到事务前状态，标记 ABORTED，输出报告。
-- 恢复动作本身也走原子写与 journal 记录；恢复后用户可重试原命令。
-- 不引入数据库级 WAL 复杂度--journal + 快照已足够闭环，复杂度刻意受控。
+- **写前 Snapshot 留存**：动刀前原样备份目标文件，永远拥有最后一份未篡改底板；
+- **原子重命名**：新内容先完整写入临时文件 `<target>.acm_tmp`，再通过 `os.replace` 瞬时替换，文件系统层面不存在“写入一半”的中间损坏态；
+- **启动与 doctor 检查**：启动时若发现残留 `.acm_tmp` 临时文件直接安全清理；若因外部极端掉电需要救砖，用户可通过 `acm rollback --hard` 一键从快照原样复原。
 
 #### 7.5.8 密钥与敏感信息全链路防护
 
-- **文件权限**：`~/.acm/state/`（含 manifest / journal / snapshots，因其含原始配置与明文密钥）与日志目录强制 `0700`/文件 `0600`，创建即设置。
+- **文件权限**：`~/.acm/state/`（含 journal / snapshots，因其含原始配置与明文密钥）与日志目录强制 `0700`/文件 `0600`，创建即设置。
 - **输出掩码**：`diff` / `status --verbose` / `--json` 输出中，命中敏感路径规则（api_key / token / auth 类字段）的值默认掩码（仅显示首尾 3 位）；`--show-secrets` 显式 opt-in 才输出明文。
 - credential 引用模型见 §7.3.1--源头上减少明文落盘。
 
 #### 7.5.9 幂等性
 
-重复 `acm use <同一 profile>`：ChangeSet 与清单比对后为空 -> no-op，退出码 0，不产生新快照。
+重复 `acm use <同一 profile>`：ChangeSet 与当前值比对后为空 -> no-op，退出码 0，不产生新快照。
 
 ### 7.6 Agent 状态机（status 的正式模型）
 
@@ -607,10 +589,10 @@ manifest 的三个用途：
 | `SYNCED` | Current == Desired，无漂移 |
 | `OUT_OF_SYNC` | Current == ACM 最后写入值 ≠ Desired（ACM 侧配置已改动，无外部漂移，待 `apply` 收敛） |
 | `DRIFTED` | 管理字段的磁盘值 ≠ ACM 最后写入值（外部修改） |
-| `CONFLICT` | 环境冲突当前生效（Agent 进程运行中 / 写入锁被占 / 上次操作被阻断待处理） |
 | `ERROR` | 配置不可读/语法损坏/疑似上游 schema 漂移，需要 doctor 介入 |
 
-多条件并存时按优先级取唯一展示态：`ERROR` > `CONFLICT` > `DRIFTED` > `OUT_OF_SYNC` > `SYNCED`（`NOT_DETECTED` / `UNMANAGED` 由安装与接管状态先行判定，不参与该优先级）。
+> 注：写锁被占或进程冲突属于运行时执行阻断（退出码 2 与 stderr 实时告警），不作为落盘配置本身的持久主状态。
+多条件并存时按优先级取唯一展示态：`ERROR` > `DRIFTED` > `OUT_OF_SYNC` > `SYNCED`（`NOT_DETECTED` / `UNMANAGED` 由安装与接管状态先行判定，不参与该优先级）。
 
 ### 7.7 目录布局
 
@@ -623,9 +605,8 @@ manifest 的三个用途：
 │   ├── active                  # 当前激活 profile 名（仅 acm use 可改）
 │   ├── .lock                   # 全局写入锁（flock）
 │   └── <agent>/
-│       ├── manifest.json       # 管理字段清单（ownership + pre_acm + current）
-│       ├── journal.jsonl       # 事务日志（append-only，含状态机）
-│       └── snapshots/<ts>/     # 文件快照（兜底，FIFO × 20）
+│       ├── journal.jsonl       # 事务日志（append-only 事务历史 SSOT）
+│       └── snapshots/<txid>/   # 物理文件快照（Append-only 原样留存，灾难恢复与审计）
 └── logs/                       # 运行日志；--verbose = DEBUG 级入日志，默认 INFO 摘要
 ```
 
@@ -900,7 +881,7 @@ Integration： import vmr
 | 一.1 | 动态适配器热加载 | **推迟（P2）** | 见 A.1；协议层从第一天按可外部实现设计 |
 | 一.2 | 全通道分发矩阵 | **拒绝进 MVP / 触发式后置** | 见 A.1 |
 | 一.3 | protected_paths 黑名单 | **采纳** | 与白名单构成双重防线，进 ChangeSet 结构与阶段 1 校验 |
-| 一.4 | 快照保留策略（20/Agent FIFO 可配置） | **采纳** | §7.5.3 |
+| 一.4 | 快照保留策略（20/Agent FIFO 可配置） | **采纳（v1.1.1 演进为 Append-only 留存）** | §7.5.3，吸收 Deep Dive 架构原则改为全量追加留存 |
 | 一.5 | 三阶段事务提交标准化 | **采纳（v1.1 升级为 crash-safe）** | §7.5.1，v1.1 增加事务状态机与启动恢复 |
 | 一.6 | `acm doctor` | **采纳（纳入 Phase 1 / MVP）** | §10/§12，扩展未完结事务/明文密钥/ENV 缺失检测与崩溃恢复入口 |
 | 一.7 | `acm history` + 指定版本回滚 | **采纳（v1.1 修正语义）** | 显式分离为 `--to-tx`（字段级）与 `--snapshot`（`--hard`），见 §10.1 |
@@ -962,7 +943,7 @@ Integration： import vmr
 | Gemini/Sonnet | Pi 配置路径 | **拒绝（修正）** | 官方文档：用户文件为 `models.json`；`models-store.json` 为内部注册表绝不可写 ✔ |
 | Sonnet | RFC 6902 作为非破坏写入 | **拒绝（修正）** | §7.5.4；采纳其 protected_paths 概念 |
 | Sonnet | 内置 `core.yaml` 锚定 VMR | **部分吸收** | VMR 为默认初始 profile（init 生成），不内置于包内 |
-| Sonnet | 快照 FIFO × 20 / Phase 验收 / init 流程 | **采纳** | §7.5.3/§12 |
+| Sonnet | 快照 FIFO × 20 / Phase 验收 / init 流程 | **部分吸收（v1.1.1 演进为 Append-only）** | §7.5.3/§12 |
 
 ---
 
@@ -1004,9 +985,9 @@ Integration： import vmr
 | **Adapter** | 每 Agent 一个的语义编译器：profile -> ChangeSet，不碰文件 |
 | **ChangeSet** | 字段级变更集（文件、路径、旧值、新值、告警、黑白名单），Safety Engine 的唯一输入 |
 | **FieldOp** | ChangeSet 中的单个字段操作 |
-| **Managed Manifest** | `manifest.json`：ACM 当前拥有的字段、当前写入值、接管前原始值（pre_acm） |
-| **Journal / 事务** | `journal.jsonl`：每次 ChangeSet 事务的完整历史与状态机（PREPARED/COMMITTING/COMMITTED/ABORTED），字段级回滚的数据来源 |
-| **Snapshot** | 整文件快照，仅用于 `--hard` 灾难恢复、崩溃恢复与审计 |
+| **Managed Manifest** | 内存派生视图（Derived View）：运行时从 Journal 与当前目标配置 AST 动态推导的字段所有权与当前值，磁盘不单独双写 |
+| **Journal / 事务** | `journal.jsonl`：state 区唯一的持久化事务 SSOT，记录每次 ChangeSet 事务历史与 ops 变更，字段级精准回滚的数据来源 |
+| **Snapshot** | 物理文件快照（Append-only 原样留存）：写前原样备份，仅用于 `--hard` 灾难恢复与只读审计比对 |
 | **Drift（漂移）** | 管理字段的磁盘值 ≠ ACM 最后写入值，说明被外部修改 |
 | **OUT_OF_SYNC** | Current == ACM 最后写入值 ≠ Desired（ACM 侧配置已改动，无外部漂移，待 `apply` 收敛） |
 | **Projection Loss** | Desired State 中目标 Agent 无法表达的字段，必须告警，不得静默丢弃 |
