@@ -1,6 +1,6 @@
 # ACM（Agent Config Manager）项目规格 v2.0（原则版）
 
-<!-- Version: 2.0.1 | Status: Governing Spec | Date: 2026-08-18 -->
+<!-- Version: 2.0.2 | Status: Governing Spec | Date: 2026-08-18 -->
 <!-- 本文档是 ACM 项目的治理性规格（governing spec），只保留四样东西：
      核心原则、边界定义、核心数据模型、命令语义。
      实现层面的细节（事务提交步骤、数据结构字段、状态机优先级、交互文案、
@@ -8,7 +8,10 @@
      docs/ACM_PROJECT_SPEC_FINAL_v1.1.md（降级为实现参考，implementation reference）。
      两者冲突时，以本文档的原则为准；实现参考与原则冲突时，改实现参考。
      v2.0.1 变更：吸收 ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md §1
-     的核心诉求、双重所有权本质与快照正确定位，作为治理原则的组成部分。 -->
+     的核心诉求、双重所有权本质与快照正确定位，作为治理原则的组成部分。
+     v2.0.2 变更（按一致性评审 docs/ACM_SPEC_CONSISTENCY_REVIEW.md 裁决）：release 语义
+     澄清为"恢复 pre-ACM 状态"（迁移其他工具时直接卸载即可，无需任何命令）；
+     P2 目标措辞修正为"社区贡献内置适配器"。 -->
 
 > **文档性质**：对齐认知、防止走偏。不是照着抄代码的手册。
 > 编码阶段在本文原则框架内自由发挥；任何实现选择，只要不违反本文原则，均为合法。
@@ -38,8 +41,8 @@ P1（第二优先）安全防坏与可逆性
   • 切换 Profile 或回滚时，绝不搞坏 Agent 宿主已有的其他配置
   • 精确的字段级逆操作 + 整文件快照安全兜底
 
-P2（第三优先）开放插件化与社区扩展
-  • 低成本接入新 Agent；标准 Python Protocol + 金样测试门禁
+P2（第三优先）开放社区贡献内置适配器
+  • 低成本接入新 Agent；标准 Python Protocol + 金样测试门禁（源码内置合并，不做运行时动态加载）
 
 P3（权衡取舍）其余复杂度一律让步
   • 不做 Agent 全生命周期管理，不侵入私有 DB，不承担通用 Secret Storage
@@ -186,7 +189,10 @@ acm diff [<agent>]          # Current vs Desired / vs 快照（--against-snapsho
 acm history [<agent>]       # 最近事务日志查看
 acm rollback [<agent>]      # 字段级回滚（默认上一次事务，--to-tx 指定）；
                             #   --hard [--snapshot <id>] = 整文件快照灾难恢复（参数显式分离，杜绝多态混淆）
-acm release [<agent>]       # 解除 ACM 托管，清空状态记录；物理文件原地保留（若为 ACM 全新创建且无用户内容的文件则安全清理）
+acm release [<agent>]       # 解除托管并恢复 pre-ACM 状态：受管字段按 Journal 回滚至接管前旧值、
+                            #   移除 ACM 创建的字段；ACM 全新创建且无用户内容的文件安全清理；清空状态记录。
+                            #   适用于短期试用后完全退出；迁移到其他工具时无需本命令--
+                            #   ACM 非侵入，直接卸载即可（建议一并删除 ~/.acm/），配置保持最后投影状态继续可用
 acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.toml
 
 # 全局：--dry-run / --force / --verbose / --no-color / --show-secrets（明文密钥 opt-in） 语义自明
