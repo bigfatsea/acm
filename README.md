@@ -1,27 +1,47 @@
 # ACM (Agent Config Manager)
 
-> **The Unified, Non-Destructive Model Configuration & Snapshot Manager for AI Coding Agents.**  
-> 专为 Coding Agent 生态设计的轻量、无损、聚焦于模型层（Model/Provider）的统一配置管理与版本化快照回滚 CLI 工具。
+> **The Unified, Non-Destructive Model Configuration & Projection Engine for AI Coding Agents.**  
+> 专为 Coding Agent 生态设计的轻量、非破坏性、聚焦于模型层（Model/Provider）的统一配置单一事实源（SSOT）与投影/回滚 CLI 工具。
+
+---
+
+## 💡 核心设计理念 (Philosophy)
+
+ACM 管理的是**字段**，不是文件；模型世界的描述只有一份，Agent 只是投影目标。
+
+- **公理 1（SSOT）**：用户在 ACM 中维护一套与 Agent 无关的 Provider / 模型声明式配置（`~/.acm/config.toml`），一键投影至本机所有 Coding Agent。
+- **公理 2（非破坏性）**：ACM 只拥有它写入的受管字段，绝不拥有整个文件。未管理字段（MCP Servers、插件、Skills、Prompt 规则、会话状态等）保持**语义级 100% 零破坏**。
+- **公理 3（精准可逆）**：默认回滚粒度是“ACM 管理的字段逆操作”，而非整文件粗暴替换——绝不误伤 Agent 在此期间写入的新状态；同时提供物理快照作为灾难恢复兜底。
 
 ---
 
 ## 🌟 核心特性 (Key Features)
 
-- 🎯 **聚焦模型层（Strict Model Scope）**：严格管理 Provider Base URL、API Keys、Model Identifiers、Context Window、Thinking Budget、Vision 及 Dialects，**坚决不触碰、不破坏 MCP Servers、Skills 与 Prompts**。
-- 🛡️ **无损合并（Lossless AST/CST Mutation）**：基于 `ruamel.yaml`（YAML 注释与排版 100% 保持）、`tomlkit`（TOML 完美保真）与精确 JSON 更新，**彻底根绝配置覆盖损坏**。
-- 🔄 **Git 级事务快照与回滚（Transaction & Snapshot）**：每次修改前自动留存 SHA-256 原生快照，支持 `acm diff` 查看行级差异与 `acm rollback` 毫秒级无损还原。
-- ⚡ **现代无摩擦分发（Modern Distribution）**：支持 `uvx acm` 免装即用（类似 `npx`）、`brew install acm` 隔离分发以及 Release 单文件二进制。
-- 🔌 **Code Adapter + 动态热插拔扩展（Hot-Pluggable Adapters）**：内置主流 Agent 适配器（单适配器仅需 20~40 行 Python），同时支持在 `~/.acm/adapters/` 放置自定义 Python 脚本动态热加载。
-- 🤝 **VMR 协同倍增器（VMR Co-op）**：独立管理全网任意 API，亦可一键发现本地 VMR（Virtual Model Router）网关并将全部 Agent 出网流量秒级对齐。
+- 🎯 **聚焦模型层（Strict Model Scope）**：严格管理 L1 连接（base_url、api_key 引用、方言、headers、proxy）与 L2 模型规格行为（model、context_window、max_tokens、reasoning effort/budget、temperature、能力位）。**坚决不触碰 MCP、插件、权限与系统提示词**。
+- 🛡️ **字段所有权与 AST 保真（Field Ownership & Lossless Mutation）**：基于 `ruamel.yaml`、`tomlkit` 与保序 JSON/JSONC 编辑器在内存中完成 AST 外科手术，对受管字段 100% 确定性写入，对未受管内容 100% 零破坏保留。
+- 🔒 **多重安全防线（Safety Engine）**：
+  - **白名单 + 黑名单**双重拦截，物理禁止触碰敏感路径；
+  - **外部漂移检测**：受管字段若被外部篡改，写入命令默认阻断，杜绝静默覆盖；
+  - **写前快照 + 原子替换（`os.replace`）**：单文件永不出现“写一半”中间损坏态；
+  - **全局非阻塞文件锁**（`fcntl`/`msvcrt`）：消除双终端并发竞态；
+  - **Credential 安全引用**：仅存储 `${VAR}` 环境变量引用，输出默认敏感信息掩码。
+- 🔄 **分层回滚体系（Layered Recovery）**：
+  - 默认**字段级精准回滚**（基于 Journal 逆操作，Agent 期间写入的状态不受影响）；
+  - `--hard` **物理快照还原**（灾难救砖兜底）。
+- 🔌 **Adapter Protocol 纯函数契约**：每 Agent 一个独立模块，仅实现 `detect` / `config_paths` / `plan` 纯计算职责。所有适配器**源码内置 + 金样单测门禁**合并，拒绝动态代码反射执行的安全隐患。
+- 🤝 **VMR 深度协同（VMR Co-op）**：一键探测本地 VMR（Virtual Model Router）并导入虚拟模型；无 VMR 时直连任何 OpenAI / Anthropic / 第三方端点同样是一等公民。
+- 🚪 **随时可退、零侵入（Zero Lock-in）**：`acm release` 可一键恢复至接管前 pre-ACM 状态；若迁移至其他工具，直接卸载 ACM 即可，配置文件原地保持最后生效状态继续可用。
 
 ---
 
-## 📖 官方主文档与架构规范
+## 📖 官方文档与规格
 
-- **系统架构与初始化规范说明书**：请参阅 [`ACM_INITIALIZATION_SPEC.md`](./ACM_INITIALIZATION_SPEC.md)
-- **前期调研与第一性原理深度研报**：
-  - [`agent_config_manager_deep_analysis.md`](./agent_config_manager_deep_analysis.md)
-  - [`agent_config_manager_evaluation_v1.0_custom-2-agent.md`](./agent_config_manager_evaluation_v1.0_custom-2-agent.md)
+| 文档 | 说明 |
+|---|---|
+| 🏛️ [**ACM 项目规格 v2.0（原则版）**](./docs/ACM_PROJECT_SPEC_v2.0.md) | **治理规格**：核心原则、边界定义、数据模型、命令语义（Governing Spec） |
+| 📘 [**ACM 项目规格说明书 v1.1**](./docs/ACM_PROJECT_SPEC_FINAL_v1.1.md) | **实现参考**：事务协议细节、数据结构、适配矩阵、事实核查与历史裁决 |
+| 📑 [**一致性评审与最终裁决记录**](./docs/ACM_SPEC_CONSISTENCY_REVIEW.md) | 规格演进过程中的 A/B/C 级冲突裁决与对齐执行记录 |
+| 🔬 [**配置管理深度研报与最佳实践**](./docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) | 40 年配置管理演进、双重所有权本质、字段所有权机制深度剖析 |
 
 ---
 
@@ -33,36 +53,35 @@
 # 方式 A: 免安装直接运行 (推荐，基于 uvx)
 uvx acm status
 
-# 方式 B: 全局安装到系统 PATH
+# 方式 B: 全局安装到系统环境
 uv tool install acm
-
-# 方式 C: Homebrew 安装 (macOS / Linux)
-brew tap vmr-project/acm
-brew install acm
 ```
 
-### 2. 常用操作示例
+### 2. 核心工作流（≤ 3 条命令）
 
 ```bash
-# 初始化 ACM 配置目录 (~/.acm)
+# 1. 初始化：扫描本机已装 Agent + 探测本地 VMR，交互确认后生成 SSOT 配置
 acm init
 
-# 查看当前状态与探测到的 Agent 配置文件
+# 2. 投影收敛：将激活 Profile 投影到本机所有已检测到的 Agent（或指定 Agent）
+acm use daily
+# 亦可单独投影指定 Agent: acm use daily claude_code
+
+# 3. 查看状态：各 Agent 配置主状态机、外部漂移标注与投影损失告警
 acm status
 
-# 一键将全局 Profile 切换为 vmr-coding，并同步至所有 Agent
-acm use vmr-coding
+# 4. 差异比对：查看当前落盘配置 vs 期望状态（或 vs 快照）
+acm diff claude_code
 
-# 仅更新指定 Agent (如 Claude Code)
-acm use deepseek-r1 --agent claude
+# 5. 精准回滚：字段级回滚上一次事务（不破坏 Agent 期间写入的权限与插件状态）
+acm rollback claude_code
 
-# 一键探测本地 VMR 并将所有 Agent 出网流量对齐至 VMR
-acm use-vmr coding --agent all
-
-# 查看变更 Diff 与一键安全回滚
-acm diff claude
-acm rollback claude
+# 6. 退出托管：短期试用后完全恢复 pre-ACM 状态
+acm release
 ```
+
+> **关于迁出与卸载**：  
+> ACM 遵循绝对的非侵入式哲学。如果您在长期使用后决定迁移到其他工具，**无需执行任何 release 命令**，直接卸载 ACM 并删除 `~/.acm/` 目录即可，所有 Agent 现有的配置文件将完整保留并继续正常工作。
 
 ---
 
@@ -70,21 +89,76 @@ acm rollback claude
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ACM CLI (Typer + Rich)                            │
+│                           acm CLI（typer + rich）                            │
+│    init / status / doctor / use / apply / diff / history / rollback / release│
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 核心引擎 (Core Engine)                                                      │
-│ • Canonical Model Registry (SSOT: ~/.acm/config.yaml · Pydantic)            │
-│ • Transaction Snapshot & Journal Engine (3-Phase Commit)                    │
-│ • Lossless AST/CST Mutation Engine (ruamel.yaml / tomlkit / json)           │
-│ • Process Safety Guard (psutil 检测活跃进程，防并发覆写)                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 适配器层 (Built-in Adapters + ~/.acm/adapters/*.py Dynamic Hot-Loader)      │
-│ • Claude Code  • OpenClaw  • Pi Agent  • Hermes  • Aider  • Codex  • Cursor │
+│                         Core Engine（纯逻辑，无 I/O）                         │
+│  CoreConfig 加载校验 · Profile 解析 · Desired State 计算 · 幂等收敛 · ENV 引用解析   │
+├──────────────────────────┬──────────────────────────────────────────────────┤
+│      Safety Engine       │                  Adapter Layer                   │
+│  原子写回 (os.replace)   │   Adapter Protocol (detect / config_paths / plan)│
+│  内存所有权派生视图      ├──────────────────────────────────────────────────┤
+│  白/黑名单 · 漂移检测    │   内置适配器（源码内置 + 金样门禁，拒绝动态反射加载）│
+│  排他写锁 · 快照单纯追加 │   • Claude Code (JSON / env)   • Codex (TOML+JSON)   │
+│  字段级回滚 · 密钥掩码   │   • Pi (JSON 注册式)           • Aider (YAML 角色)    │
+├──────────────────────────┴──────────────────────────────────────────────────┤
+│                     Format Writers（保真能力声明式写入器）                   │
+│      JSON 保序编辑 · ruamel.yaml round-trip · tomlkit · JSONC · .env         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
+## ⚙️ 核心配置示例 (`~/.acm/config.toml`)
+
+```toml
+version = 1
+
+# ── L1 供应商：端点与凭据引用 ──────────────────────────
+[providers.vmr]
+protocol    = "openai"
+base_url    = "http://127.0.0.1:8800/v1"
+api_key     = "${VMR_KEY}"               # 整字段引用环境变量，零密钥明文入库
+
+[providers.anthropic-official]
+protocol    = "anthropic"
+base_url    = "https://api.anthropic.com"
+api_key     = "${ANTHROPIC_API_KEY}"
+
+# ── L2 模型：规格、行为与能力 ──────────────────────────
+[models.coding]
+provider           = "vmr"
+id                 = "coding"
+context_window     = 131072
+max_output_tokens  = 16384
+temperature        = 0.2
+capabilities       = { vision = false, tools = "native", json_mode = true }
+
+[models.coding.reasoning]
+effort        = "high"                   # 适配器自动转译为目标 Agent 专属字段
+budget_tokens = 16000                    # 目标 Agent 无法表达时自动产生投影损失告警
+
+# ── L3 Profile：命名的角色组合 ─────────────────────────
+[profiles.daily]
+main  = "coding"                         # 单模型 Agent 消费 main；多角色 Agent 消费对应槽位
+```
+
+---
+
+## 🎯 适配器覆盖规划 (Adapter Matrix)
+
+- **P0 (Phase 1 / MVP)**：
+  - **Claude Code**：`~/.claude/settings.json`（JSON + env 块注入 + 高密度非管字段保护，绝不触碰 `~/.claude.json` 运行时状态）
+  - **Codex**：`~/.codex/config.toml` + `~/.codex/auth.json`（TOML + JSON 双文件原子事务，保真保留带注释的 `mcp_servers`）
+  - **Pi**：`~/.pi/agent/models.json` + `settings.json`（注册式投影 + 方言/thinking level 映射，绝不触碰 `models-store.json`）
+- **P1 (Phase 2)**：
+  - **Aider**：`~/.aider.conf.yml` + `~/.aider.model.metadata.json`（YAML round-trip + 角色模型 main/weak/editor）
+  - **Gemini CLI**、**OpenCode**（JSONC 注释保留）
+- **P2 (Phase 3 / 社区贡献)**：
+  - OpenClaw、Hermes、Cursor/Cline（仅公开 settings 通道）
+
+---
+
 ## 📄 开源协议 (License)
 
-Apache-2.0 License.
+[Apache-2.0 License](./pyproject.toml)
