@@ -88,7 +88,7 @@ Agent 配置文件（如 `~/.claude/settings.json`、`~/.codex/config.toml`）�
 
 - **L1 连接与凭据**：base_url、protocol 方言、api_key（仅存 credential **引用**，不存密钥）、org_id、headers、proxy。
 - **L2 模型规格与行为**：模型选择（含角色模型）、context window、max output tokens、reasoning、temperature、能力位。
-- **Profile 管理**：多 Profile、激活态、回滚、diff。MVP 仅全局单一激活 Profile；支持向后兼容的分层配置演进（团队 Base SSOT + 本地个人 Overlay 覆盖，纯环境变量引用，零密钥入库）。
+- **Profile 管理**：多 Profile、激活态、回滚、diff。MVP 仅全局单一激活 Profile；支持向后兼容的分层配置演进（团队 Base SSOT + 本地个人 Overlay 覆盖，纯环境变量引用，零密钥入库，属 Phase 3 规划）。
 - **VMR 集成**：第一方集成，非架构依赖（无 VMR 时一切功能照常）。
 
 ### 2.3 不管什么（Out of Scope）
@@ -185,7 +185,7 @@ acm status                  # 各 Agent 状态 + 漂移 + 投影告警摘要
 acm doctor                  # 诊断一切异常（配置语法、引用缺失、漂移、权限异常）
 acm use <profile>           # 改变 Desired State（换激活 Profile）并立即投影；遇漂移默认阻断
 acm apply [<agent>]         # Current -> Desired 的幂等收敛（缺省全部）；漂移同样默认阻断
-acm diff [<agent>]          # Current vs Desired / vs 快照（--against-snapshot），漂移专项标注
+acm diff [<agent>]          # Current vs Desired / vs 上次写入 / vs 快照（--against desired|last-write|snapshot），漂移专项标注
 acm history [<agent>]       # 最近事务日志查看
 acm rollback [<agent>]      # 字段级回滚（默认上一次事务，--to-tx 指定）；
                             #   --hard [--snapshot <id>] = 整文件快照灾难恢复（参数显式分离，杜绝多态混淆）

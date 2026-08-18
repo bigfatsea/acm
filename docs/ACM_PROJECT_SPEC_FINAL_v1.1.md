@@ -10,10 +10,11 @@
      Adapter Protocol 简化为 3 个纯函数职责（verify 下沉至金样测试门禁）、
      事务提交精简为写前快照与原子写回（去除重量级 WAL 状态机）、统一快照命名为 <txid>、
      状态枚举保持 6 种配置主状态。
-     v1.1.2 变更：按一致性评审（docs/ACM_SPEC_CONSISTENCY_REVIEW.md）执行最终裁决--
+     v1.1.2 变更：按一致性评审与 v2.0 规格全面对齐裁决--
      移除进程守护机制与适配器动态热加载（v2.0 已否决）；release 语义定为"恢复 pre-ACM 状态"，
-     迁移其他工具时直接卸载即可；崩溃恢复从简，不设"未完结事务"概念，
-     靠"无损坏中间态 + apply 幂等自愈"兜底；Agent 选择统一为位置参数；init 移除 --yes。 -->
+     明确 config.toml 永不自动删除，迁移其他工具时直接卸载即可；崩溃恢复从简，
+     靠"写前快照 + 原子替换无损坏中间态 + 漂移阻断与 force 收敛"兜底；
+     use 保持全局 Profile 切换收敛语义，单 Agent 收敛统一由 apply <agent> 承载；init 移除 --yes。 -->
 
 > **文档性质**：ACM 项目的实现参考（事务协议、数据结构、适配矩阵、历史裁决与核查记录）。
 > **治理规格**：docs/ACM_PROJECT_SPEC_v2.0.md（原则、边界、数据模型、命令语义）。
@@ -138,7 +139,7 @@
 |---|---|---|
 | **L1 连接与凭据** | `base_url`、`protocol`（openai / anthropic / openai-responses）、`api_key`（credential 引用，规则见 §7.3.1）、自定义 headers、proxy、org_id | 含写入 Agent 支持的 env 块（如 Claude Code `settings.json` 的 `env` 字段） |
 | **L2 模型规格与行为** | 模型选择（主模型 + 角色模型，如 Aider 的 main/weak/editor）、`context_window`、`max_output_tokens`、reasoning（`effort` low/medium/high + `budget_tokens`）、`temperature`、能力位（vision / tool-call 方言 native/xml/markdown / json mode） | ACM 统一建模，由适配器转换为目标 Agent 的专有字段；**无法表达的字段必须产生投影损失告警，绝不静默丢弃**（§7.4.1） |
-| **Profile 管理** | 多 Profile 定义、激活态、版本快照、字段级回滚、diff | MVP 仅支持**全局单一激活 Profile**；Agent 级持久绑定（`acm bind`）为 Phase 2 规划（§12）；项目级 Profile（repo 内 `.acm/`）明确不进 MVP，作为 P3 开放问题评估 |
+| **Profile 管理** | 多 Profile 定义、激活态、版本快照、字段级回滚、diff | MVP 仅支持**全局单一激活 Profile**；Agent 级持久绑定（`acm bind`）为 Phase 2 规划（§12）；项目级/分层 Profile（repo 内 `.acm/` 与 Overlay）明确不进 MVP，作为 P3 开放问题评估 |
 | **VMR 集成** | 自动探测本地 VMR、导入虚拟模型列表、一键投影 | 第一方集成，非架构依赖（§9） |
 
 ### 5.3 不管什么（Out of Scope）
@@ -289,7 +290,7 @@ Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权�
 - **Desired State**：Active Profile（Phase 2 起含 per-agent 绑定）经 Adapter 编译后的字段级期望状态。
 - **Current State**：各 Agent 配置文件中管理字段的实际落盘值。
 
-由此，CLI 动作获得统一语义：`use` = 改变 Desired State（换激活 Profile）并立即收敛；`apply` = Current -> Desired 的幂等收敛；`status` / `diff` = Current vs Desired（及 vs 上次 ACM 写入值）；**drift** = Current ≠ 上次 ACM 写入值（说明有外部改动）。
+由此，CLI 动作获得统一语义：`use` = 改变 Desired State（换激活 Profile）并立即收敛全部检测到的 Agent；`apply` = Current -> Desired 的幂等收敛（缺省全部，可指定单个 Agent）；跨 Agent 批量执行时按 Agent 独立运算收敛，单 Agent 阻断不中断其余 Agent，最终统一返回最高严重度退出码；`status` / `diff` = Current vs Desired（及 vs 上次 ACM 写入值）；**drift** = Current ≠ 上次 ACM 写入值（说明有外部改动）。
 
 **强制约束**：Adapter 只做"编译"（profile -> ChangeSet），**一切磁盘写入由 Safety Engine 统一执行**。适配器物理上无法绕过安全语义。
 
@@ -513,7 +514,7 @@ class FieldOwnership:
 Manifest 内存视图的用途：
 
 1. **ownership 状态查询**：status / doctor / diff 判断"这个字段现在归不归我管、有没有被动过"。
-2. **`release` 的精确语义**：解除托管并**恢复 pre-ACM 状态**--受管字段按 Journal 回滚至接管前旧值（接管前不存在的字段移除），清空状态记录；若某文件为 ACM 全新创建（`created_by_acm=true`，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。适用于"短期试用后完全退出"。若只是迁移到其他配置管理工具，**无需执行 release**：ACM 非侵入，直接卸载 ACM（建议一并删除 `~/.acm/`，其中快照可能含明文密钥）即可，各 Agent 配置保持最后一次投影状态继续可用。
+2. **`release` 的精确语义**：解除托管并**恢复 pre-ACM 状态**--受管字段按 Journal 回滚至接管前旧值（接管前不存在的字段移除），清理状态记录（指定 `<agent>` 时仅清理对应 `~/.acm/state/<agent>/`；未指定时清理 `~/.acm/state/` 全部 Agent 状态与 active，但 `~/.acm/config.toml` 作为用户 SSOT 资产绝不自动删除）；若某文件为 ACM 全新创建（`created_by_acm=true`，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。适用于"短期试用后完全退出"。若只是迁移到其他配置管理工具，**无需执行 release**：ACM 非侵入，直接卸载 ACM（建议一并删除 `~/.acm/`，其中快照可能含明文密钥）即可，各 Agent 配置保持最后一次投影状态继续可用。
 3. **幂等判断**：期望值 == current 且磁盘无漂移 -> ChangeSet 为空 -> no-op。
 
 #### 7.5.3 文件快照（Safety Net，只读审计与灾难恢复）
@@ -554,7 +555,7 @@ Manifest 内存视图的用途：
 - **写前 Snapshot 留存**：动刀前原样备份目标文件，永远拥有最后一份未篡改底板；
 - **原子重命名**：新内容先完整写入临时文件 `<target>.acm_tmp`，再通过 `os.replace` 瞬时替换，文件系统层面不存在“写入一半”的中间损坏态；
 - **启动检查**：启动时若发现残留 `.acm_tmp` 临时文件直接安全清理（静默内务，无需用户感知）。
-- **多文件提交间隙的极端中断**（如两次 `os.replace` 之间被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新、部分未更新（每个文件自身仍完整），随后任意一次 `acm apply` 即幂等收敛至一致状态；需要救砖时 `acm rollback --hard` 从快照原样复原。
+- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `journal` 追加之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未入 journal（每个文件自身仍完整）。下次运行时未记入 Journal 的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm apply --force` 确认收敛或通过 `acm rollback --hard` 从快照原样复原。
 
 #### 7.5.7 密钥与敏感信息全链路防护
 
@@ -641,7 +642,7 @@ $ acm init                  # 扫描本机 Agent + 探测 VMR（127.0.0.1:8800/h
                             #   -> 展示将要写入的内容，交互确认后才 import
                             #   （绝不静默修改用户 SSOT）
 $ acm import vmr            # 拉取虚拟模型列表 -> 生成 providers.vmr + models.*（增量合并进 config.toml）
-$ acm use daily             # 投影到本机所有已检测到的 Agent（缺省全部；可跟 Agent 名指定单个）
+$ acm use daily             # 设为激活 profile 并投影到本机所有已检测到的 Agent
 $ acm status                # 总览：各 Agent 状态机 + 漂移
 ```
 
@@ -668,9 +669,9 @@ acm doctor                  # 诊断：配置语法、文件权限、${ENV} 引�
                             # 明文密钥告警 + 修复建议
 
 # ── 核心操作（Desired State 收敛）─────────────────────────
-acm use <profile> [<agent>] [--dry-run] [--force]
-                            # 设为激活 profile 并投影（缺省全部已检测 Agent，位置参数指定单个）；
-                            # 遇漂移默认阻断（--force 覆盖）
+acm use <profile> [--dry-run] [--force]
+                            # 设为激活 profile 并投影到全部已检测 Agent（遇漂移默认阻断，--force 覆盖）；
+                            # 若只需收敛单个 Agent，请使用 acm apply <agent>
 acm apply [<agent>] [--dry-run] [--force]
                             # 幂等收敛 Current -> Desired；漂移同样默认阻断
 
@@ -689,9 +690,10 @@ acm rollback [<agent>] [--to-tx <txid>] [--hard [--snapshot <id>]] [--force]
 acm release [<agent>] [--force]
                             # 解除托管并恢复 pre-ACM 状态（§7.5.2）：受管字段按 Journal 回滚至
                             # 接管前旧值、移除 ACM 创建的字段；ACM 全新创建且无用户内容的文件
-                            # 整文件清理；清空状态记录，零残留。适用于短期试用后完全退出。
-                            # 迁移到其他工具时无需 release：ACM 非侵入，直接卸载（建议一并
-                            # 删除 ~/.acm/，其中快照可能含明文密钥），配置保持最后投影状态
+                            # 整文件清理；清理状态记录（指定 Agent 清理对应 state/<agent>，
+                            # 缺省清理全部 Agent 状态，config.toml 永不自动删除），零残留。
+                            # 适用于短期试用后完全退出。迁移到其他工具时无需 release：ACM 非侵入，
+                            # 直接卸载（建议一并删除 ~/.acm/，其中快照可能含明文密钥）即可
 
 # ── VMR ────────────────────────────────────────────────
 acm import vmr [--url <url>] [--dry-run]
@@ -749,7 +751,7 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 
 - 故意让 op 触碰保护路径 -> 断言拦截（退出码 2）且文件零变更；
 - 多文件事务中途注入失败（原子替换前）-> 原文件零变更、临时文件清理无残留；
-- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，随后一次 `acm apply` 幂等收敛至一致；
+- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，未入 journal 的变更触发漂移安全阻断（由 `acm apply --force` 或 `rollback --hard` 确认收敛）；
 - 提交前外部篡改文件（指纹不匹配）-> 整体中止，无覆盖；
 - ENV 引用缺失 -> 任何写入发生前硬中止；
 - 双进程并发写 -> 锁竞争一方退出码 2，无交错写入；
@@ -799,13 +801,13 @@ Integration： import vmr
 4. 幂等：连续两次相同 `acm use` 第二次为 no-op（退出码 0）。
 5. 黑白名单断言：任何 op 触碰 `mcp_servers` / `mcpServers` / `permissions` / `hooks` / `enabledPlugins` / `models-store.json` 即测试失败。
 6. `acm release` 后：三 Agent 配置与 pre-ACM 状态一致（含"ACM 创建的文件被删除"场景），清单清空，零残留。
-7. 提交间隙 kill 进程后：磁盘不存在写一半的损坏文件，残留临时文件被启动清理；随后一次 `acm apply` 幂等收敛至一致状态。
+7. 提交间隙 kill 进程后：磁盘不存在写一半的损坏文件，残留临时文件被启动清理；未入 journal 的变更触发漂移安全阻断，由 `acm apply --force` 或 `acm rollback --hard` 确认收敛至一致状态。
 
 ### Phase 2：生态扩展（目标 +1–2 周）
 
 - 适配器：**Aider（架构压力测试）**、Gemini CLI、OpenCode（JSONC Writer 验收载体）
 - 角色模型映射（main/weak/editor；primary/cheap）
-- **`acm bind`：Agent 级持久绑定**（全局激活 + 每 Agent 覆盖的二级 Desired State；`acm use <profile> <agent>` 的一次性投影语义保持不变，两者不混淆）
+- **`acm bind`：Agent 级持久绑定**（全局激活 + 每 Agent 覆盖的二级 Desired State；单 Agent 收敛由 `acm apply <agent>` 承载，两者概念正交不混淆）
 - `acm profile list/show`、`acm use-vmr`、`acm vmr status`、`acm config migrate`
 - Adapter Protocol 贡献文档 + 适配器模板（社区适配器一律源码内置 + 金样门禁，不做运行时加载，D7）
 - `--json` 机器可读输出（状态机枚举直出）
