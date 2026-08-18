@@ -31,8 +31,8 @@
    - 4.3 任意指定配置切片的动态植入（Selective Injection / Cherry-pick）
    - 4.4 未管理数据的完整快照（Audit Snapshots）最佳实践：保留什么、保留多久、如何比对？
 5. [ACM 当前架构健壮性全面评估与防御加固](#5-acm-当前架构健壮性全面评估与防御加固)
-   - 5.1 当前“三元恢复体系（Manifest + Journal + Snapshot）”的健壮性判定
-   - 5.2 为什么两层指纹校验（Two-Tier Commit）能彻底终结 TOCTOU 冲突？
+   - 5.1 当前轻量状态体系（Journal + Snapshot + 内存 Manifest）的健壮性判定
+   - 5.2 为什么“排他写锁 + AST 字段保留”是单机并发与防篡改的最优解？
    - 5.3 极端边缘场景分析与防御措施（Edge Cases & Defenses）
 6. [极简团队协作扩展模型（Team SSOT + Personal Overlay）](#6-极简团队协作扩展模型team-ssot--personal-overlay)
    - 6.1 Git-backed SSOT 分发架构（Zero Complexity）
@@ -140,7 +140,7 @@
   * 系统为每个资源对象维护一份隐藏的元数据 `managedFields`；
   * 它详细记录了：`spec.replicas` 是由 HPA（弹性伸缩器）拥有的；`spec.template.spec.containers[0].image` 是由 CI 流程拥有的；`metadata.labels` 是由 Helm 拥有的；
   * 任何一方发起修改时，**只校验自己拥有的字段**。如果 Helm 试图去改 HPA 拥有的 `replicas`，系统会直接报错提示冲突（Conflict），除非显式声明 `--force-conflicts`（强行转移所有权）。
-* **对 ACM 的重大价值**：**这正是 ACM `manifest.json` 与 AST Surgical Patching 的直接理论来源！**
+* **对 ACM 的重大价值**：**这正是 ACM 字段所有权感知与 AST Surgical Patching 的直接理论来源！**
   * ACM 明确声明：“我只拥有 `model`、`base_url`、`api_key` 这几个 JSON/TOML 路径的所有权”；
   * 对于非 ACM 拥有的字段（如 `permissions`、`plugins`），ACM 承认其所有权属于 Agent 宿主或用户，在语义上绝对不予触碰。
 
@@ -344,15 +344,15 @@ def apply_structured_config(target_file, changeset: ChangeSet):
 
 基于你的核心目标（初始化便捷 > 安全防坏 > 插件扩展），我们对 ACM 现有的设计进行一次严肃的架构健壮性审计。
 
-### 5.1 当前“三元恢复体系（Manifest + Journal + Snapshot）”的健壮性判定
+### 5.1 当前轻量状态体系（Journal + Snapshot + 内存 Manifest）的健壮性判定
 
-**判定结论：该体系在架构理论上高度健全，完全击中了问题的核心，且没有过度设计。**
+**判定结论：摒弃冗余的磁盘多写，保留 Journal 与 Snapshot 作为状态基石，兼顾极致简单与可逆性。**
 
 | 组件 | 物理位置 | 核心职责 | 为什么缺一不可？ |
 |---|---|---|---|
-| **Manifest** | `~/.acm/state/<agent>/manifest.json` | 记录当前所有权状态（当前值、pre-ACM 接管前初始值、是否由 ACM 新建） | **解决“退出对等”与“幂等收敛”**：`acm release` 依靠它实现零残留退出；`acm apply` 依靠它判断是否无需操作。 |
-| **Journal** | `~/.acm/state/<agent>/journal.jsonl` | Append-only 事务事件历史（记录每次 ChangeSet、txid、时间戳） | **解决“局部字段级精准回滚”**：回滚时不破坏 Agent 后来写的新状态。 |
-| **Snapshot** | `~/.acm/state/<agent>/snapshots/<txid>/` | 物理文件的整文件原始字节备份（Append-only，全量留存，与事务历史 1:1 永久对齐） | **解决“灾难级兜底（Disaster Recovery）与取证”**：当磁盘损坏、进程异常崩溃时，提供 `--hard` 一键复原通道。 |
+| **Journal** | `~/.acm/state/<agent>/journal.jsonl` | Append-only 事务事件历史（记录每次 ChangeSet、txid、时间戳、ops 变更） | **解决“字段级精准回滚与所有权推导”**：作为 state 目录唯一的持久化事务 SSOT，回滚时不破坏 Agent 后来写的新状态。 |
+| **Snapshot** | `~/.acm/state/<agent>/snapshots/<txid>/` | 物理文件的整文件原始字节备份（Append-only，单纯追加留存） | **解决“灾难级兜底（Disaster Recovery）与取证”**：写前瞬间备份，提供 `--hard` 一键复原通道，写路径零轮转计算负担。 |
+| **Manifest** | *(内存派生视图)* | 运行时动态推导字段所有权与当前值 | **消除磁盘状态双写**：无需在磁盘额外持久化 `manifest.json`，由 Journal 与当前文件内容动态求值，消除双写一致性风险。 |
 
 ---
 
@@ -391,23 +391,22 @@ def apply_structured_config(target_file, changeset: ChangeSet):
 
 为了确保系统达到工业级稳健，ACM 针对以下三大极端场景设立了明确的防御底线：
 
-#### 边缘场景 A：用户手动编辑了由 ACM 创建的文件后执行 `release`
-* **隐患**：ACM 接管时创建了 `~/.pi/agent/models.json`；用户后来在里面手写了 `my_ollama`；用户执行 `acm release pi`。
-* **防御机制（双级判定）**：
-  1. **混合/原有文件（如 `settings.json`）**：仅通过 AST 逆向剔除 ACM 管理的键值，保留宿主所有其他内容；
-  2. **ACM 新建文件（`created=true`，如 `models.json`）**：`release` 执行前扫描 AST，**若且仅若 AST 中只包含 ACM 写入的键且无任何外部键时**，执行整文件 `unlink`；若发现存在非 ACM 管理的键值，**绝对禁止 `unlink` 文件**，强制降级为仅在 AST 中删除 ACM 管理的键，保留用户手写内容并打印通知。
+#### 边缘场景 A：用户在 `acm release` 时释放 Agent 托管
+* **隐患**：若盲目恢复远古时期的 pre-ACM 初始值，会导致 Agent 因模型或端点早已废弃而启动崩溃。
+* **防御机制**：
+  1. **解除托管原则**：`release` 的核心语义是“停止管理该 Agent”，清除 ACM 状态记录，原位物理文件完整保留；
+  2. **ACM 新建文件清理（`created=true`，如 `models.json`）**：`release` 时若发现该文件由 ACM 新建且不包含任何非 ACM 管理的键，执行整文件 `unlink`；若包含用户手写内容，则保留文件并剔除受管字段。
 
 #### 边缘场景 B：Agent 在新机器上初次运行，配置父目录尚不存在
-* **隐患**：`~/.pi/agent/` 目录尚未生成，写临时文件引发 `FileNotFoundError`。\n* **防御机制**：原子写执行器统一封装 `target.parent.mkdir(parents=True, exist_ok=True)`。
+* **隐患**：`~/.pi/agent/` 目录尚未生成，写临时文件引发 `FileNotFoundError`。
+* **防御机制**：原子写执行器统一封装 `target.parent.mkdir(parents=True, exist_ok=True)`。
 
-#### 边缘场景 C：ACM 写入过程中遭遇断电或 `kill -9`
-* **隐患**：部分文件已替换，部分文件未替换，事务中途破损。
-* **防御机制（严格分层治理）**：
-  1. **状态前置落盘（State-first Journaling）**：在执行 `os.replace` 前，先将 Journal 标记为 `COMMITTING` 并 `fsync`；
-  2. **读写命令安全隔离**：
-     * **只读命令（`status`, `diff`）**：扫描发现未完结的 `COMMITTING` 事务时，**绝不静默改写磁盘**，置该 Agent 为 `ERROR` 状态并提示用户运行 `acm doctor`；
-     * **写入命令（`use`, `apply`）**：发现破损事务时**安全阻断（退出码 2）**，拒绝在脏状态上盲目叠加新写入；
-  3. **受控自愈恢复**：用户通过 `acm doctor --fix` 或显式回滚通道，自动调取该事务的 Snapshot 执行原子还原，将系统安全带回事务前一致状态，并在 CLI 打印明确的审计与恢复日志。
+#### 边缘场景 C：ACM 写入过程中遭遇断电或进程中断
+* **隐患**：文件写入中断导致损坏。
+* **防御机制（原子替换自然免疫）**：
+  1. **写前 Snapshot 留存**：在动刀前完成单向备份，永远拥有最后一份未篡改底板；
+  2. **POSIX/Win 原子重命名（Atomic `os.replace`）**：新内容先完整写入同目录临时文件，再通过 `os.replace` 瞬间替换（< 2ms），文件系统层面不存在“写入一半”的中间损坏态；
+  3. **消除冗余 WAL 状态机**：无需实现沉重的 `COMMITTING`/`fsync` 二阶段事务协议，避免人为构造“悬挂中间态”，保持系统极致精简与自洽。
 
 ---
 
@@ -467,14 +466,14 @@ def apply_structured_config(target_file, changeset: ChangeSet):
 
 ```
                 ┌────────────────────────────────────────────────────────┐
-                │             ACM 社区适配器加载与测试流                  │
+                │             ACM 社区适配器接入与测试流                  │
                 └────────────────────────────────────────────────────────┘
                                             │
         ┌───────────────────────────────────┴───────────────────────────────────┐
         ▼                                                                       ▼
-【内置官方适配器 (Built-in)】                                          【社区外部适配器 (Custom)】
-• 源码内置: acm.adapters.claude_code                                  • 用户目录: ~/.acm/adapters/my_agent.py
-• P0/P1 核心 Agent 随包发布                                            • importlib 动态反射加载
+【内置官方适配器 (Built-in)】                                          【社区共建适配器 (Community PR)】
+• 源码内置: acm.adapters.claude_code                                  • GitHub PR 贡献新增适配器模块
+• P0/P1 核心 Agent 随包发布                                            • 经 Golden Suite CI 门禁自动化并入
                                             │
                                             ▼
                            ┌─────────────────────────────────┐
