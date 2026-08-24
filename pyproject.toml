@@ -1,5 +1,5 @@
 [project]
-name = "acm"
+name = "agent-config-manager"
 version = "0.1.0"
 description = "The Unified, Non-Destructive Model Configuration & Snapshot Manager for AI Coding Agents."
 readme = "README.md"
@@ -21,6 +21,10 @@ acm = "acm.main:main"
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
 build-backend = "uv_build"
+
+# 分发名与 Python 包名解耦：PyPI 包叫 agent-config-manager，导入名仍是 acm
+[tool.uv.build-backend]
+module-name = "acm"
 
 [dependency-groups]
 dev = [
