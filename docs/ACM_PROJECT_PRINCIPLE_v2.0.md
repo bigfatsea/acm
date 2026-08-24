@@ -1,17 +1,22 @@
-# ACM（Agent Config Manager）项目规格 v2.0（原则版）
+# ACM（Agent Config Manager）项目规格 v2.1（原则版）
 
-<!-- Version: 2.0.2 | Status: Governing Spec | Date: 2026-08-18 -->
+<!-- Version: 2.1.0 | Status: Governing Spec | Date: 2026-08-18 -->
 <!-- 本文档是 ACM 项目的治理性规格（governing spec），只保留四样东西：
      核心原则、边界定义、核心数据模型、命令语义。
      实现层面的细节（事务提交步骤、数据结构字段、状态机优先级、交互文案、
      目录布局、适配矩阵明细、竞品核查、历史裁决）全部下沉至
-     docs/ACM_PROJECT_SPEC_FINAL_v1.1.md（降级为实现参考，implementation reference）。
+     docs/ACM_PROJECT_SPEC_v2.1.md（降级为实现参考，implementation reference）。
      两者冲突时，以本文档的原则为准；实现参考与原则冲突时，改实现参考。
      v2.0.1 变更：吸收 ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md §1
      的核心诉求、双重所有权本质与快照正确定位，作为治理原则的组成部分。
      v2.0.2 变更（按一致性评审 docs/ACM_SPEC_CONSISTENCY_REVIEW.md 裁决）：release 语义
      澄清为"恢复 pre-ACM 状态"（迁移其他工具时直接卸载即可，无需任何命令）；
-     P2 目标措辞修正为"社区贡献内置适配器"。 -->
+     P2 目标措辞修正为“社区贡献内置适配器”。
+     v2.1 变更（裁决依据：docs/ACM_MVP_SCOPE_ADJUDICATION_v1.md）：§7 路线图改为
+     “分片交付 + 触发式升级”，新增里程碑分级兑现原则（公理级语义在每个里程碑
+     必须成立，只允许兑现粒度分级，不允许语义降级）；§3.3 澄清无 Journal 的
+     里程碑阶段以 last-write 记录为漂移检测数据源；交叉引用文件名随 Spec 更名
+     （ACM_PROJECT_SPEC_v2.1.md）同步更新。 -->
 
 > **文档性质**：对齐认知、防止走偏。不是照着抄代码的手册。
 > 编码阶段在本文原则框架内自由发挥；任何实现选择，只要不违反本文原则，均为合法。
@@ -74,7 +79,7 @@ Agent 配置文件（如 `~/.claude/settings.json`、`~/.codex/config.toml`）�
 
 快照采用**Append-only 单纯追加留存**（写路径零轮转计算负担）。Agent 配置文件通常仅 5–20 KB，极重度使用 5 年（约 10,000 次变更）总快照约 150 MB，无需 FIFO 自动清理。若未来用户有强迫症清理诉求，仅通过显式命令（Phase 2+ 可选的 `acm clean`）主动触发，绝不在核心写入路径中静默删文件。
 
-技术栈基线（决策依据见 v1.1 §6）：Python 3.12+，最小依赖；适配器 = 普通 Python 模块（不是 DSL）；Core Config 用 TOML；分发主路径 PyPI / uvx。
+技术栈基线（决策依据见 Spec v2.1 §6）:Python 3.12+,最小依赖;适配器 = 普通 Python 模块(不是 DSL);Core Config 用 TOML;分发主路径 PyPI / uvx。
 
 ---
 
@@ -125,7 +130,7 @@ Desired State（字段级期望状态）
 Current State（各 Agent 配置中管理字段的实际落盘值）
 ```
 
-关键概念（完整术语表见 v1.1 附录 C）：
+关键概念（完整术语表见 Spec v2.1 附录 C）：
 
 | 概念 | 定义 |
 |---|---|
@@ -144,6 +149,7 @@ Current State（各 Agent 配置中管理字段的实际落盘值）
 ### 3.3 回滚与状态数据模型
 
 - **Journal（事务日志，`~/.acm/state/<agent>/journal.jsonl`）**：状态区唯一的事务持久化 SSOT，记录每次 ChangeSet 事务历史（txid、timestamp、profile、ops 字段级变更），作为字段级精准回滚的数据来源。
+- **Last-write 记录（前 Journal 里程碑阶段，`~/.acm/state/<agent>/last_write.json`）**：记录最近一次成功投影的 profile、时间、backup id 与受管字段的落盘值（存值非哈希，漂移阻断消息需给出 expected/found；展示走掩码），作为该阶段漂移检测与状态判定的数据来源；Journal 触发上线后废止。
 - **Snapshot（安全快照，`~/.acm/state/<agent>/snapshots/<txid>/`）**：每次物理修改前对原文件的全量原样备份，单纯追加留存（Append-only，写路径零轮转计算复杂度），用于灾难恢复（`--hard`）与只读比对。
 - **Manifest（所有权视图）**：作为内存派生视图（Derived View）存在，从当前配置与 Journal 动态推导，不单独在磁盘双写持久化文件。
 
@@ -176,7 +182,7 @@ Current State（各 Agent 配置中管理字段的实际落盘值）
 
 不引入高误判、高平台兼容成本的外部进程扫描阻断机制；写操作通过排他写锁与原子替换自然保障并发安全。
 
-### 4.2 命令总表（语义，非界面规格）
+### 4.2 命令总表（语义，非界面规格；交付分片见 §7 与 Spec v2.1 §12）
 
 ```bash
 acm init                    # 扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.toml；
@@ -212,7 +218,7 @@ acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.t
 ## 5. 适配器与 Agent 覆盖
 
 - **Adapter 契约**：每 Agent 一个普通 Python 模块，实现 detect / config_paths / plan 三个职责（运行时彻底零 I/O，verify 职责下沉至金样单测门禁）；plan 为纯函数，产出 ChangeSet + 投影告警。所有官方与社区适配器统一作为代码内置（Built-in），拒绝动态代码反射执行的安全隐患。
-- **P0 = Claude Code、Codex、Pi**（真实使用优先；三者在格式/文件数/投影形态上覆盖架构充分性）。Aider 为 P1 首位（YAML + 角色模型压力测试）。明细见 v1.1 §8 适配矩阵（活文档）。
+- **P0 = Claude Code、Codex、Pi**(真实使用优先;三者在格式/文件数/投影形态上覆盖架构充分性)。Aider 为 P1 首位(YAML + 角色模型压力测试)。明细见 Spec v2.1 §8 适配矩阵（活文档）。
 - 新增适配器 = 源码内置模块 + 独立金样 fixtures 门禁合并；"支持更多 Agent"永远不是目标本身。
 - **上游多版本演进原则（先从简，后扩展）**：MVP 适配器仅面向当前最新稳定版单一路线实现；遇未知/破坏性 Schema 变动置 `ERROR` 态安全阻断，绝不盲写破坏文件。未来出现广泛新老版本共存诉求时，仅在单个 Agent 模块内部引入基于 AST 结构特征的策略分发，核心引擎与 Protocol 契约零改动。
 
@@ -225,16 +231,34 @@ acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.t
 
 ## 7. 路线图（粒度：里程碑，非任务分解）
 
-- **Phase 1（MVP）**：Core / Safety Engine / Format Writers / Adapter Protocol 框架 + P0 三适配器 + 全命令 + PyPI 发布。
-- **Phase 2**：Aider / Gemini CLI / OpenCode 适配器；`acm bind`（Agent 级绑定）；`--json`。
+**里程碑分级兑现原则**：本文档的完整命令面与完整数据模型是产品终局语义；里程碑可以按触发条件分片交付命令与机制的子集。但公理级语义——非破坏性（只写声明路径、未管内容无损保留）、显式暴露（漂移阻断、投影损失告警）、可逆性（写前快照 + 可恢复）——在任何里程碑都必须成立，只允许兑现粒度分级，不允许语义降级。各分片的详细范围定义与验收标准见 Spec v2.1 §12。
+
+- **Phase 1（MVP）· Slice 1**：命令 init / use / status / rollback（VMR 探测并入 init）；最小安全集（白名单路径表封闭写入、写前整文件快照 Append-only、原子替换 + 非阻塞排他锁、指纹校验、${ENV} 硬失败零写盘、漂移检测默认阻断、投影损失 stderr 告警、输出掩码）；P0 适配器 Claude Code + Codex（分片顺序交付）；Writer 取 JSON=stdlib 保序、TOML=tomlkit round-trip；金样 a/b/c 断言 + 最低限负面用例；内部 pip -e/uvx 先行跑通，PyPI 发布作为 MVP 收尾。
+- **Phase 1 · Slice 2**：Pi 适配器（注册式投影形态 + 全新建文件场景验证），补齐 P0 三件套。
+- **Phase 2**：Aider / Gemini CLI / OpenCode 适配器；`acm bind`（Agent 级绑定）；`--json`；届时已触发成熟的升级项。
 - **Phase 3（触发式）**：brew tap / pyapp / 社区适配器流程——仅出现真实需求时启动。
+
+**触发式升级表**（自 MVP 基线迈向终局语义，不排期，按触发执行）：
+
+| 能力 | 触发条件 |
+|---|---|
+| Journal + 字段级回滚 + `rollback --to-tx`/`--hard` 分层 | 整文件回滚打丢窗口期内宿主写入的 MCP/OAuth/会话状态，成为真实发生的问题 |
+| `apply`（与 use 分立的收敛） | 手改 config.toml 成为常规动作，或 per-agent bind 上线 |
+| `diff` | --dry-run 与漂移阻断消息不足以支撑"先看再写/排查漂移"工作流 |
+| `doctor` | 真实故障无法用 status 与报错信息定位 |
+| `history` | 随 Journal 一并引入 |
+| `release`（恢复接管前旧值） | 出现试用后完全退出并恢复旧值的真实诉求 |
+| `import vmr`（独立增量合并） | VMR 模型列表常变、反复增量合并成为痛点（此前 VMR 变更靠手编 TOML 或 init --force 重生成） |
+| 显式 protected_paths 黑名单与双重校验 | 适配器面扩大到白名单封闭集不足以表达时 |
+| 正式 Adapter Protocol 仪式 | 社区适配器真实出现（源码内置贡献流程启动）之时 |
 
 ## 8. 文档关系
 
 | 文档 | 角色 |
 |---|---|
-| **本文档（v2.0）** | 治理规格：原则、边界、数据模型、命令语义。变更需慎重，原则不随实现摇摆。 |
-| v1.1（ACM_PROJECT_SPEC_FINAL_v1.1.md） | 实现参考：事务协议细节、数据结构、状态机、文案、矩阵、附录裁决与核查。实现可偏离其中细节，前提是不违反 v2.0 原则；偏离积累后回写更新。 |
+| **本文档（v2.1）** | 治理规格：原则、边界、数据模型、命令语义。变更需慎重，原则不随实现摇摆。 |
+| v2.1（docs/ACM_PROJECT_SPEC_v2.1.md，原 FINAL_v1.1 更名升版） | 实现参考：事务协议细节、数据结构、状态机、文案、矩阵、附录裁决与核查，以及 MVP 分片范围定义与验收标准。实现可偏离其中细节，前提是不违反本文档原则；偏离积累后回写更新。 |
+| docs/ACM_MVP_SCOPE_ADJUDICATION_v1.md | 本轮四份 MVP 范围反馈的逐项裁决记录（v2.1 路线图与 MVP 范围的裁决依据）。 |
 | feedback-for-v1.0.md 等 | 历史过程文档（见 Git 历史提交），仅存档。 |
 
 <!-- 规格冻结于原则层。下一步最有价值的信息来自把三个真实适配器在 Safety Engine 上跑起来。 -->

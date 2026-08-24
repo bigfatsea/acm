@@ -1,8 +1,8 @@
-# ACM（Agent Config Manager）最终版项目规格说明书
+# ACM（Agent Config Manager）项目规格 v2.1（实现参考）
 
-<!-- Version: 1.1.2 | Status: Implementation Reference（已被 v2.0 取代治理地位）| Date: 2026-08-18 -->
+<!-- Version: 2.1.0 | Status: Implementation Reference（治理地位归 PRINCIPLE v2.1）| Date: 2026-08-18 -->
 <!-- ⚠️ 角色变更（2026-08-18）：本文档已降级为**实现参考**（implementation reference）。
-     治理性规格（原则、边界、数据模型、命令语义）见 docs/ACM_PROJECT_SPEC_v2.0.md。
+     治理性规格（原则、边界、数据模型、命令语义）见 docs/ACM_PROJECT_PRINCIPLE_v2.1.md。
      实现可偏离本文档的实现层细节（事务步骤、数据结构字段、状态机枚举、文案、目录布局等），
      前提是不违反 v2.0 的原则；偏离积累后回写更新本文档。两者冲突时以 v2.0 为准。
      v1.1.1 变更：根据 v2.0.1 治理规格与 Deep Dive 架构原则全面对齐——
@@ -14,10 +14,18 @@
      移除进程守护机制与适配器动态热加载（v2.0 已否决）；release 语义定为"恢复 pre-ACM 状态"，
      明确 config.toml 永不自动删除，迁移其他工具时直接卸载即可；崩溃恢复从简，
      靠"写前快照 + 原子替换无损坏中间态 + 漂移阻断与 force 收敛"兜底；
-     use 保持全局 Profile 切换收敛语义，单 Agent 收敛统一由 apply <agent> 承载；init 移除 --yes。 -->
+     use 保持全局 Profile 切换收敛语义，单 Agent 收敛统一由 apply <agent> 承载；init 移除 --yes。
+     v2.1 变更（自 ACM_PROJECT_SPEC_FINAL_v1.1.md 更名升版；裁决依据：
+     docs/ACM_MVP_SCOPE_ADJUDICATION_v1.md）：§12 实施路线图重写为
+     "Phase 1 分片交付 + 触发式升级"，MVP 范围定义与验收标准并入本文档，
+     不再单独创建 MVP 范围文档；§10 命令总表逐项标注 MVP 子集与后置触发条件；
+     §9 改为 VMR 探测并入 init，import vmr 后置；§7.3 新增 last_write 记录说明，
+     §7.5.1 增补 MVP 简化提交流水线（无 Journal 阶段以 last_write 代 journal），
+     §7.5.6/§7.7/§11 措辞同步并标注 MVP 期测试集；附录 B 补 Pi 路径更正，
+     新增附录 D（MVP 反馈裁决摘要）；交叉引用治理规格文件名一并更正。 -->
 
 > **文档性质**：ACM 项目的实现参考（事务协议、数据结构、适配矩阵、历史裁决与核查记录）。
-> **治理规格**：docs/ACM_PROJECT_SPEC_v2.0.md（原则、边界、数据模型、命令语义）。
+> **治理规格**：docs/ACM_PROJECT_PRINCIPLE_v2.1.md（原则、边界、数据模型、命令语义）。
 > **生成方法**：以 GLM 版为骨架，对建议文档逐项裁决（附录 A），对历史三轮反馈逐项评估吸收（见 Git 历史提交 feedback-for-v1.0.md），关键事实性 claim 全部溯源核实（附录 B），矛盾点按第一性原理独立裁决（§6）。
 
 ---
@@ -41,6 +49,7 @@
 - [附录 A：前置文档逐项裁决记录](#附录-a前置文档逐项裁决记录)
 - [附录 B：事实核查记录](#附录-b事实核查记录)
 - [附录 C：核心术语表](#附录-c核心术语表)
+- [附录 D：MVP 范围反馈裁决摘要](#附录-dmvp-范围反馈裁决摘要)
 
 ---
 
@@ -283,6 +292,7 @@ Format-specific Writer          # 怎么安全地改（声明保真能力的 rou
 Atomic Write（串行加锁）         # temp + os.replace
         ↓
 Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权推导
+                                #（MVP 无 Journal：以 last_write 记录代替，§12 Slice 1）
 ```
 
 **两个正式状态概念（CLI 语义的地基）：**
@@ -372,6 +382,7 @@ main  = "cheap"
 ```
 
 - **激活态存放于 `~/.acm/state/active`**（仅 profile 名），只能通过 `acm use` 改变（配置/状态分离，见 D3）。
+- **Last-write 记录（MVP，`~/.acm/state/<agent>/last_write.json`）**：记录最近一次成功投影的来源 profile、时间、backup id 与受管字段落盘值。存值而非哈希——漂移阻断消息需要给出 expected/found 具体值，展示时走掩码机制。作为 Journal 引入前的漂移检测与状态判定数据源，Journal 上线后废止。
 - 单模型 Agent 消费 `profile.main`；多角色 Agent（如 Aider）由适配器将 Profile 中的角色槽位映射到目标字段。
 - Pi 类注册式 Agent 消费完整 models 定义；覆盖式 Agent（如 Claude Code）只消费被 profile 引用的模型。
 
@@ -492,6 +503,11 @@ class ChangeSet:
   5. 异常回退：若原子替换前发生任何异常，清理临时文件，原文件与快照均未受损
 ```
 
+**MVP 简化变体（无 Journal 阶段，§12 Slice 1）**：流水线精简为五步——白名单校验 → 写前整文件快照 →
+内存修改与非管节点断言 → pre-commit 指纹校验 → `os.replace` 原子替换；末步由追加 journal 改为覆写
+`last_write.json`。黑名单双重校验、txid 与 `--to-tx` 语义随黑名单与 Journal 按触发一并引入
+（PRINCIPLE v2.1 §7 触发式升级表）。
+
 #### 7.5.2 管理字段所有权内存视图（Managed Manifest）与漂移检测
 
 Manifest 在 ACM 中作为**内存派生视图（Derived View）**存在，在运行时从 `journal.jsonl` 事务历史与当前磁盘文件 AST 动态推导，**磁盘不单独双写 `manifest.json` 文件**，彻底消除双写一致性风险。
@@ -555,7 +571,7 @@ Manifest 内存视图的用途：
 - **写前 Snapshot 留存**：动刀前原样备份目标文件，永远拥有最后一份未篡改底板；
 - **原子重命名**：新内容先完整写入临时文件 `<target>.acm_tmp`，再通过 `os.replace` 瞬时替换，文件系统层面不存在“写入一半”的中间损坏态；
 - **启动检查**：启动时若发现残留 `.acm_tmp` 临时文件直接安全清理（静默内务，无需用户感知）。
-- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `journal` 追加之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未入 journal（每个文件自身仍完整）。下次运行时未记入 Journal 的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm apply --force` 确认收敛或通过 `acm rollback --hard` 从快照原样复原。
+- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `last_write` 写入之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未记入 last_write（每个文件自身仍完整；Journal 上线后为未记入 journal）。下次运行时未记入的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm rollback --hard` 从快照原样复原（apply/diff 上线后可用 `acm apply --force` 确认收敛）。
 
 #### 7.5.7 密钥与敏感信息全链路防护
 
@@ -582,6 +598,8 @@ Manifest 内存视图的用途：
 
 > 注：写锁被占属于运行时执行阻断（退出码 2 与 stderr 实时告警），不作为落盘配置本身的持久主状态。
 多条件并存时按优先级取唯一展示态：`ERROR` > `DRIFTED` > `OUT_OF_SYNC` > `SYNCED`（`NOT_DETECTED` / `UNMANAGED` 由安装与接管状态先行判定，不参与该优先级）。
+>
+> MVP 阶段全量实现六态判定逻辑（判定成本极低，且 DRIFTED 在写路径中本就必须区分——阻断与否取决于差异来自外部还是 ACM 侧），不做枚举缩减。
 
 ### 7.7 目录布局
 
@@ -593,8 +611,10 @@ Manifest 内存视图的用途：
 │   ├── active                  # 当前激活 profile 名（仅 acm use 可改）
 │   ├── .lock                   # 全局写入锁（flock）
 │   └── <agent>/
-│       ├── journal.jsonl       # 事务日志（append-only 事务历史 SSOT）
-│       └── snapshots/<txid>/   # 物理文件快照（Append-only 原样留存，灾难恢复与审计）
+│       ├── last_write.json     # （MVP）最近一次投影记录（受管字段值）；Journal 上线后废止
+│       ├── journal.jsonl       # 事务日志（append-only 事务历史 SSOT；随字段级回滚触发引入）
+│       └── snapshots/<ts>/     # 物理文件快照（Append-only 原样留存，灾难恢复与审计；
+│                              #   Journal 存在后以 <txid> 命名）
 └── logs/                       # 运行日志；--verbose = DEBUG 级入日志，默认 INFO 摘要
 ```
 
@@ -639,17 +659,16 @@ Manifest 内存视图的用途：
 ```
 $ acm init                  # 扫描本机 Agent + 探测 VMR（127.0.0.1:8800/healthz，
                             #   fallback 读取 ~/.vmr/ 配置）
-                            #   -> 展示将要写入的内容，交互确认后才 import
-                            #   （绝不静默修改用户 SSOT）
-$ acm import vmr            # 拉取虚拟模型列表 -> 生成 providers.vmr + models.*（增量合并进 config.toml）
+                            #   -> 探测命中则将 providers.vmr + models.* 直接并入提案，
+                            #   确认后才写入（绝不静默修改用户 SSOT）
 $ acm use daily             # 设为激活 profile 并投影到本机所有已检测到的 Agent
 $ acm status                # 总览：各 Agent 状态机 + 漂移
 ```
 
 - **零依赖原则**：无 VMR 时一切功能照常（直连 OpenRouter / DeepSeek / SiliconFlow / Ollama / 任意兼容端点）。
 - **VMR 侧零改动**：只需暴露标准的模型列表查询端点；ACM 对 VMR 的全部"感知"就是一次 import。
-- **退出对等**：`acm release` 一键解除所有 Agent 与 VMR 的绑定，零残留。
-- `acm use-vmr <virtual_model>`（Phase 2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（Phase 2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足"≤3 条命令"成功标准。
+- **退出对等**：离开 ACM 直接卸载（建议一并删除 `~/.acm/`），配置保持最后投影状态继续可用；`acm release`（恢复接管前旧值）按触发引入。
+- `acm use-vmr <virtual_model>`（Phase 2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（Phase 2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足“≤3 条命令”成功标准。独立 `import vmr` 命令同样后置（触发条件：VMR 模型列表常变、反复增量合并成为痛点）；MVP 阶段增量合并以手编 TOML 或 `init --force` 重生成解决。
 
 ---
 
@@ -660,12 +679,14 @@ $ acm status                # 总览：各 Agent 状态机 + 漂移
 ```bash
 # ── 初始化与状态 ────────────────────────────────────────
 acm init [--dry-run] [--force]
-                            # 首次：扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.toml
+                            # 【MVP】首次：扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.toml
+                            #   （VMR 探测命中则将 providers.vmr + models.* 并入提案）
                             # 重复执行（config 已存在）：提示 覆盖 / 增量合并 / 取消，
                             #   默认取消（绝不破坏现有配置）；--force 跳过提示重新生成
                             # VMR 探测命中：展示将写入的 providers/models，确认后 import
-acm status [--verbose]      # 各 Agent：状态机枚举 + 当前 profile + 漂移 + 投影告警摘要
-acm doctor                  # 诊断：配置语法、文件权限、${ENV} 引用缺失、管理路径漂移、
+acm status [--verbose]      # 【MVP】各 Agent：状态机枚举 + 当前 profile + 漂移 + 投影告警摘要
+acm doctor                  # 【触发式后置：真实故障无法用 status 与报错定位】
+                            #   诊断：配置语法、文件权限、${ENV} 引用缺失、管理路径漂移、
                             # 明文密钥告警 + 修复建议
 
 # ── 核心操作（Desired State 收敛）─────────────────────────
@@ -673,21 +694,26 @@ acm use <profile> [--dry-run] [--force]
                             # 设为激活 profile 并投影到全部已检测 Agent（遇漂移默认阻断，--force 覆盖）；
                             # 若只需收敛单个 Agent，请使用 acm apply <agent>
 acm apply [<agent>] [--dry-run] [--force]
+                            # 【触发式后置：手改 config.toml 成为常规动作或 bind 上线】
                             # 幂等收敛 Current -> Desired；漂移同样默认阻断
 
 # ── 安全与审计 ─────────────────────────────────────────
 acm diff [<agent>] [--against desired|last-write|snapshot]
+                            # 【触发式后置：--dry-run 与漂移消息不足以支撑排查工作流】
                             # 彩色 unified diff + 漂移专项标注（外部改动值 vs 期望值）；
                             # 若目标 Agent 为 UNMANAGED，默认执行 Dry-run 虚拟比对（展示当前
                             #   磁盘原始配置 vs 接管后的预期变更，并标注 [DRY-RUN / UNMANAGED]）
-acm history [<agent>]       # 事务时间线：txid、时间、来源 profile、命令、状态
+acm history [<agent>]       # 【触发式后置：随 Journal 一并引入】事务时间线：txid、时间、来源 profile、命令、状态
 acm rollback [<agent>] [--to-tx <txid>] [--hard [--snapshot <id>]] [--force]
+                            # 【MVP 仅交付整文件恢复：等价于 --hard 最新快照；字段级回滚与
+                            #   --to-tx/--snapshot 参数随 Journal 触发引入】
                             # 默认字段级回滚：逆序回滚最后一个事务（--to-tx <txid> 则逆序回滚
                             #   至该事务之后的状态）--基于 journal，粒度是字段
                             # --hard 灾难恢复：整文件快照还原（--snapshot <id> 恢复指定快照，
                             #   缺省为最新快照）
                             # 参数名显式分离（--to-tx vs --snapshot），杜绝多态混淆
 acm release [<agent>] [--force]
+                            # 【触发式后置：试用后完全退出并恢复旧值的真实诉求】
                             # 解除托管并恢复 pre-ACM 状态（§7.5.2）：受管字段按 Journal 回滚至
                             # 接管前旧值、移除 ACM 创建的字段；ACM 全新创建且无用户内容的文件
                             # 整文件清理；清理状态记录（指定 Agent 清理对应 state/<agent>，
@@ -697,6 +723,7 @@ acm release [<agent>] [--force]
 
 # ── VMR ────────────────────────────────────────────────
 acm import vmr [--url <url>] [--dry-run]
+                            # 【触发式后置：VMR 模型常变需反复增量合并；MVP 探测并入 init】
 acm vmr status              # Phase 2
 acm use-vmr [<model>]       # Phase 2 薄糖层
 
@@ -706,12 +733,12 @@ acm profile create <name>               # Phase 2（交互式/模板）
 acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP 仅全局激活）
 
 # ── 全局选项 ───────────────────────────────────────────
---dry-run                   # 只计算 ChangeSet 并展示，不写任何文件
---force                     # 覆盖漂移阻断 / 进程阻断
+--dry-run                   # 【MVP】只计算 ChangeSet 并展示，不写任何文件
+--force                     # 【MVP】覆盖漂移阻断 / init 重生
 --verbose                   # DEBUG 级日志（stderr + ~/.acm/logs/）
---no-color                  # 输出管道友好
+--no-color                  # 【MVP】输出管道友好
 --json                      # Phase 2：机器可读输出（状态机枚举直出；密钥默认掩码）
---show-secrets              # 显式输出明文密钥（默认掩码）
+--show-secrets              # 【MVP】显式输出明文密钥（默认掩码）
 ```
 
 ### 10.2 退出码规范（脚本化是核心定位，退出码是 API）
@@ -737,7 +764,13 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 
 ## 11. 测试与质量保障
 
-### 11.1 金样回归测试（Golden File Suite）--适配器开发的基础设施
+> **MVP 期测试集**（对外 PyPI 发布前补齐至下方全量门禁）：每适配器一份真实感夹具（带注释、
+> 带 MCP 配置、带私有字段）+ 正向断言 a/b/c（受管字段等于 Desired / 夹具内未管键与注释存活 /
+> rollback 回到写前整文件）；两个最低限负面用例（白名单外路径拦截且文件零变更、ENV 引用缺失
+> 零写盘中止）；提交间隙 SIGKILL 与双进程抢锁各一例；JSON/TOML Writer round-trip 单测先于
+> 适配器交付。依赖 Journal 的断言（如"事务中途 Agent 写入仍存活"）随 Journal 一并引入。
+
+### 11.1 金样回归测试（Golden File Suite)--适配器开发的基础设施
 
 每个适配器配套**真实感 fixtures**：带手写注释、带 MCP 配置、带私有字段、带格式怪癖的配置样本（本机实证样本脱敏后入库，如 Codex 的注释密集 config.toml ✔）。
 
@@ -751,7 +784,7 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 
 - 故意让 op 触碰保护路径 -> 断言拦截（退出码 2）且文件零变更；
 - 多文件事务中途注入失败（原子替换前）-> 原文件零变更、临时文件清理无残留；
-- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，未入 journal 的变更触发漂移安全阻断（由 `acm apply --force` 或 `rollback --hard` 确认收敛）；
+- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，未记入 last_write 的变更触发漂移安全阻断（由 `acm rollback --hard` 确认收敛；apply 上线后可用 `acm apply --force`）；
 - 提交前外部篡改文件（指纹不匹配）-> 整体中止，无覆盖；
 - ENV 引用缺失 -> 任何写入发生前硬中止；
 - 双进程并发写 -> 锁竞争一方退出码 2，无交错写入；
@@ -773,35 +806,45 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 
 ## 12. 实施路线图与验收标准
 
-### Phase 1：MVP（目标 ~1–2 周）
+> 路线图采用"分片交付 + 触发式升级"（PRINCIPLE v2.1 §7 里程碑分级兑现原则）。本节兼作
+> **MVP 范围定义**，不再单独创建 MVP 范围文档；本轮裁决依据见附录 D。
 
-**实现优先级分组**（十个命令是同一引擎的十个薄入口，不是十个独立 feature）：
+### Phase 1 · Slice 1（MVP 首批）
 
-```
-Core：    init / use / status / diff / apply
-Safety：  rollback / release / doctor（含崩溃恢复入口）
-Audit：   history
-Integration： import vmr
-```
+**成功标准（唯一）**：VMR 或直连端点用户，从安装到 Claude Code + Codex 指向同一套模型，
+**≤ 3 条命令、零手改 Agent 配置文件**。
 
-**交付**：
+| 维度 | 范围 |
+|---|---|
+| 命令 | `init`（含 VMR 探测与提案确认）/ `use <profile>` / `status` / `rollback`；全局旗标 `--dry-run` `--force` `--no-color` `--show-secrets` |
+| 数据 | `~/.acm/config.toml`（providers/models/profiles 三层）+ `state/active` + `state/<agent>/last_write.json`（存受管字段值而非哈希）+ `state/<agent>/snapshots/<ts>/`（Append-only） |
+| 安全底线（不可降级） | 白名单路径表封闭写入；写前整文件快照；tempfile + `os.replace` + 非阻塞 flock；pre-commit 指纹校验；`${ENV}` 硬失败零写盘；**受管字段漂移检测 + 默认阻断（退出码 2）+ --force 显式覆盖**；投影损失 stderr 单行告警并在 status 汇总；输出掩码；state 目录 0700 |
+| Writer | JSON = stdlib 保序解析（键序天然保持、语义无损）；TOML = tomlkit round-trip（注释免费保留）；YAML/JSONC 随对应适配器后置 |
+| 架构形态 | 适配器 = 数据驱动的映射表（路径表）+ 少量普通代码，产出纯数据 ops 与未映射告警；磁盘写入走唯一通道函数（白名单校验 → 快照 → 内存修改与非管节点断言 → 指纹校验 → 原子替换 → 记 last_write）。不做正式 Protocol 类层级、不设 ChangeSet 子系统命名，契约等价于 PRINCIPLE §3.4（适配器只编译，运行时零 I/O） |
+| 适配器 | **Claude Code -> Codex** 分片交付（Codex 承担"新建 TOML `model_providers` 表"的第二种形状） |
+| 质量条 | 见 §11 MVP 期测试集 |
 
-- Core / Safety Engine / Format Writers / Adapter Protocol 完整框架
-- Safety Engine 全量机制：三阶段提交、管理清单、漂移检测、pre-commit 指纹校验、并发锁、崩溃恢复、快照保留策略、密钥掩码
-- P0 适配器：**Claude Code、Codex、Pi**
-- 全命令（如上分组）+ 退出码规范
-- Format Writer round-trip 单测（含 YAML 前置锁定）+ 适配器金样测试 + 负面/故障注入用例
-- PyPI 发布（uvx / uv tool install / pipx 可用）
+### Phase 1 · Slice 2（MVP 收尾）
 
-**硬验收标准（全部可量化）**：
+- Pi 适配器（注册式投影形态 + 全新建文件场景验证），补齐 P0 三件套。
+- PyPI 发布（uvx / uv tool install / pipx 可用）。内部先行以 pip -e/uvx 跑通 Slice 1。
+
+**硬性 MVP 验收标准（全部可量化）**：
 
 1. 全新机器 VMR 场景：`acm init`（交互确认）-> `acm use daily` 后，3 个 P0 Agent 全部正确指向 VMR 虚拟模型；全程 ≤ 3 条命令、零手工编辑。
-2. `acm rollback` 后：管理字段恢复旧值；apply 与 rollback 之间模拟的 Agent 状态写入**存活**。
-3. 金样三步断言全绿（含 `--hard` 后 SHA-256 一致）+ 全部负面用例通过（§11.1）。
-4. 幂等：连续两次相同 `acm use` 第二次为 no-op（退出码 0）。
-5. 黑白名单断言：任何 op 触碰 `mcp_servers` / `mcpServers` / `permissions` / `hooks` / `enabledPlugins` / `models-store.json` 即测试失败。
-6. `acm release` 后：三 Agent 配置与 pre-ACM 状态一致（含"ACM 创建的文件被删除"场景），清单清空，零残留。
-7. 提交间隙 kill 进程后：磁盘不存在写一半的损坏文件，残留临时文件被启动清理；未入 journal 的变更触发漂移安全阻断，由 `acm apply --force` 或 `acm rollback --hard` 确认收敛至一致状态。
+2. 非破坏性：对带注释/MCP 配置/私有字段的夹具，连续 10 次 use/rollback 循环，未管键与注释保持不变。
+3. 可逆性：任意写入后 `rollback` 整文件回到写前字节；金样 a/b/c 断言全绿。
+4. 可靠性：写入中途 SIGKILL -> 磁盘无写一半损坏文件，残留临时文件下次启动清理；双进程抢锁一方退出码 2。
+5. 幂等性：连续两次相同 `acm use` 第二次为 no-op（退出码 0），且不产生新快照。
+6. 防护：op 触碰白名单外路径被拦截（退出码 2）且文件零变更；ENV 引用缺失在任何写盘前整体中止。
+7. 漂移：外部修改受管字段 -> `use` 阻断并给出 expected/found 具体值；`--force` 显式覆盖后才收敛。
+8. 退出路径：卸载 ACM 并删除 `~/.acm/` 后，各 Agent 配置保持最后投影状态继续可用（文档路径验证）。
+
+### 触发式升级（自 MVP 基线迈向终局语义，不排期）
+
+按 PRINCIPLE v2.1 §7 触发式升级表执行；触发后按本文档既有规格引入对应能力：
+Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 分层）、`apply`、`diff`、
+`doctor`、`history`、`release`、`import vmr`、显式 protected_paths 黑名单与双重校验。
 
 ### Phase 2：生态扩展（目标 +1–2 周）
 
@@ -835,7 +878,7 @@ Integration： import vmr
 | VSCode 系扩展迁移到 SQLite 私有存储 | 中 | 高（仅 P2 Agent） | 铁律 2：没有干净通道就不支持，绝不写私有 DB |
 | 密钥泄露 | 中 | 中 | credential 引用模型（§7.3.1）+ state 目录 0700 / 文件 0600 + 输出默认掩码 + doctor 明文告警；keychain 为后续可选项 |
 | 多文件事务部分失败 | 低 | 中 | 指纹校验 + 跨文件按序提交 + `apply` 幂等自愈 + `rollback --hard` 兜底 + 金样事务测试 |
-| 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；治理规格（v2.0）+ 实现参考（本文档）分层持续演进 |
+| 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；治理规格（PRINCIPLE v2.1）+ 实现参考（本文档）分层持续演进 |
 
 ---
 
@@ -959,6 +1002,7 @@ Integration： import vmr
 | VMR（127.0.0.1:8800、虚拟模型、healthz） | 三版一致 | ⚪ 内部项目约定，视为设计输入 |
 | "市场绝对空白" | Gemini 版 | ❌ 证伪；准确表述为细分生态位为空（§3.2） |
 | `commentjson` / `jstyleson` 可作为 JSONC 注释保留方案 | v1.1 草案 | ❌ 实测证伪：二者解析时即剥离注释，`dumps` 写回丢失全部注释，无法满足 §7.5.4 注释保留硬要求；`commentjson` 0.9.0 依赖 `lark-parser` 且实测无法解析值后块注释 |
+| Pi 自定义 provider 文件路径为 `~/.pi/config.json`（acm_mvp_scope_1 主张） | scope_1 | ❌ 证伪：官方文档与本机实证均为 `~/.pi/agent/models.json`（用户自定义文件）+ `settings.json`；`models-store.json` 为内部注册表绝不可写。维持本表上行 Pi 结论不变 |
 
 ---
 
@@ -988,4 +1032,21 @@ Integration： import vmr
 
 ---
 
-<!-- v1.1 实现参考结束。治理规格见 ACM_PROJECT_SPEC_v2.0.md；如与 v2.0 原则冲突，以 v2.0 为准，并回写修订本文档。 -->
+---
+
+## 附录 D：MVP 范围反馈裁决摘要
+
+> 四份独立给出的 MVP 范围提案（docs/acm_mvp_scope_1 ~ 4.md）已在
+> **docs/ACM_MVP_SCOPE_ADJUDICATION_v1.md** 中逐项裁决。本文档 v2.1 采纳的结论：
+>
+> - MVP 骨架取 scope_3：四命令命令面、路径表适配器、触发式升级治理；
+> - 安全底线取 scope_4 的论证（字段级修改 + 物理快照 + 原子写是最小必要安全集），并纠正其
+>   "零依赖"表述、"快照 + 字段逆操作"自相矛盾的回滚语义与无参 use 收敛模式；
+> - 非破坏性验收取 scope_2 的可量化循环标准；升级治理合并 scope_1 的量化阈值与 scope_3 的触发表；
+> - 拒绝四项共性降级诉求：砍漂移默认阻断、投影损失告警移出运行时、适配器自行读写磁盘、状态机缩减——
+>   均属公理级语义降级，违反 PRINCIPLE v2.1 §7 里程碑分级兑现原则；
+> - 拒绝 scope_3 砍 Pi 的提议（真实在用 + 注册式投影形态 + 全新建文件场景），改为 Slice 2 交付。
+>
+> MVP 范围定义并入本文档 §12，不再单独创建 MVP 范围文档。
+
+<!-- v2.1 实现参考结束。治理性规格见 docs/ACM_PROJECT_PRINCIPLE_v2.1.md；如与其原则冲突，以原则为准，并回写修订本文档。 -->
