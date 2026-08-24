@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "acm"
+name = "agent-config-manager"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

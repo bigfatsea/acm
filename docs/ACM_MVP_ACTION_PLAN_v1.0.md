@@ -643,16 +643,16 @@ config.toml（SSOT，用户可手编/init 生成）
 
 **任务细项**：
 1. README 重写/更新：安装（uvx/uv tool/pipx）、MVP 命令示例（init → use daily → status）、非破坏性承诺与免责、VMR 协同说明、退出路径说明（卸载即可，建议删除 `~/.acm/`）。
-2. 打包验证：`uv build`；隔离环境 `uvx acm --version`、`uv tool install acm`、`pipx install`（如本机可用）逐一验证。
+2. 打包验证：`uv build`；隔离环境 `uvx --from agent-config-manager acm --version`、`uv tool install agent-config-manager`、`pipx install agent-config-manager`（如本机可用）逐一验证。
 3. 硬性验收 8 条脚本化（对应 §7 逐条），在隔离 HOME 全量执行。
-4. 发布：查名（PyPI 索引）确认可用 → `uv build` → `uv publish`（或等效流程）；发布后 `uvx acm` 从公网拉取冒烟。
+4. 发布：查名（PyPI 索引）确认可用 → `uv build` → `uv publish`（或等效流程）；发布后 `uvx --from agent-config-manager acm` 从公网拉取冒烟。
 5. 发布前对照"非成功样貌"自检（SPEC §14）：无 GUI/MCP/网关/私有 DB/数量 KPI/状态入库。
 
 **测试计划**：`test_e2e_acceptance.py` = §7 的 8 条验收映射为可执行脚本（隔离 HOME + fake VMR 或真实 VMR）。
 
 **验收标准**：
 - [ ] 硬性验收 8/8 全绿（§7 表格逐条）。
-- [ ] `uvx acm` / `uv tool install acm` / `pipx` 三通道安装冒烟通过。
+- [ ] `uvx --from agent-config-manager acm` / `uv tool install agent-config-manager` / `pipx` 三通道安装冒烟通过。
 - [ ] 全新隔离 HOME 复现"≤3 条命令、零手改 Agent 配置文件"成功路径（VMR 场景）。
 - [ ] README 无失效链接、命令面与 MVP 一致。
 

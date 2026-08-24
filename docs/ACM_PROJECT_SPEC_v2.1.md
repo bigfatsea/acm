@@ -240,7 +240,7 @@ Manifest（所有权视图）    = 内存派生视图（Derived View），从 Jo
 
 ### D5：分发 = 单一主路径，其余通道按需后置
 
-**结论：MVP 只做一个主路径--发布到 PyPI，主推 `uvx acm`（零安装试用）与 `uv tool install acm`（全局安装）。pip/pipx 随 PyPI 发布免费获得。**
+**结论：MVP 只做一个主路径--发布到 PyPI（分发名 `agent-config-manager`，CLI 命令名保持 `acm`），主推 `uvx --from agent-config-manager acm`（零安装试用）与 `uv tool install agent-config-manager`（全局安装）。pip/pipx 随 PyPI 发布免费获得。**
 
 Homebrew Tap 与 pyapp 打包各自需要持续 CI 维护成本，触发式后置（写进 P3 准入条件）：出现真实的非 Python 环境需求 -> 上 pyapp；出现明确的 brew 用户获取习惯需求 -> 上 brew tap。
 

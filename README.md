@@ -49,12 +49,14 @@ ACM 管理的是**字段**，不是文件；模型世界的描述只有一份，
 ### 1. 运行与安装
 
 ```bash
-# 方式 A: 免安装直接运行 (推荐，基于 uvx)
-uvx acm status
+# 方式 A: 免安装直接运行 (推荐，基于 uvx，命令名仍为 acm)
+uvx --from agent-config-manager acm status
 
 # 方式 B: 全局安装到系统环境
-uv tool install acm
+uv tool install agent-config-manager
 ```
+
+> 注：PyPI 分发名为 `agent-config-manager`（短名 `acm` 易与 ACM 学会等混淆且存在抢注风险），安装后的 CLI 命令名保持 `acm` 不变。
 
 ### 2. 核心工作流（≤ 3 条命令）
 
