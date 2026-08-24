@@ -1,6 +1,6 @@
 # ACM (Agent Config Manager)
 
-**English** | [中文文档](./README.zh.md)
+**English** | [中文文档](https://github.com/bigfatsea/acm/blob/main/README.zh.md)
 
 > **The unified, non-destructive model configuration & projection engine for AI coding agents.**
 > A lightweight, non-destructive CLI that serves as the single source of truth (SSOT) for model/provider configuration — purpose-built for the coding-agent ecosystem — and projects it onto every agent installed on your machine.
@@ -40,9 +40,9 @@ ACM manages **fields**, not files. There is exactly one description of your mode
 
 | Document | Description |
 |---|---|
-| 🏛️ [**ACM Project Principles & Core Spec v2.1**](./docs/ACM_PROJECT_PRINCIPLE_v2.1.md) *(Chinese)* | **Governing charter**: axioms, non-destructive boundaries, six-step safe write pipeline, adapter contract & design philosophy |
-| 📋 [**ACM MVP Action Plan & Delivery Spec v1.0**](./docs/ACM_MVP_ACTION_PLAN_v1.0.md) *(Chinese)* | **Execution plan**: WP0–WP9 task breakdown, 8 hard acceptance criteria, state-machine definitions, testing & validation specs |
-| 🔬 [**Config Management Deep Dive & Best Practices**](./docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) *(Chinese)* | 40 years of configuration-management evolution, dual-ownership essence, field-ownership mechanics |
+| 🏛️ [**ACM Project Principles & Core Spec v2.1**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_PROJECT_PRINCIPLE_v2.1.md) *(Chinese)* | **Governing charter**: axioms, non-destructive boundaries, six-step safe write pipeline, adapter contract & design philosophy |
+| 📋 [**ACM MVP Action Plan & Delivery Spec v1.0**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_MVP_ACTION_PLAN_v1.0.md) *(Chinese)* | **Execution plan**: WP0–WP9 task breakdown, 8 hard acceptance criteria, state-machine definitions, testing & validation specs |
+| 🔬 [**Config Management Deep Dive & Best Practices**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) *(Chinese)* | 40 years of configuration-management evolution, dual-ownership essence, field-ownership mechanics |
 
 ---
 
@@ -172,4 +172,4 @@ main  = "coding"                         # single-model agents consume main;
 
 ## 📄 License
 
-[Apache-2.0 License](./pyproject.toml)
+[Apache-2.0 License](https://github.com/bigfatsea/acm/blob/main/pyproject.toml)

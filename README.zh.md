@@ -1,6 +1,6 @@
 # ACM (Agent Config Manager)
 
-[English](./README.md) | **中文文档**
+[English](https://github.com/bigfatsea/acm/blob/main/README.md) | **中文文档**
 
 > **The Unified, Non-Destructive Model Configuration & Projection Engine for AI Coding Agents.**  
 > 专为 Coding Agent 生态设计的轻量、非破坏性、聚焦于模型层（Model/Provider）的统一配置单一事实源（SSOT）与投影/回滚 CLI 工具。
@@ -40,9 +40,9 @@ ACM 管理的是**字段**，不是文件；模型世界的描述只有一份，
 
 | 文档 | 说明 |
 |---|---|
-| 🏛️ [**ACM 项目指导原则与核心规格 v2.1**](./docs/ACM_PROJECT_PRINCIPLE_v2.1.md) | **最高治理准则**：公理原则、非破坏性边界、六步安全写通道、适配器契约与设计哲学 |
-| 📋 [**ACM MVP 实施方案与交付规格 v1.0**](./docs/ACM_MVP_ACTION_PLAN_v1.0.md) | **执行方案**：WP0–WP9 任务分解、8 大硬性验收标准、状态机定义、测试与验证规范 |
-| 🔬 [**配置管理深度研报与最佳实践**](./docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) | 40 年配置管理演进、双重所有权本质、字段所有权机制深度剖析 |
+| 🏛️ [**ACM 项目指导原则与核心规格 v2.1**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_PROJECT_PRINCIPLE_v2.1.md) | **最高治理准则**：公理原则、非破坏性边界、六步安全写通道、适配器契约与设计哲学 |
+| 📋 [**ACM MVP 实施方案与交付规格 v1.0**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_MVP_ACTION_PLAN_v1.0.md) | **执行方案**：WP0–WP9 任务分解、8 大硬性验收标准、状态机定义、测试与验证规范 |
+| 🔬 [**配置管理深度研报与最佳实践**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) | 40 年配置管理演进、双重所有权本质、字段所有权机制深度剖析 |
 
 ---
 
@@ -164,4 +164,4 @@ main  = "coding"                         # 单模型 Agent 消费 main；多角�
 
 ## 📄 开源协议 (License)
 
-[Apache-2.0 License](./pyproject.toml)
+[Apache-2.0 License](https://github.com/bigfatsea/acm/blob/main/pyproject.toml)
