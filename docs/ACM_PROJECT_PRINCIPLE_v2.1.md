@@ -9,7 +9,7 @@
      两者冲突时，以本文档的原则为准；实现参考与原则冲突时，改实现参考。
      v2.0.1 变更：吸收 ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md §1
      的核心诉求、双重所有权本质与快照正确定位，作为治理原则的组成部分。
-     v2.0.2 变更（按一致性评审 docs/ACM_SPEC_CONSISTENCY_REVIEW.md 裁决）：release 语义
+     v2.0.2 变更（一致性评审裁决）：release 语义
      澄清为"恢复 pre-ACM 状态"（迁移其他工具时直接卸载即可，无需任何命令）；
      P2 目标措辞修正为“社区贡献内置适配器”。
      v2.1 变更（依据四份 MVP 范围提案的逐项裁决，结论固化于 §7 与 Spec v2.1 §12/附录 D）：§7 路线图改为

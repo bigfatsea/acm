@@ -1,0 +1,6 @@
+{
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-3-5-sonnet-20241022",
+  "defaultThinkingLevel": "medium",
+  "customSetting": "keep_this_custom_val"
+}

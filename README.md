@@ -38,9 +38,8 @@ ACM 管理的是**字段**，不是文件；模型世界的描述只有一份，
 
 | 文档 | 说明 |
 |---|---|
-| 🏛️ [**ACM 项目规格 v2.0（原则版）**](./docs/ACM_PROJECT_SPEC_v2.0.md) | **治理规格**：核心原则、边界定义、数据模型、命令语义（Governing Spec） |
-| 📘 [**ACM 项目规格说明书 v1.1**](./docs/ACM_PROJECT_SPEC_FINAL_v1.1.md) | **实现参考**：事务协议细节、数据结构、适配矩阵、事实核查与历史裁决 |
-| 📑 [**一致性评审与最终裁决记录**](./docs/ACM_SPEC_CONSISTENCY_REVIEW.md) | 规格演进过程中的 A/B/C 级冲突裁决与对齐执行记录 |
+| 🏛️ [**ACM 项目指导原则与核心规格 v2.1**](./docs/ACM_PROJECT_PRINCIPLE_v2.1.md) | **最高治理准则**：公理原则、非破坏性边界、六步安全写通道、适配器契约与设计哲学 |
+| 📋 [**ACM MVP 实施方案与交付规格 v1.0**](./docs/ACM_MVP_ACTION_PLAN_v1.0.md) | **执行方案**：WP0–WP9 任务分解、8 大硬性验收标准、状态机定义、测试与验证规范 |
 | 🔬 [**配置管理深度研报与最佳实践**](./docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) | 40 年配置管理演进、双重所有权本质、字段所有权机制深度剖析 |
 
 ---
@@ -150,7 +149,7 @@ main  = "coding"                         # 单模型 Agent 消费 main；多角�
 - **P0 (Phase 1 / MVP)**：
   - **Claude Code**：`~/.claude/settings.json`（JSON + env 块注入 + 高密度非管字段保护，绝不触碰 `~/.claude.json` 运行时状态）
   - **Codex**：`~/.codex/config.toml` + `~/.codex/auth.json`（TOML + JSON 双文件原子事务，保真保留带注释的 `mcp_servers`）
-  - **Pi**：`~/.pi/agent/models.json` + `settings.json`（注册式投影 + 方言/thinking level 映射，绝不触碰 `models-store.json`）
+  - **Pi**：`~/.pi/agent/models.json` + `settings.json`（注册式投影 + 方言/thinking level 映射，绝不触碰 `models-store.json`。*注：Pi 采用多 Provider 增量注册设计，切换 Profile 时在 `models.json` 中保留已有 provider 供历史会话复用，若需清理可直接删除未使用的条目或使用 `acm rollback`*）
 - **P1 (Phase 2)**：
   - **Aider**：`~/.aider.conf.yml` + `~/.aider.model.metadata.json`（YAML round-trip + 角色模型 main/weak/editor）
   - **Gemini CLI**、**OpenCode**（JSONC 注释保留）

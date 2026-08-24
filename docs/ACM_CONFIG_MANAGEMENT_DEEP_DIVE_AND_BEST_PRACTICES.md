@@ -220,14 +220,15 @@
 # 传统的 Markdown 部署模型（文件级）
 def deploy_markdown(src_file, dst_file, overwrite=True):
     if not dst_file.exists() or overwrite:
-        dst_file.write_text(src_file.read_text()) # 简单粗暴，完全成立
+        dst_file.write_text(src_file.read_text())  # 简单粗暴，完全成立
+
 
 # ACM 的结构化配置部署模型（AST 字段级）
 def apply_structured_config(target_file, changeset: ChangeSet):
-    ast = parse_roundtrip(target_file) # 保持注释与排版
+    ast = parse_roundtrip(target_file)  # 保持注释与排版
     for op in changeset.ops:
-        ast.set_path(op.path, op.new_value) # 仅精确改动指定 AST 节点
-    atomic_write(target_file, ast.to_string()) # 原子落盘
+        ast.set_path(op.path, op.new_value)  # 仅精确改动指定 AST 节点
+    atomic_write(target_file, ast.to_string())  # 原子落盘
 ```
 
 ---
@@ -504,6 +505,7 @@ from typing import Protocol
 from pathlib import Path
 from acm.core.models import ResolvedProfile, ChangeSet
 
+
 class Adapter(Protocol):
     agent_id: str
     display_name: str
@@ -564,8 +566,8 @@ class Adapter(Protocol):
    * 社区扩展通过 **标准 Python Protocol + 金样测试套件** 开放，具备极强的生命力。
 
 ### 8.2 立即落地的下一步动作
-* **阶段 1（即刻执行）**：
-  按照 `ACM_SPEC_COMPARATIVE_EVALUATION_AND_OPTIMIZATION_REPORT.md` 中汇总的 11 项修订清单，完成对规格说明书（v2.0 与 v1.1）的文字冻结与最终对齐。
+* **阶段 1（已完成）**：
+  按 11 项修订清单完成规格说明书（v2.0 与 v1.1 → v2.1）的文字冻结与最终对齐，结论固化于 `docs/ACM_PROJECT_SPEC_v2.1.md` 与 `docs/ACM_PROJECT_PRINCIPLE_v2.1.md`。
 * **阶段 2（编码实现）**：
   启动 Phase 1（MVP）工程实现：构建 Core 引擎、Safety Engine 三阶段提交、以及 Claude Code / Codex / Pi 三大官方适配器。
 

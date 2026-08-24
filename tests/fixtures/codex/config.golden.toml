@@ -1,0 +1,24 @@
+# Global Codex configuration
+model = "o3-mini"
+model_reasoning_effort = "medium"
+
+# Security and sandboxing options
+[features]
+sandbox = "workspace"
+auto_compact_context = true
+
+# Heavy MCP servers configuration with detailed comments
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/stanford/code"]
+
+# Database MCP server
+[mcp_servers.postgres]
+command = "uvx"
+args = ["mcp-server-postgres", "--connection-string", "postgresql://localhost/mydb"]
+
+# Local model provider definition
+[model_providers.custom_endpoint]
+base_url = "http://127.0.0.1:8000/v1"
+wire_api = "openai"
+env_key = "CUSTOM_API_KEY"

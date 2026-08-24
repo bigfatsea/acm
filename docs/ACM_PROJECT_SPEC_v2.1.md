@@ -408,22 +408,25 @@ main  = "cheap"
 
 ```python
 class Adapter(Protocol):
-    agent_id: str            # "claude_code"
-    display_name: str        # "Claude Code"
+    agent_id: str  # "claude_code"
+    display_name: str  # "Claude Code"
 
-    def detect(self) -> bool: ...
+    def detect(self) -> bool:
+        ...
         # 本机是否安装该 Agent。判定标准（统一约定）：
         # 可执行文件或配置目录存在 = 已安装（主判据，提升
         # "装好未运行过"的新机器开箱路径）；配置目录/文件存在时优先（快路径）；
         # 配置文件缺失且可执行存在 → 标记"可接管（将创建）"，use 时由 ACM 创建。
         # 探测失败的 Agent：跳过并在结果中汇总告警，不影响其他 Agent。
 
-    def config_paths(self) -> list[Path]: ...
+    def config_paths(self) -> list[Path]:
+        ...
         # 声明本适配器管理的所有文件路径--Safety Engine 据此统一做快照与加锁。
         # 必须使用统一路径 Helper：环境变量覆盖 -> XDG -> 平台默认 -> 探测，
         # 禁止硬编码绝对路径。
 
-    def plan(self, profile: ResolvedProfile) -> ChangeSet: ...
+    def plan(self, profile: ResolvedProfile) -> ChangeSet:
+        ...
         # 纯函数：产出字段级变更集 + 投影告警（§7.4.1）。值转换/方言适配/
         # 多文件协同全部在这里，用普通代码写（100% 内存运算，运行时彻底零物理 I/O）。
         # 校验职责 100% 下沉至开发期金样测试套件与 CI 门禁。
@@ -437,10 +440,11 @@ class Adapter(Protocol):
 @dataclass
 class FieldOp:
     file: Path
-    path: str              # 格式专属点路径，如 "env.ANTHROPIC_BASE_URL"
-    old: object | None     # 探测到的当前值（含"不存在"哨兵）
+    path: str  # 格式专属点路径，如 "env.ANTHROPIC_BASE_URL"
+    old: object | None  # 探测到的当前值（含"不存在"哨兵）
     new: object
-    created: bool          # 该路径是否为本次新建
+    created: bool  # 该路径是否为本次新建
+
 
 @dataclass
 class ProjectionWarning:
@@ -448,20 +452,22 @@ class ProjectionWarning:
     agent_id: str
     reason: str
 
+
 @dataclass
-class VerifyReport:        # 仅用于开发期金样单测门禁断言，非运行时 Protocol
+class VerifyReport:  # 仅用于开发期金样单测门禁断言，非运行时 Protocol
     ok: bool
     errors: list[str] = field(default_factory=list)
 
+
 @dataclass
 class ChangeSet:
-    txid: str                     # 事务 ID（journal 主键，rollback --to-tx 引用）
+    txid: str  # 事务 ID（journal 主键，rollback --to-tx 引用）
     agent_id: str
-    profile: str                  # 来源 profile
+    profile: str  # 来源 profile
     ops: list[FieldOp]
-    warnings: list[ProjectionWarning]   # 投影损失告警（§7.4.1），可为空
-    protected_paths: list[str]    # 适配器声明的禁止触碰路径（黑名单）
-    managed_namespaces: list[str] # 适配器声明的合法写入命名空间（白名单）
+    warnings: list[ProjectionWarning]  # 投影损失告警（§7.4.1），可为空
+    protected_paths: list[str]  # 适配器声明的禁止触碰路径（黑名单）
+    managed_namespaces: list[str]  # 适配器声明的合法写入命名空间（白名单）
 ```
 
 #### 7.4.1 投影损失告警（Projection Loss Warning）
@@ -515,9 +521,9 @@ Manifest 在 ACM 中作为**内存派生视图（Derived View）**存在，在�
 ```python
 @dataclass
 class FieldOwnership:
-    current: object            # ACM 最后一次写入的值（从最新 Journal 事务提取）
-    created_by_acm: bool       # 该字段/文件是否由 ACM 首次创建
-    last_tx: str               # 最后一次写入它的事务 ID
+    current: object  # ACM 最后一次写入的值（从最新 Journal 事务提取）
+    created_by_acm: bool  # 该字段/文件是否由 ACM 首次创建
+    last_tx: str  # 最后一次写入它的事务 ID
 ```
 
 **漂移检测的统一语义（适用于所有写入类命令）**：任何写入命令（use / apply / rollback / release）在执行前检查管理路径的当前磁盘值：
