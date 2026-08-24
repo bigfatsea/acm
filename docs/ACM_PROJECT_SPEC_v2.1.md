@@ -184,7 +184,7 @@
 
 ### D2：语言 = Python 3.12+，而非 Go
 
-**结论：纯 Python，最小依赖（typer+rich、ruamel.yaml、tomlkit；pydantic 可选，决策标准见下），uv 生态分发与锁定。**
+**结论：纯 Python，最小依赖（typer+rich、tomlkit；pydantic 可选，决策标准见下；ruamel.yaml 随 P1 Aider 引入），uv 生态分发与锁定。**
 
 | 需求特征 | Go | Python |
 |---|---|---|
@@ -200,10 +200,10 @@ Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致
 
 依赖预算与锁定（硬约束）：
 
-- MVP 运行时依赖 ≤ 4 个：`typer`+`rich`（计 1 组）、`ruamel.yaml`、`tomlkit`，外加可选 `pydantic`。
+- MVP 运行时依赖 ≤ 3 个：`typer`+`rich`（计 1 组）、`tomlkit`，外加可选 `pydantic`。`ruamel.yaml` 随 P1 Aider 引入。
 - P1 引入 OpenCode（JSONC 注释保留）时，可放宽引入 1 个依赖（此时运行时依赖上限 ≤ 5 个）。**注意（附录 B 实证）**：现有候选 `commentjson` / `jstyleson` 均只在解析时剥离注释、写回即丢失，无法满足 §7.5.4 的注释保留硬要求（`commentjson` 还拖带 `lark-parser` 依赖且实测存在解析缺陷）；注释保留 Writer 预计需自研轻量 JSONC 编辑器（与 D1"适配器即代码"一致），放宽的名额仅用于届时评估确有必要时。
 - `pydantic` 引入标准：当 Core Config 校验逻辑超过 ~200 行或校验规则开始互相组合时引入；否则用 dataclass + 显式校验函数。引入即计入依赖预算。
-- 依赖以 uv lock 锁定，CI 中检查 lock 漂移；文件锁用 `fcntl`/`msvcrt` 标准库实现。
+- 依赖以 uv lock 锁定，CI 中检查 lock 漂移；文件锁用 `fcntl` 标准库实现（MVP 仅 macOS/Linux、无 Win 分支；`msvcrt` 属终局语义）。
 
 ### D3：Core Config = ACM 自有的模型世界 SSOT，格式 TOML
 
@@ -256,9 +256,9 @@ Homebrew Tap 与 pyapp 打包各自需要持续 CI 维护成本，触发式后�
    | 架构能力 | 由谁验证 |
    |---|---|
    | JSON + env 块注入 + 大量非管字段保护 | Claude Code（`settings.json` 与 `~/.claude.json` 状态文件的边界） |
-   | TOML round-trip + **双文件事务**（`config.toml` + `auth.json`） | Codex（本机实证：用户 config.toml 含大量带注释的 `mcp_servers` 表） |
+   | TOML round-trip + **新建表形状**（env_key 单文件默认；双文件事务降为备选机制） | Codex（本机实证：用户 config.toml 含大量带注释的 `mcp_servers` 表） |
    | Provider/Model **注册式**投影 + api 方言映射 + compat 能力位 + thinking level 映射 | Pi（其 schema 与 Core Config 概念同构度最高） |
-   | YAML round-trip + 角色模型（main/weak/editor）+ 元数据文件派生 | **Aider（P1 首位，架构压力测试）**；ruamel round-trip 能力在 MVP 内以 Helper 级金样单测前置锁定 |
+   | YAML round-trip + 角色模型（main/weak/editor）+ 元数据文件派生 | **Aider（P1 首位，架构压力测试）**；ruamel round-trip 能力随 P1 Aider 一并引入 |
 
 3. 结论：P0 三件套已覆盖 JSON/TOML 双格式、单/多文件、覆盖式/注册式两种投影形态；唯一未覆盖项由 P1 首位的 Aider 承担。**MVP 的架构验证充分性不受损，同时不做无用功。**
 
@@ -413,8 +413,9 @@ class Adapter(Protocol):
 
     def detect(self) -> bool: ...
         # 本机是否安装该 Agent。判定标准（统一约定）：
-        # 配置目录/文件存在 = 已安装（主判据，Agent 首次运行必建配置，
-        # 而 PATH 检查会漏掉未链接的安装）；可执行文件存在为辅。
+        # 可执行文件或配置目录存在 = 已安装（主判据，提升
+        # "装好未运行过"的新机器开箱路径）；配置目录/文件存在时优先（快路径）；
+        # 配置文件缺失且可执行存在 → 标记"可接管（将创建）"，use 时由 ACM 创建。
         # 探测失败的 Agent：跳过并在结果中汇总告警，不影响其他 Agent。
 
     def config_paths(self) -> list[Path]: ...
@@ -503,10 +504,7 @@ class ChangeSet:
   5. 异常回退：若原子替换前发生任何异常，清理临时文件，原文件与快照均未受损
 ```
 
-**MVP 简化变体（无 Journal 阶段，§12 Slice 1）**：流水线精简为五步——白名单校验 → 写前整文件快照 →
-内存修改与非管节点断言 → pre-commit 指纹校验 → `os.replace` 原子替换；末步由追加 journal 改为覆写
-`last_write.json`。黑名单双重校验、txid 与 `--to-tx` 语义随黑名单与 Journal 按触发一并引入
-（PRINCIPLE v2.1 §7 触发式升级表）。
+**MVP 简化变体（无 Journal 阶段，§12 Slice 1）**：流水线精简为六步（核心五步 + 状态收尾一步）——① 白名单校验 → ② 写前整文件快照（Safety 依磁盘 H0/当前值把适配器产出的纯期望值 ops 补全为含 old/created 的完整字段操作）→ ③ 内存修改与非管节点断言（语义级）→ ④ pre-commit 批处理指纹校验 → ⑤ `os.replace` 原子替换 → ⑥ 覆写 `last_write.json`。黑名单双重校验、txid 与 `--to-tx` 语义随黑名单与 Journal 按触发一并引入（PRINCIPLE v2.1 §7 触发式升级表）。
 
 #### 7.5.2 管理字段所有权内存视图（Managed Manifest）与漂移检测
 
@@ -526,6 +524,7 @@ class FieldOwnership:
 
 - 磁盘值 == ACM 最后写入值：正常继续。
 - 磁盘值 ≠ ACM 最后写入值：**外部修改过，默认阻断**，要求 `--force` 或先 `acm diff` 确认。不存在任何"自动修复漂移"的路径--`apply` 的收敛也必须过这道闸门。
+- 若命令解析为 no-op（受管字段全部 `Current == Desired`），则无写入即无覆盖风险——仅 `status`/提示展示漂移，不触发阻断（见 §7.5.8；漂移阻断定位为"写入前的覆盖保护"，非覆盖即无阻断必要）。
 
 Manifest 内存视图的用途：
 
@@ -571,7 +570,7 @@ Manifest 内存视图的用途：
 - **写前 Snapshot 留存**：动刀前原样备份目标文件，永远拥有最后一份未篡改底板；
 - **原子重命名**：新内容先完整写入临时文件 `<target>.acm_tmp`，再通过 `os.replace` 瞬时替换，文件系统层面不存在“写入一半”的中间损坏态；
 - **启动检查**：启动时若发现残留 `.acm_tmp` 临时文件直接安全清理（静默内务，无需用户感知）。
-- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `last_write` 写入之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未记入 last_write（每个文件自身仍完整；Journal 上线后为未记入 journal）。下次运行时未记入的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm rollback --hard` 从快照原样复原（apply/diff 上线后可用 `acm apply --force` 确认收敛）。
+- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `last_write` 写入之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未记入 last_write（每个文件自身仍完整；Journal 上线后为未记入 journal）。下次运行时未记入的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm rollback` 从快照原样复原（apply/diff 上线后可用 `acm apply --force` 确认收敛）。
 
 #### 7.5.7 密钥与敏感信息全链路防护
 
@@ -581,7 +580,7 @@ Manifest 内存视图的用途：
 
 #### 7.5.8 幂等性
 
-重复 `acm use <同一 profile>`：ChangeSet 与当前值比对后为空 -> no-op，退出码 0，不产生新快照。
+重复 `acm use <同一 profile>`：ChangeSet 与当前值比对后为空 -> no-op，退出码 0，不产生新快照。判定顺序：① 所有受管字段 `Current == Desired` → no-op（即使存在漂移也仅提示不阻断，exit 0）；② 存在 `Current != Desired` 且其中含漂移字段 → 阻断（exit 2）；③ 无漂移且 `Current != Desired` → 正常投影收敛。
 
 ### 7.6 Agent 状态机（status 的正式模型）
 
@@ -631,7 +630,7 @@ Manifest 内存视图的用途：
 | Agent | 目标文件 | 格式 | ACM 写入字段 | 保护字段（黑名单） | 架构验证点 / 投影能力 |
 |---|---|---|---|---|---|
 | **Claude Code** | `~/.claude/settings.json` ✔ | JSON | `env.ANTHROPIC_BASE_URL`、`env.ANTHROPIC_AUTH_TOKEN`（或 `ANTHROPIC_API_KEY`）、`model`、reasoning -> `effortLevel` 类字段 ✔ | `permissions`、`hooks`、`enabledPlugins`、`statusLine`、`tui` 等一切非模型字段；**绝不碰 `~/.claude.json`** ✔ | env 块注入；高密度非管字段保护；热切换（WARN 级）✔；无法表达 reasoning budget_tokens -> 投影告警 |
-| **Codex** | `~/.codex/config.toml` ✔ + `~/.codex/auth.json` ✔ | TOML + JSON | 顶层 `model`、`model_reasoning_effort` ✔、`model_providers.<id>` 表（base_url/wire_api/env_key）、auth.json 对应 key | `mcp_servers`（本机实证含大量带注释条目 ✔）、`features`、`memories`、`tui`、`notify`、`sandbox` | tomlkit round-trip（注释密集 ✔）；**双文件事务 + 崩溃恢复**的首个实战用例 |
+| **Codex** | `~/.codex/config.toml` ✔（auth.json 为**备选**：本机实证其为 Codex 运行态 OAuth 文件，默认 `env_key` 单文件方案） | TOML（+ JSON 备选） | 顶层 `model`、`model_reasoning_effort` ✔、`model_providers.<id>` 表（base_url/wire_api/**env_key=环境变量名**） | `mcp_servers`（本机实证含大量带注释条目 ✔）、`features`、`memories`、`tui`、`notify`、`sandbox` | tomlkit round-trip（注释密集 ✔）；env_key 单文件投影（待实证）；双文件事务降为备选机制（Safety Engine 多文件能力保留） |
 | **Pi** | `~/.pi/agent/models.json`（用户自定义文件，官方文档 ✔；不存在则创建）+ `~/.pi/agent/settings.json` ✔ | JSON | models.json：`providers.<name>`（baseUrl / api 方言 ✔ / apiKey / models[]：id、contextWindow、maxTokens、compat、thinkingLevelMap ✔）；settings.json：`defaultProvider`、`defaultModel`、`defaultThinkingLevel` ✔ | **`models-store.json`（pi 内部注册表，绝不写入）** ✔、`trust.json`、`auth.json`、extensions/skills | 注册式投影；方言（`openai-completions`/`anthropic-messages` ✔）+ compat/thinking level 映射，与 Core Config 同构度最高 |
 
 ### P1（Phase 2）
@@ -657,8 +656,9 @@ Manifest 内存视图的用途：
 **定位：VMR 是第一方集成，不是架构依赖。ACM 因 VMR 而诞生，但脱离 VMR 仍然是完整产品。**
 
 ```
-$ acm init                  # 扫描本机 Agent + 探测 VMR（127.0.0.1:8800/healthz，
-                            #   fallback 读取 ~/.vmr/ 配置）
+$ acm init                  # 扫描本机 Agent + 探测 VMR（127.0.0.1:8800：healthz 快速通道 →
+                            #   /v1/models 主证据+数据源 → ~/.vmr/ 配置 → 未命中；
+                            #   实测 healthz 404 而 /v1/models 200）
                             #   -> 探测命中则将 providers.vmr + models.* 直接并入提案，
                             #   确认后才写入（绝不静默修改用户 SSOT）
 $ acm use daily             # 设为激活 profile 并投影到本机所有已检测到的 Agent
@@ -705,12 +705,13 @@ acm diff [<agent>] [--against desired|last-write|snapshot]
                             #   磁盘原始配置 vs 接管后的预期变更，并标注 [DRY-RUN / UNMANAGED]）
 acm history [<agent>]       # 【触发式后置：随 Journal 一并引入】事务时间线：txid、时间、来源 profile、命令、状态
 acm rollback [<agent>] [--to-tx <txid>] [--hard [--snapshot <id>]] [--force]
-                            # 【MVP 仅交付整文件恢复：等价于 --hard 最新快照；字段级回滚与
+                            # 【MVP 仅交付整文件恢复：恢复目标 = 更新前 last_write.backup_id
+                            #   指向的快照（非"最新"；undo-undo 见 Action Plan §4.2）；字段级回滚与
                             #   --to-tx/--snapshot 参数随 Journal 触发引入】
                             # 默认字段级回滚：逆序回滚最后一个事务（--to-tx <txid> 则逆序回滚
                             #   至该事务之后的状态）--基于 journal，粒度是字段
                             # --hard 灾难恢复：整文件快照还原（--snapshot <id> 恢复指定快照，
-                            #   缺省为最新快照）
+                            #   缺省为最新快照——终局 Journal 时代语义，与 MVP 的 backup_id 目标不同）
                             # 参数名显式分离（--to-tx vs --snapshot），杜绝多态混淆
 acm release [<agent>] [--force]
                             # 【触发式后置：试用后完全退出并恢复旧值的真实诉求】
@@ -778,13 +779,13 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 
 1. **Apply**：目标模型字段精确修改（语义断言）。
 2. **Non-destructive**：按 §7.5.4 的格式保证等级分别断言--未管理节点语义级不变（解析树 diff，硬承诺）；注释/键序/空白按 fixture 界定的词法承诺断言。
-3. **Rollback**：字段级回滚后管理字段恢复旧值；apply 与 rollback 之间**模拟 Agent 写入状态**后该状态仍存活；`--hard` 回滚后文件 SHA-256 与原样本一致。
+3. **Rollback**：字段级回滚后管理字段恢复旧值（MVP 无 Journal，rollback 为整文件恢复）；apply 与 rollback 之间**模拟 Agent 写入状态**后该状态仍存活；回滚后文件 SHA-256 与写前字节一致。
 
 **负面与故障注入用例（安全机制的刚性验证）**：
 
 - 故意让 op 触碰保护路径 -> 断言拦截（退出码 2）且文件零变更；
 - 多文件事务中途注入失败（原子替换前）-> 原文件零变更、临时文件清理无残留；
-- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，未记入 last_write 的变更触发漂移安全阻断（由 `acm rollback --hard` 确认收敛；apply 上线后可用 `acm apply --force`）；
+- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，last_write 存在但字段不一致时触发漂移安全阻断（last_write 缺失属首次接管场景，不阻断、重投即可），由 `acm rollback` 从快照收敛（apply 上线后可用 `acm apply --force`）；
 - 提交前外部篡改文件（指纹不匹配）-> 整体中止，无覆盖；
 - ENV 引用缺失 -> 任何写入发生前硬中止；
 - 双进程并发写 -> 锁竞争一方退出码 2，无交错写入；
@@ -818,7 +819,7 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 |---|---|
 | 命令 | `init`（含 VMR 探测与提案确认）/ `use <profile>` / `status` / `rollback`；全局旗标 `--dry-run` `--force` `--no-color` `--show-secrets` |
 | 数据 | `~/.acm/config.toml`（providers/models/profiles 三层）+ `state/active` + `state/<agent>/last_write.json`（存受管字段值而非哈希）+ `state/<agent>/snapshots/<ts>/`（Append-only） |
-| 安全底线（不可降级） | 白名单路径表封闭写入；写前整文件快照；tempfile + `os.replace` + 非阻塞 flock；pre-commit 指纹校验；`${ENV}` 硬失败零写盘；**受管字段漂移检测 + 默认阻断（退出码 2）+ --force 显式覆盖**；投影损失 stderr 单行告警并在 status 汇总；输出掩码；state 目录 0700 |
+| 安全底线（不可降级） | 白名单路径表封闭写入；写前整文件快照；tempfile + `os.replace` + 非阻塞 flock；pre-commit 指纹校验；`${ENV}` 硬失败零写盘；**受管字段漂移检测 + 默认阻断（退出码 2）+ --force 显式覆盖**（例外：no-op 且全部受管字段 Current==Desired 时仅提示不阻断，见 §7.5.8）；投影损失 stderr 单行告警并在 status 汇总；输出掩码；state 目录 0700 |
 | Writer | JSON = stdlib 保序解析（键序天然保持、语义无损）；TOML = tomlkit round-trip（注释免费保留）；YAML/JSONC 随对应适配器后置 |
 | 架构形态 | 适配器 = 数据驱动的映射表（路径表）+ 少量普通代码，产出纯数据 ops 与未映射告警；磁盘写入走唯一通道函数（白名单校验 → 快照 → 内存修改与非管节点断言 → 指纹校验 → 原子替换 → 记 last_write）。不做正式 Protocol 类层级、不设 ChangeSet 子系统命名，契约等价于 PRINCIPLE §3.4（适配器只编译，运行时零 I/O） |
 | 适配器 | **Claude Code -> Codex** 分片交付（Codex 承担"新建 TOML `model_providers` 表"的第二种形状） |
