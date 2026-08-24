@@ -15,8 +15,8 @@
      明确 config.toml 永不自动删除，迁移其他工具时直接卸载即可；崩溃恢复从简，
      靠"写前快照 + 原子替换无损坏中间态 + 漂移阻断与 force 收敛"兜底；
      use 保持全局 Profile 切换收敛语义，单 Agent 收敛统一由 apply <agent> 承载；init 移除 --yes。
-     v2.1 变更（自 ACM_PROJECT_SPEC_FINAL_v1.1.md 更名升版；裁决依据：
-     docs/ACM_MVP_SCOPE_ADJUDICATION_v1.md）：§12 实施路线图重写为
+     v2.1 变更（自 ACM_PROJECT_SPEC_FINAL_v1.1.md 更名升版；依据四份 MVP 范围提案的逐项裁决，
+     过程文档已清理，结论固化于 §12 与附录 D）：§12 实施路线图重写为
      "Phase 1 分片交付 + 触发式升级"，MVP 范围定义与验收标准并入本文档，
      不再单独创建 MVP 范围文档；§10 命令总表逐项标注 MVP 子集与后置触发条件；
      §9 改为 VMR 探测并入 init，import vmr 后置；§7.3 新增 last_write 记录说明，
@@ -1002,7 +1002,7 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 | VMR（127.0.0.1:8800、虚拟模型、healthz） | 三版一致 | ⚪ 内部项目约定，视为设计输入 |
 | "市场绝对空白" | Gemini 版 | ❌ 证伪；准确表述为细分生态位为空（§3.2） |
 | `commentjson` / `jstyleson` 可作为 JSONC 注释保留方案 | v1.1 草案 | ❌ 实测证伪：二者解析时即剥离注释，`dumps` 写回丢失全部注释，无法满足 §7.5.4 注释保留硬要求；`commentjson` 0.9.0 依赖 `lark-parser` 且实测无法解析值后块注释 |
-| Pi 自定义 provider 文件路径为 `~/.pi/config.json`（acm_mvp_scope_1 主张） | scope_1 | ❌ 证伪：官方文档与本机实证均为 `~/.pi/agent/models.json`（用户自定义文件）+ `settings.json`；`models-store.json` 为内部注册表绝不可写。维持本表上行 Pi 结论不变 |
+| Pi 自定义 provider 文件路径曾被主张为 `~/.pi/config.json` | 过程提案（已清理） | ❌ 证伪：官方文档与本机实证均为 `~/.pi/agent/models.json`（用户自定义文件）+ `settings.json`；`models-store.json` 为内部注册表绝不可写。维持本表上行 Pi 结论不变 |
 
 ---
 
@@ -1032,21 +1032,19 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 
 ---
 
----
-
 ## 附录 D：MVP 范围反馈裁决摘要
 
-> 四份独立给出的 MVP 范围提案（docs/acm_mvp_scope_1 ~ 4.md）已在
-> **docs/ACM_MVP_SCOPE_ADJUDICATION_v1.md** 中逐项裁决。本文档 v2.1 采纳的结论：
+> v2.1 制定过程中曾对四份独立给出的 MVP 范围提案（过程文档，已清理）逐项裁决，
+> 本文档与 PRINCIPLE v2.1 采纳的核心结论：
 >
-> - MVP 骨架取 scope_3：四命令命令面、路径表适配器、触发式升级治理；
-> - 安全底线取 scope_4 的论证（字段级修改 + 物理快照 + 原子写是最小必要安全集），并纠正其
->   "零依赖"表述、"快照 + 字段逆操作"自相矛盾的回滚语义与无参 use 收敛模式；
-> - 非破坏性验收取 scope_2 的可量化循环标准；升级治理合并 scope_1 的量化阈值与 scope_3 的触发表；
+> - MVP 骨架：四命令命令面（init / use / status / rollback）、路径表适配器、触发式升级治理；
+> - 安全底线：字段级修改 + 物理快照 + 原子写是最小必要安全集（不退回整文件覆盖）；并纠正
+>   "零依赖"表述、"快照 + 字段逆操作"自相矛盾的回滚语义、无参 use 收敛模式；
+> - 非破坏性验收取可量化的循环标准；升级治理合并量化阈值与触发式升级表；
 > - 拒绝四项共性降级诉求：砍漂移默认阻断、投影损失告警移出运行时、适配器自行读写磁盘、状态机缩减——
 >   均属公理级语义降级，违反 PRINCIPLE v2.1 §7 里程碑分级兑现原则；
-> - 拒绝 scope_3 砍 Pi 的提议（真实在用 + 注册式投影形态 + 全新建文件场景），改为 Slice 2 交付。
+> - 拒绝砍 Pi 的提议（真实在用 + 注册式投影形态 + 全新建文件场景），改为 Slice 2 交付。
 >
-> MVP 范围定义并入本文档 §12，不再单独创建 MVP 范围文档。
+> MVP 范围定义并入本文档 §12。
 
 <!-- v2.1 实现参考结束。治理性规格见 docs/ACM_PROJECT_PRINCIPLE_v2.1.md；如与其原则冲突，以原则为准，并回写修订本文档。 -->
