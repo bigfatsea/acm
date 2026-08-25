@@ -1,6 +1,7 @@
 # // Ver 2026-08-24 22:05, by gemini-3.7-flash
 """Integration tests for Pi adapter through CLI commands (WP8)."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -57,6 +58,67 @@ def test_pi_cli_lifecycle_with_orphan_archive(
     # Check that archived file exists
     archived_files = list(pi_dir.glob("models.json.acm_orphaned.*"))
     assert len(archived_files) == 1
+
+
+def test_pi_pool_use_idempotent_and_drift(
+    tmp_home: Path, make_config: Callable[[str], Path]
+) -> None:
+    """End-to-end model pool: use is idempotent, status SYNCED, external member deletion drifts."""
+    clear_adapters()
+    register_adapter(pi)
+
+    toml = """version = 1
+[providers.vmr]
+protocol = "openai"
+base_url = "http://127.0.0.1:8800/v1"
+api_key = "sk-pool-key"
+
+[models.coding]
+provider = "vmr"
+id = "coding"
+
+[models.cheap]
+provider = "vmr"
+id = "cheap"
+
+[profiles.daily]
+main = "coding"
+
+[profiles.daily.pool]
+budget = "cheap"
+"""
+    make_config(toml)
+
+    pi_dir = tmp_home / ".pi" / "agent"
+    pi_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. First projection creates models.json with both pool members
+    res_use = runner.invoke(cli_app, ["use", "daily"])
+    assert res_use.exit_code == 0
+    models_file = pi_dir / "models.json"
+    content = models_file.read_text(encoding="utf-8")
+    assert '"name": "main"' in content
+    assert '"name": "budget"' in content
+
+    # 2. status -> SYNCED
+    res_st = runner.invoke(cli_app, ["status"])
+    assert res_st.exit_code == 0
+    assert "SYNCED" in res_st.stdout
+
+    # 3. Re-running use is a no-op (idempotent)
+    res_use2 = runner.invoke(cli_app, ["use", "daily"])
+    assert res_use2.exit_code == 0
+    assert "already in desired state (no-op)" in res_use2.stdout
+
+    # 4. External deletion of a pool member is drift, blocked by default
+    payload = json.loads(models_file.read_text(encoding="utf-8"))
+    payload["providers"]["vmr"]["models"] = [
+        m for m in payload["providers"]["vmr"]["models"] if m["name"] != "budget"
+    ]
+    models_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    res_drift = runner.invoke(cli_app, ["use", "daily"])
+    assert res_drift.exit_code == 2
 
 
 def test_pi_dry_run_and_drift_masking(tmp_home: Path, make_config: Callable[[str], Path]) -> None:

@@ -74,3 +74,53 @@ def test_codex_golden_abc(tmp_home: Path) -> None:
     target_file.write_bytes(snap_file.read_bytes())
     restored_sha = hashlib.sha256(target_file.read_bytes()).hexdigest()
     assert restored_sha == initial_sha
+
+
+def test_codex_pool_aggregate_warning() -> None:
+    """Type II agent: pool members beyond main produce one aggregate skip warning."""
+    from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
+
+    prov = ResolvedProvider(
+        name="vmr", protocol="openai", base_url="http://localhost:8800", api_key="k",
+        raw_api_key_ref="${KEY}",
+    )
+    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=prov)
+    cheap = ResolvedModel(model_id="cheap", upstream_id="cheap", provider=prov)
+    profile = ResolvedProfile(
+        profile_name="daily", main=coding, pool={"main": coding, "budget": cheap}
+    )
+
+    ops, warnings = codex.plan(profile)
+
+    assert next(o.new for o in ops if o.path == "model") == "coding"
+    pool_warnings = [w for w in warnings if w.field == "pool"]
+    assert len(pool_warnings) == 1
+    assert "budget(cheap)" in pool_warnings[0].reason
+
+
+def test_codex_pool_skipped_includes_cross_provider_same_id() -> None:
+    """§16.1 fix: skipped-members are compared by (provider, upstream id), not
+    bare id — a pool member on a different provider with the same id string as
+    main is a distinct, unexpressed model and must still be listed."""
+    from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
+
+    vmr = ResolvedProvider(
+        name="vmr", protocol="openai", base_url="http://localhost:8800", api_key="k",
+        raw_api_key_ref="${KEY}",
+    )
+    direct = ResolvedProvider(
+        name="direct", protocol="openai", base_url="https://direct.example.com/v1",
+        api_key="k2", raw_api_key_ref="${KEY2}",
+    )
+    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=vmr)
+    alt = ResolvedModel(model_id="alt-alias", upstream_id="coding", provider=direct)
+
+    profile = ResolvedProfile(
+        profile_name="daily", main=coding, pool={"main": coding, "review": alt}
+    )
+
+    _, warnings = codex.plan(profile)
+
+    pool_warnings = [w for w in warnings if w.field == "pool"]
+    assert len(pool_warnings) == 1
+    assert "review(coding)" in pool_warnings[0].reason

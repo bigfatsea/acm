@@ -45,10 +45,18 @@ def check_unsupported_profile_specs(
     profile: ResolvedProfile,
     agent_id: str,
     supported_fields: set[str],
+    pool_covered_model_ids: set[str] | None = None,
 ) -> list[ProjectionWarning]:
-    """Emit ProjectionWarning for desired specifications unexpressible in the target agent."""
+    """Emit ProjectionWarning for desired specifications unexpressible in the target agent.
+
+    pool_covered_model_ids: model aliases already surfaced to the user via a
+    model-pool aggregate warning elsewhere in plan(). A role whose target model
+    is already covered is exempted here to avoid a redundant duplicate warning
+    about the same underlying gap (see DESIGN_MODEL_POOL_v1.md §8.4).
+    """
+    covered = pool_covered_model_ids or set()
     warnings: list[ProjectionWarning] = []
-    if profile.cheap and "cheap" not in supported_fields:
+    if profile.cheap and profile.cheap.model_id not in covered and "cheap" not in supported_fields:
         warnings.append(
             ProjectionWarning(
                 field="roles.cheap",
@@ -56,7 +64,10 @@ def check_unsupported_profile_specs(
                 reason=f"{agent_id} does not support secondary/cheap role slots in config",
             )
         )
-    if profile.extra_roles and "extra_roles" not in supported_fields:
+    uncovered_extra_roles = {
+        name: m for name, m in profile.extra_roles.items() if m.model_id not in covered
+    }
+    if uncovered_extra_roles and "extra_roles" not in supported_fields:
         warnings.append(
             ProjectionWarning(
                 field="roles.extra",

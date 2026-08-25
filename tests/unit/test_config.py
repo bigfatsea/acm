@@ -172,3 +172,162 @@ def test_load_config_file_success(tmp_path: Path, sample_config_toml: str) -> No
     cfg = load_config(p)
     assert isinstance(cfg, CoreConfig)
     assert cfg.version == 1
+
+
+# ── Model pool (DESIGN_MODEL_POOL_v1.md §4.3) ──────────────────────────────
+
+
+def _pool_base_toml(pool_table: str) -> str:
+    return f"""version = 1
+[providers.vmr]
+protocol = "openai"
+base_url = "http://127.0.0.1:8800/v1"
+api_key = "k"
+
+[models.coding]
+provider = "vmr"
+id = "coding"
+
+[models.cheap]
+provider = "vmr"
+id = "cheap"
+
+[models.agent]
+provider = "vmr"
+id = "agent"
+
+[profiles.daily]
+main = "coding"
+{pool_table}
+"""
+
+
+def test_pool_valid_parses() -> None:
+    """A well-formed pool table parses and is exposed on ProfileConfig."""
+    toml = _pool_base_toml(
+        """
+[profiles.daily.pool]
+budget = "cheap"
+longctx = "agent"
+"""
+    )
+    cfg = parse_config_toml(toml)
+    assert cfg.profiles["daily"].pool == {"budget": "cheap", "longctx": "agent"}
+
+
+def test_pool_empty_table_is_valid() -> None:
+    """R7: pool = {} is valid and treated as if unset."""
+    toml = _pool_base_toml(
+        """
+[profiles.daily.pool]
+"""
+    )
+    cfg = parse_config_toml(toml)
+    assert cfg.profiles["daily"].pool == {}
+
+
+def test_pool_and_cheap_coexist() -> None:
+    """D4: pool and cheap role are independent and may both be declared."""
+    toml = _pool_base_toml(
+        """
+cheap = "cheap"
+
+[profiles.daily.pool]
+budget = "cheap"
+"""
+    )
+    cfg = parse_config_toml(toml)
+    assert cfg.profiles["daily"].cheap == "cheap"
+    assert cfg.profiles["daily"].pool == {"budget": "cheap"}
+
+
+def test_pool_e1_unknown_model_alias() -> None:
+    """E1: pool value referencing a non-existent model alias is rejected."""
+    toml = _pool_base_toml(
+        """
+[profiles.daily.pool]
+budget = "nonexistent"
+"""
+    )
+    with pytest.raises(ConfigError, match="references non-existent model 'nonexistent'"):
+        parse_config_toml(toml)
+
+
+def test_pool_e2_duplicate_alias() -> None:
+    """E2: two labels pointing at the same model alias is rejected."""
+    toml = _pool_base_toml(
+        """
+[profiles.daily.pool]
+budget = "cheap"
+thrifty = "cheap"
+"""
+    )
+    with pytest.raises(ConfigError, match="Duplicate model alias 'cheap' in pool"):
+        parse_config_toml(toml)
+
+
+def test_pool_e3_empty_label() -> None:
+    """E3: an empty-string label is rejected."""
+    toml = _pool_base_toml(
+        """
+[profiles.daily.pool]
+"" = "cheap"
+"""
+    )
+    with pytest.raises(ConfigError, match="Pool label must be non-empty"):
+        parse_config_toml(toml)
+
+
+def test_pool_e4_non_string_value_rejected() -> None:
+    """E4: a nested table as a pool value is rejected by the dict[str, str] type."""
+    toml = _pool_base_toml(
+        """
+[profiles.daily.pool.budget]
+nested = "not-a-string"
+"""
+    )
+    with pytest.raises(ConfigError):
+        parse_config_toml(toml)
+
+
+def test_pool_e5_duplicate_upstream_id_rejected() -> None:
+    """E5 (§13.3 fix): two distinct aliases resolving to the same (provider, id) pair
+    are rejected — same-alias dedup (E2) alone doesn't catch this, and it would produce
+    ambiguous duplicate-id entries in Pi's models[] array."""
+    toml = _pool_base_toml(
+        """
+[models.cheap-alias]
+provider = "vmr"
+id = "cheap"
+
+[profiles.daily.pool]
+budget = "cheap"
+thrifty = "cheap-alias"
+"""
+    )
+    with pytest.raises(
+        ConfigError, match="both resolve to upstream model id 'cheap' on provider 'vmr'"
+    ):
+        parse_config_toml(toml)
+
+
+def test_pool_distinct_upstream_ids_across_providers_allowed() -> None:
+    """Same upstream id string on *different* providers is not ambiguous — allowed."""
+    toml = _pool_base_toml(
+        """
+[providers.direct]
+protocol = "openai"
+base_url = "https://api.example.com/v1"
+api_key = "k2"
+
+[models.direct-cheap]
+provider = "direct"
+id = "cheap"
+
+[profiles.daily.pool]
+budget = "cheap"
+alt = "direct-cheap"
+"""
+    )
+    cfg = parse_config_toml(toml)
+    assert cfg.profiles["daily"].pool == {"budget": "cheap", "alt": "direct-cheap"}

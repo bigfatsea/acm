@@ -75,6 +75,7 @@ class ProfileConfig(BaseModel):
 
     main: str
     cheap: str | None = None
+    pool: dict[str, str] | None = None
 
 
 class CoreConfig(BaseModel):
@@ -129,6 +130,36 @@ class CoreConfig(BaseModel):
                     raise ValueError(
                         f"Profile '{profile_name}' role '{extra_key}' model '{extra_val}' is not defined under [models]."
                     )
+
+            # Validate model pool (label -> model alias map)
+            if profile_cfg.pool:
+                seen_aliases: set[str] = set()
+                seen_upstream: dict[tuple[str, str], str] = {}
+                for label, alias in profile_cfg.pool.items():
+                    if not label.strip():
+                        raise ValueError(f"Pool label must be non-empty in profile '{profile_name}'.")
+                    if alias not in self.models:
+                        raise ValueError(
+                            f"Profile '{profile_name}' pool label '{label}' references "
+                            f"non-existent model '{alias}'."
+                        )
+                    if alias in seen_aliases:
+                        raise ValueError(
+                            f"Duplicate model alias '{alias}' in pool of profile '{profile_name}' "
+                            f"(each pool member must be unique)."
+                        )
+                    seen_aliases.add(alias)
+                    model_cfg = self.models[alias]
+                    upstream_key = (model_cfg.provider, model_cfg.id)
+                    if upstream_key in seen_upstream:
+                        raise ValueError(
+                            f"Profile '{profile_name}' pool labels '{seen_upstream[upstream_key]}' "
+                            f"and '{label}' both resolve to upstream model id '{model_cfg.id}' on "
+                            f"provider '{model_cfg.provider}'; each pool member must resolve to a "
+                            "distinct upstream model to avoid ambiguous entries in agent model "
+                            "selectors."
+                        )
+                    seen_upstream[upstream_key] = label
 
         return self
 

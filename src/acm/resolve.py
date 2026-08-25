@@ -98,6 +98,7 @@ class ResolvedProfile(BaseModel):
     main: ResolvedModel
     cheap: ResolvedModel | None = None
     extra_roles: dict[str, ResolvedModel] = Field(default_factory=dict)
+    pool: dict[str, ResolvedModel] = Field(default_factory=dict)
 
 
 def resolve_profile(
@@ -128,6 +129,10 @@ def resolve_profile(
         for role_val in profile_cfg.__pydantic_extra__.values():
             if isinstance(role_val, str) and role_val in core_config.models:
                 reachable_model_keys.add(role_val)
+    if profile_cfg.pool:
+        reachable_model_keys.update(
+            alias for alias in profile_cfg.pool.values() if alias in core_config.models
+        )
 
     reachable_provider_keys = {
         core_config.models[m].provider for m in reachable_model_keys if m in core_config.models
@@ -181,9 +186,36 @@ def resolve_profile(
             if isinstance(model_key, str) and model_key in core_config.models:
                 extra_roles[role_name] = _resolve_model(model_key)
 
+    # Model pool: label -> ResolvedModel, in declared order; main is implicitly
+    # ensured a member (prepended under label "main" if not already referenced).
+    pool: dict[str, ResolvedModel] = {}
+    if profile_cfg.pool:
+        declared_pool = {label: _resolve_model(alias) for label, alias in profile_cfg.pool.items()}
+        if not any(m.model_id == profile_cfg.main for m in declared_pool.values()):
+            pool = {"main": main_model, **declared_pool}
+        else:
+            pool = declared_pool
+
+        # config.py's cross-reference check only sees explicitly declared pool
+        # entries; the implicitly-inserted main member (R2, above) can still
+        # collide on upstream id with a distinct explicit alias, so re-check
+        # the fully assembled pool here (defense-in-depth, not redundant).
+        seen_upstream: dict[tuple[str, str], str] = {}
+        for label, m in pool.items():
+            key = (m.provider.name, m.upstream_id)
+            if key in seen_upstream:
+                raise ConfigError(
+                    f"Profile '{profile_name}' pool labels '{seen_upstream[key]}' and '{label}' "
+                    f"both resolve to upstream model id '{m.upstream_id}' on provider "
+                    f"'{m.provider.name}'; each pool member must resolve to a distinct upstream "
+                    "model to avoid ambiguous entries in agent model selectors."
+                )
+            seen_upstream[key] = label
+
     return ResolvedProfile(
         profile_name=profile_name,
         main=main_model,
         cheap=cheap_model,
         extra_roles=extra_roles,
+        pool=pool,
     )

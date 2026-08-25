@@ -142,9 +142,35 @@ def plan(
             )
         )
 
+    # Model pool: Codex has no pool channel — only main is ever projected.
+    pool_covered_model_ids: set[str] = {m.model_id for m in profile.pool.values()}
+    if profile.pool:
+        # Skipped-members are compared by (provider, upstream id), not bare id:
+        # a pool member on a *different* provider with the same id string as
+        # main is a distinct, unexpressed model and must still be listed
+        # (DESIGN_MODEL_POOL_v1.md §16.1).
+        skipped = [
+            f"{lbl}({m.upstream_id})"
+            for lbl, m in profile.pool.items()
+            if (m.provider.name, m.upstream_id)
+            != (profile.main.provider.name, profile.main.upstream_id)
+        ]
+        if skipped:
+            warnings.append(
+                ProjectionWarning(
+                    field="pool",
+                    agent_id=AGENT_ID,
+                    reason=f"{DISPLAY_NAME} has no model-pool configuration channel; "
+                    f"skipped pool members: {', '.join(skipped)}. Only main is projected.",
+                )
+            )
+
     warnings.extend(
         check_unsupported_profile_specs(
-            profile, AGENT_ID, supported_fields={"main", "model_reasoning_effort"}
+            profile,
+            AGENT_ID,
+            supported_fields={"main", "model_reasoning_effort"},
+            pool_covered_model_ids=pool_covered_model_ids,
         )
     )
 
