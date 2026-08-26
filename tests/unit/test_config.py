@@ -197,7 +197,7 @@ def test_load_config_file_success(tmp_path: Path, sample_config_yaml: str) -> No
     assert cfg.version == 1
 
 
-# ── Model pool (DESIGN_MODEL_POOL_v1.md §4.3) ──────────────────────────────
+# ── Model pool ──────────────────────────────────────────────────────────
 
 
 def _pool_base_yaml(daily_body: str) -> str:
@@ -317,9 +317,9 @@ def test_pool_e4_non_string_value_rejected() -> None:
 
 
 def test_pool_e5_duplicate_upstream_id_rejected() -> None:
-    """E5 (§13.3 fix): two distinct aliases resolving to the same (provider, id) pair
-    are rejected — same-alias dedup (E2) alone doesn't catch this, and it would produce
-    ambiguous duplicate-id entries in Pi's models[] array."""
+    """Two distinct aliases resolving to the same (provider, id) pair are rejected —
+    same-alias dedup alone doesn't catch this, and it would produce ambiguous
+    duplicate-id entries in Pi's models[] array."""
     yaml_str = """version: 1
 providers:
   vmr:
@@ -399,7 +399,7 @@ profiles:
     assert cfg.profiles["daily"].pool == {"budget": "cheap", "alt": "direct-cheap"}
 
 
-# ── Pool-only profiles (DESIGN_MODEL_POOL_v1 §18) ────────────────────────────
+# ── Pool-only profiles (registration-only) ───────────────────────────────────
 
 POOL_ONLY_YAML = """version: 1
 providers:
@@ -430,7 +430,7 @@ def test_pool_only_profile_valid() -> None:
 
 
 def test_profile_without_main_and_pool_rejected() -> None:
-    """Schema rule R1: main and pool must not both be absent."""
+    """Schema rule: main and pool must not both be absent."""
     yaml_str = """version: 1
 providers:
   p:

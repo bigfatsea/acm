@@ -159,7 +159,7 @@ def test_resolve_profile_not_found(sample_config_yaml: str) -> None:
         resolve_profile("unknown", cfg, {})
 
 
-# ── Model pool resolution (DESIGN_MODEL_POOL_v1.md §8.2) ───────────────────
+# ── Model pool resolution ───────────────────────────────────────────────
 
 _POOL_MULTI_PROVIDER_YAML = """version: 1
 providers:
@@ -220,7 +220,7 @@ def test_resolve_pool_explicit_main_not_duplicated() -> None:
 
 
 def test_resolve_pool_cross_provider_missing_env_aborts() -> None:
-    """R1 fix: an unresolved ${VAR} on a pool-only-reachable provider must hard-fail."""
+    """An unresolved ${VAR} on a pool-only-reachable provider must hard-fail."""
     cfg = parse_config_yaml(_POOL_MULTI_PROVIDER_YAML)
     with pytest.raises(ConfigError) as excinfo:
         resolve_profile("daily", cfg, {"VMR_KEY": "v"})  # OPENAI_KEY missing
@@ -229,10 +229,10 @@ def test_resolve_pool_cross_provider_missing_env_aborts() -> None:
 
 
 def test_resolve_pool_implicit_main_collision_with_explicit_alias_rejected() -> None:
-    """Second-round review finding: config.py's E5 check only sees explicitly
-    declared pool entries, so an implicitly-inserted main (R2) that collides on
-    upstream id with a *different* explicit alias would slip past config-time
-    validation. resolve_profile() must catch it as a defense-in-depth re-check."""
+    """config.py's cross-reference check only sees explicitly declared pool
+    entries, so an implicitly-inserted main that collides on upstream id with a
+    *different* explicit alias would slip past config-time validation.
+    resolve_profile() must catch it as a defense-in-depth re-check."""
     yaml_str = """version: 1
 providers:
   vmr:
@@ -287,7 +287,7 @@ profiles:
 
 
 def test_resolve_pool_only_profile_no_implicit_main(sample_config_yaml: str) -> None:
-    """Registration-only profile (no main): pool has no implicit 'main' member (§18 R2)."""
+    """Registration-only profile (no main): pool has no implicit 'main' member."""
     yaml_str = sample_config_yaml + """  reg:
     pool:
       fast: coding

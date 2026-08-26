@@ -52,7 +52,7 @@ def check_unsupported_profile_specs(
     pool_covered_model_ids: model aliases already surfaced to the user via a
     model-pool aggregate warning elsewhere in plan(). A role whose target model
     is already covered is exempted here to avoid a redundant duplicate warning
-    about the same underlying gap (see DESIGN_MODEL_POOL_v1.md §8.4).
+    about the same underlying gap.
     """
     covered = pool_covered_model_ids or set()
     warnings: list[ProjectionWarning] = []
@@ -75,7 +75,7 @@ def check_unsupported_profile_specs(
                 reason=f"{agent_id} does not support custom role slots in config",
             )
         )
-    # Registration-only profiles (no main, DESIGN_MODEL_POOL_v1 §18) have no
+    # Registration-only profiles (no main, Spec v2.1 §7.3.3) have no
     # main-model specs to check here.
     if profile.main is None:
         return warnings

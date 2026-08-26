@@ -99,7 +99,7 @@ def test_codex_pool_aggregate_warning() -> None:
 
 
 def test_codex_pool_skipped_includes_cross_provider_same_id() -> None:
-    """§16.1 fix: skipped-members are compared by (provider, upstream id), not
+    """Skipped-members are compared by (provider, upstream id), not
     bare id — a pool member on a different provider with the same id string as
     main is a distinct, unexpressed model and must still be listed."""
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider

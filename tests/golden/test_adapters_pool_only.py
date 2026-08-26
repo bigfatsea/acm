@@ -1,4 +1,4 @@
-# // Ver 2026-08-25, pool-only (registration-only) profiles per DESIGN_MODEL_POOL_v1 §18
+# // Ver 2026-08-25, pool-only (registration-only) profiles
 """Golden tests for registration-only profiles (no main, pool only)."""
 
 import json
@@ -28,7 +28,7 @@ def make_pool_only_profile() -> ResolvedProfile:
 
 
 def test_pi_pool_only_projects_models_but_not_settings(tmp_home: Path) -> None:
-    """§18.2 R3: Pi registers the pool; settings.json default fields stay untouched."""
+    """Pi registers the pool; settings.json default fields stay untouched."""
     pi_dir = tmp_home / ".pi" / "agent"
     pi_dir.mkdir(parents=True, exist_ok=True)
     models_file = pi_dir / "models.json"
@@ -89,7 +89,7 @@ def test_pi_pool_only_idempotent(tmp_home: Path) -> None:
 
 
 def test_claude_code_pool_only_nothing_to_project() -> None:
-    """§18.2 R4: no pool channel + no main → empty ops with explicit warning."""
+    """No pool channel + no main → empty ops with explicit warning."""
     ops, warnings = claude_code.plan(make_pool_only_profile())
     assert ops == []
     assert any(
@@ -99,7 +99,7 @@ def test_claude_code_pool_only_nothing_to_project() -> None:
 
 
 def test_codex_pool_only_nothing_to_project() -> None:
-    """§18.2 R4: no pool channel + no main → empty ops with explicit warning."""
+    """No pool channel + no main → empty ops with explicit warning."""
     ops, warnings = codex.plan(make_pool_only_profile())
     assert ops == []
     assert any(

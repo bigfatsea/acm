@@ -115,8 +115,8 @@ class CoreConfig(BaseModel):
 
         # Validate that each profile references defined models
         for profile_name, profile_cfg in self.profiles.items():
-            # R1 (DESIGN_MODEL_POOL_v1 §18.2): a profile must declare at least one
-            # of `main` or a non-empty `pool`. A pool-only profile is
+            # A profile must declare at least one of `main` or a non-empty
+            # `pool` (Spec v2.1 §7.3.3). A pool-only profile is
             # registration-only: models are surfaced to pool-capable agents but
             # default-model fields stay user-owned.
             if profile_cfg.main is None and not profile_cfg.pool:

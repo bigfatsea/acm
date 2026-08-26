@@ -146,7 +146,7 @@ def test_use_pool_only_profile_leaves_settings_untouched(
 ) -> None:
     """Registration-only profile (no main): Pi gets pool registered, defaults untouched.
 
-    DESIGN_MODEL_POOL_v1 §18: uses the real pi adapter via the full write pipeline.
+    Uses the real pi adapter via the full write pipeline.
     """
     pool_only_yaml = """version: 1
 

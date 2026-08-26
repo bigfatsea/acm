@@ -157,9 +157,9 @@ def test_pi_pool_multi_provider_registers_all_members(tmp_home: Path) -> None:
 
 
 def test_pi_pool_non_main_member_temperature_warns_vision_projected() -> None:
-    """§13.2/§16.2/§16.3: a non-main pool member's temperature is an explicit,
-    honestly-worded projection warning; capabilities.vision is *projected* into
-    the model's `input` field (Pi's native channel), so it must not warn."""
+    """A non-main pool member's temperature is an explicit, honestly-worded
+    projection warning; capabilities.vision is *projected* into the model's
+    `input` field (Pi's native channel), so it must not warn."""
     from acm.config import ModelCapabilities
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 
@@ -185,11 +185,11 @@ def test_pi_pool_non_main_member_temperature_warns_vision_projected() -> None:
     assert len(temp_warns) == 1
     # Honest wording: Pi *can* express temperature via samplingParams on
     # OpenAI-compatible dialects; ACM simply does not project it yet — never a
-    # blanket "Pi does not support" claim (§16.2).
+    # blanket "Pi does not support" claim.
     assert "samplingParams" in temp_warns[0].reason
     assert "does not configure per-model temperature" not in temp_warns[0].reason
 
-    # vision is projected into `input`, not warned about (§16.3)
+    # vision is projected into `input`, not warned about
     assert not any(w.field.startswith("pool.budget.capabilities") for w in warnings)
     op = next(o for o in ops if o.path == "providers.vmr")
     budget_entry = next(m for m in op.new["models"] if m["name"] == "budget")
@@ -197,7 +197,7 @@ def test_pi_pool_non_main_member_temperature_warns_vision_projected() -> None:
 
 
 def test_pi_pool_non_main_member_unexpressible_capabilities_warn() -> None:
-    """§16.3: only genuinely unexpressible capability sub-fields warn — a
+    """Only genuinely unexpressible capability sub-fields warn — a
     non-native tool-calling dialect and json_mode have no Pi channel at all."""
     from acm.config import ModelCapabilities
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
@@ -224,7 +224,7 @@ def test_pi_pool_non_main_member_unexpressible_capabilities_warn() -> None:
 
 
 def test_pi_main_temperature_honest_warning_and_vision_projected() -> None:
-    """§16.2/§16.3: main's temperature warning is honestly worded (ACM does not
+    """Main's temperature warning is honestly worded (ACM does not
     project; Pi can via samplingParams), and main's vision is projected into the
     model entry's `input` field — single-model path included."""
     from acm.config import ModelCapabilities
@@ -255,7 +255,7 @@ def test_pi_main_temperature_honest_warning_and_vision_projected() -> None:
 
 
 def test_pi_pool_non_main_provider_headers_projected_proxy_warns() -> None:
-    """§13.8 fix: Pi natively supports provider-level headers (confirmed against
+    """Pi natively supports provider-level headers (confirmed against
     models.md's Provider Configuration table), so a non-main pool provider's
     headers must be *projected*, not warned about. Pi has no 'proxy' field at
     all, so proxy remains a genuine, explicitly-warned projection loss."""
@@ -295,7 +295,7 @@ def test_pi_pool_non_main_provider_headers_projected_proxy_warns() -> None:
 
 
 def test_pi_main_provider_headers_projected(tmp_home: Path) -> None:
-    """§13.8 fix: main's own provider headers are now projected (previously
+    """Main's own provider headers are now projected (previously
     silently dropped while the shared warning falsely claimed Pi doesn't
     support headers at all — Pi's docs confirm it does)."""
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
@@ -320,7 +320,7 @@ def test_pi_main_provider_headers_projected(tmp_home: Path) -> None:
 
 def test_pi_pool_apply_golden_non_destructive(tmp_home: Path) -> None:
     """Pool projection through the full Safety Engine pipeline: Apply / Non-destructive /
-    Rollback-survives three-step golden assertion (§9, §13.6 fix — pool variant)."""
+    Rollback-survives three-step golden assertion (pool variant)."""
     import hashlib
 
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider

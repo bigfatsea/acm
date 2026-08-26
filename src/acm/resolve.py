@@ -190,7 +190,7 @@ def resolve_profile(
 
     # Model pool: label -> ResolvedModel, in declared order; when the profile has a
     # main model it is implicitly ensured a member (prepended under label "main" if
-    # not already referenced). A registration-only profile (no main, §18 R2) skips
+    # not already referenced). A registration-only profile (no main) skips
     # that implicit insertion.
     pool: dict[str, ResolvedModel] = {}
     if profile_cfg.pool:

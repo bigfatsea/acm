@@ -31,7 +31,7 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 - Implemented commands: `init`, `status`, `use`, `rollback` (+ global `--dry-run --force --verbose --show-secrets --no-color`).
 - `apply / diff / doctor / history / release / import vmr` are **not implemented** — they are trigger-based upgrades (Spec v2.1 §12). Do not implement them without checking the trigger table and getting explicit direction.
 - Built-in adapters: `claude_code`, `codex`, `pi` only. A new adapter = new module + golden fixtures, merged in-source.
-- The model pool (optional `pool:` map under a profile; label → model alias) is **implemented**, per `docs/DESIGN_MODEL_POOL_v1.md`. A profile with a non-empty `pool` may omit `main` entirely (registration-only profile, §18): default-model fields on the target agent stay untouched and user-owned. Pi registers the whole pool into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`); Claude Code/Codex have no pool channel — with a `main`, they only project `main` (aggregate `pool` projection-loss warning for skipped members); without one, they project nothing and warn explicitly. `acm init` does not yet auto-generate a pool proposal (design's D7, not implemented). See the design doc's "执行记录" and "独立复核" appendices for what shipped vs. what remains open.
+- The model pool (optional `pool:` map under a profile; label → model alias) is **implemented**, per Spec v2.1 §7.3.3. A profile with a non-empty `pool` may omit `main` entirely (registration-only profile): default-model fields on the target agent stay untouched and user-owned. Pi registers the whole pool into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`); Claude Code/Codex have no pool channel — with a `main`, they only project `main` (aggregate `pool` projection-loss warning for skipped members); without one, they project nothing and warn explicitly. `acm init` does not yet auto-generate a pool proposal (not implemented).
 
 ## Architecture
 
@@ -63,7 +63,7 @@ src/acm/
 ## Config Schema Essentials
 
 - `version: 1` required; ≥ 1 entry under `profiles:`; cross-references enforced (profile→model→provider); unknown keys rejected.
-- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); profiles: `main` and/or non-empty `pool` (at least one required — a pool-only profile is registration-only, §18), optional `cheap`, extra keys = custom roles.
+- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); profiles: `main` and/or non-empty `pool` (at least one required — a pool-only profile is registration-only), optional `cheap`, extra keys = custom roles.
 - Projection mapping per agent (which fields land where, dialect conversion, what warns) → USER_GUIDE §7 / adapters' `plan()`.
 
 ## States & Exit Codes
@@ -93,6 +93,5 @@ uv run mypy src        # strict mode — keep it green
 | Principles, boundaries, command semantics | `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` |
 | Implementation details, data structures, acceptance criteria, roadmap slices | `docs/ACM_PROJECT_SPEC_v2.1.md` |
 | User-facing behavior, config reference, troubleshooting | `docs/USER_GUIDE.md` / `USER_GUIDE.zh.md` |
-| Model-pool feature design (implemented) | `docs/DESIGN_MODEL_POOL_v1.md` |
 | Project overview / quick start | `README.md` / `README.zh.md` |
 | Adapter field mappings, safety pipeline internals | adapters' `plan()` docstrings; `safety.py` step comments; USER_GUIDE ch. 7 & 9 |

@@ -50,7 +50,7 @@ def plan(
     ops: list[PlannedOp] = []
     warnings: list[ProjectionWarning] = []
 
-    # Registration-only profile (DESIGN_MODEL_POOL_v1 §18.2 R4): this agent has no
+    # Registration-only profile (Spec v2.1 §7.3.3): this agent has no
     # model-pool channel, so with no main there is nothing to project. Never silent.
     if profile.main is None:
         warnings.append(
@@ -160,8 +160,7 @@ def plan(
     if profile.pool:
         # Skipped-members are compared by (provider, upstream id), not bare id:
         # a pool member on a *different* provider with the same id string as
-        # main is a distinct, unexpressed model and must still be listed
-        # (DESIGN_MODEL_POOL_v1.md §16.1).
+        # main is a distinct, unexpressed model and must still be listed.
         skipped = [
             f"{lbl}({m.upstream_id})"
             for lbl, m in profile.pool.items()

@@ -97,8 +97,7 @@ def _pi_member_unsupported_warnings(
     temperature: Pi *can* express per-model temperature via model-level
     `samplingParams` on OpenAI-compatible dialects (models.md) — ACM does not
     project it yet, so the value is still lost and must be surfaced. The wording
-    is deliberately "ACM does not project" rather than "Pi does not support"
-    (see DESIGN_MODEL_POOL_v1.md §16.2; same lesson as §13.8/§15 headers).
+    is deliberately "ACM does not project" rather than "Pi does not support".
     capabilities.vision: projected into the model entry's `input` field
     (models.md) by _pi_model_entry — no warning.
     capabilities.tools (non-native dialect) / json_mode: no Pi channel at all.
@@ -156,8 +155,8 @@ def plan(
     if profile.pool:
         # Group pool members by their provider (declared order preserved); each
         # provider gets one 'providers.<name>' op carrying its full models[] array.
-        # Registration-only profiles (no main, DESIGN_MODEL_POOL_v1 §18) take this
-        # path too, but skip the settings.json ops below (§18.2 R3).
+        # Registration-only profiles (no main, Spec v2.1 §7.3.3) take this
+        # path too, but skip the settings.json ops below.
         groups: dict[str, list[tuple[str, Any]]] = {}
         for label, m in profile.pool.items():
             groups.setdefault(m.provider.name, []).append((label, m))
@@ -187,7 +186,7 @@ def plan(
             # Pi's models.json has no 'proxy' concept (confirmed against the
             # official Provider Configuration field table — routing goes through
             # baseUrl instead), so a non-main pool provider's proxy setting is a
-            # genuine, unavoidable projection loss and must stay explicit (§13.2).
+            # genuine, unavoidable projection loss and must stay explicit.
             # headers *is* supported (projected above); no warning needed for it.
             if (
                 profile.main is None or prov_name != profile.main.provider.name
@@ -216,7 +215,7 @@ def plan(
                 warnings.extend(_pi_member_unsupported_warnings(m, f"pool.{label}"))
     else:
         # 1. Map provider into models.json (single-model path, unchanged from pre-pool behavior)
-        # Schema rule R1 (§18.2) guarantees main is declared when pool is absent.
+        # The schema (Spec v2.1 §7.3.3) guarantees main is declared when pool is absent.
         if profile.main is None:  # pragma: no cover - defensive, unreachable under schema
             return ops, warnings
         prov = profile.main.provider
@@ -250,7 +249,7 @@ def plan(
 
     # 2. Map default settings into settings.json (always driven by main, regardless of pool)
     if profile.main is None:
-        # Registration-only profile (§18.2 R3): default-model fields stay
+        # Registration-only profile (Spec v2.1 §7.3.3): default-model fields stay
         # user-owned; surface that decision explicitly instead of silently
         # leaving settings.json untouched.
         warnings.append(
@@ -290,7 +289,7 @@ def plan(
     # Main member's temperature/capabilities: surfaced here with honest wording
     # (see _pi_member_unsupported_warnings); the shared check below is told
     # these fields are "supported" so its blanket, factually-wrong-for-Pi text
-    # never fires (§16.2/§16.3).
+    # never fires.
     warnings.extend(_pi_member_unsupported_warnings(profile.main, ""))
 
     warnings.extend(

@@ -147,7 +147,7 @@
 | 层 | 内容 | 说明 |
 |---|---|---|
 | **L1 连接与凭据** | `base_url`、`protocol`（openai / anthropic / openai-responses）、`api_key`（credential 引用，规则见 §7.3.1）、自定义 headers、proxy、org_id | 含写入 Agent 支持的 env 块（如 Claude Code `settings.json` 的 `env` 字段） |
-| **L2 模型规格与行为** | 模型选择（主模型 + 角色模型，如 Aider 的 main/weak/editor）、`context_window`、`max_output_tokens`、reasoning（`effort` low/medium/high + `budget_tokens`）、`temperature`、能力位（vision / tool-call 方言 native/xml/markdown / json mode） | ACM 统一建模，由适配器转换为目标 Agent 的专有字段；**无法表达的字段必须产生投影损失告警，绝不静默丢弃**（§7.4.1） |
+| **L2 模型规格与行为** | 模型选择（主模型 + 角色模型，如 Aider 的 main/weak/editor + 可选模型池 `pool`，§7.3.3）、`context_window`、`max_output_tokens`、reasoning（`effort` low/medium/high + `budget_tokens`）、`temperature`、能力位（vision / tool-call 方言 native/xml/markdown / json mode） | ACM 统一建模，由适配器转换为目标 Agent 的专有字段；**无法表达的字段必须产生投影损失告警，绝不静默丢弃**（§7.4.1） |
 | **Profile 管理** | 多 Profile 定义、激活态、版本快照、字段级回滚、diff | MVP 仅支持**全局单一激活 Profile**；Agent 级持久绑定（`acm bind`）为 Phase 2 规划（§12）；项目级/分层 Profile（repo 内 `.acm/` 与 Overlay）明确不进 MVP，作为 P3 开放问题评估 |
 | **VMR 集成** | 自动探测本地 VMR、导入虚拟模型列表、一键投影 | 第一方集成，非架构依赖（§9） |
 
@@ -218,7 +218,7 @@ Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致
 3. 语义安全：ruamel.yaml 实现 YAML 1.2（无 yes/no/on/off 隐式布尔化）且重复键直接报错（fail-fast），两大经典 YAML 陷阱在加载器层面消解；锚点/merge key 安全展开。
 4. 依赖经济性：ruamel.yaml 同时服务未来的 Agent 端 YAML round-trip 需求（Aider 等），单一 YAML 依赖覆盖 Core Config 解析与后续 P1 写路径，不引入双库共存。ACM 自身 SSOT 只有 init 整文件重生成一种写路径，无需增量改写能力；若未来 import vmr 需要注释保留式合并，同一依赖切至 rt 模式即可。
 
-**加载行为契约**：空文件、非映射根、多文档流均为硬错误；`${VAR}` / `${VAR:-default}` 原样保留待投影时解析；行为逐项有测试钉死。
+**加载行为契约**（ruamel.yaml `typ="safe"`，逐项有测试钉死）：YAML 1.2 语义（`yes/no/on/off` 不隐式转布尔，仅 `true/false` 为布尔）；重复键直接抛 `DuplicateKeyError`（fail-fast，不静默丢字段）；锚点/merge key（`<<`）安全展开，允许但不鼓励；空文件、非映射根、多文档流（`---` 分隔）均为友好硬错误；映射键允许包含 `.`/`/` 等字符，原样保留不做净化改名；`${VAR}` / `${VAR:-default}` 原样保留待投影时解析。
 
 **配置与状态的边界（成文以防漂移）**：`config.yaml` 只包含用户可版本控制的**声明式内容**（providers / models / profiles）；一切运行时状态（active profile、journal、snapshots、logs）只存在于 `~/.acm/state/` 与 `~/.acm/logs/`，**任何功能都不得把状态写回 config.yaml**。
 
@@ -407,6 +407,47 @@ profiles:
 - `version: 1` 是 **config schema 版本**，非 ACM 软件版本；manifest / journal / snapshot 各自携带自己的格式版本。
 - ACM 启动时校验版本：低版本配置向前兼容读取；不兼容版本由 `acm doctor` 检测并提示，`acm config migrate`（Phase 2 交付）执行迁移。
 - 现在 only 定义位置与语义，MVP 不实现迁移命令。
+
+#### 7.3.3 Model Pool（`profiles.<name>.pool`）
+
+**动机**：单一 `main` 只能表达"一个默认模型"；有些 Agent（如 Pi）原生支持在运行期 `/model` 里从一份注册好的模型清单中手工切换。`pool` 让一个 profile 声明这样一份清单，按 Agent 能力分三类处理，绝不静默丢弃无法表达的成员。
+
+**语法**：profile 下的保留子映射 `pool`（label → `models.*` 别名，map 而非数组——label 需同时承担"显示名"与"角色名"两种职责）：
+
+```yaml
+profiles:
+  daily:
+    main: coding          # 必填，除非 pool 非空（见下文"registration-only"）
+    pool:
+      budget: cheap        # label -> models.* 别名
+      longctx: agent
+      review: o3           # 可跨 provider
+```
+
+**语义规则**：
+
+- `main` 与 `pool` 至少一个非空；两者皆缺 = schema 错误（exit 1）。
+- 声明了 `main` 时，它总是隐式作为池成员（若未显式列出，以 label `main` 自动补入池首），保证默认项永远可选；池内声明序 + 隐式成员置于队首，保证幂等输出稳定。
+- `pool` 与 `cheap`/自定义角色是两个相互独立的机制，不做隐式转换（避免同一配置在不同 Agent 上行为分裂）。
+- 保留 label `main`/`default`（同义）/`weak`/`editor` 对语义角色型 Agent（如 P1 的 Aider）有特殊含义；其余 label 是自由显示名，大小写原样保留。
+- 池成员可跨 provider（按 provider 分组投影）；空 `pool` 视同未声明。
+- 校验：pool 值必须引用已定义的 `models.*` 别名；同一 pool 内不允许两个 label 指向同一别名；同一 pool 内也不允许两个不同别名解析到同一 `(provider, upstream id)` 二元组（即便别名不同，上游看到的是同一个模型，会在 Agent 的模型选择器里产生无法区分的重复项）——该校验同时在 config 加载期（看得到显式声明）与 resolve 期（看得到隐式补入的 main）各做一次，互补而非冗余。
+
+**Registration-only profile（pool-only，main 可省略）**：一个 profile 若声明非空 `pool` 但省略 `main`，则为 registration-only——只向具备池通道的 Agent 注册模型，目标 Agent 的默认模型字段完全不动、所有权仍在用户手中（ACM 既不写、也不把它们纳入漂移判定）；对没有池通道的 Agent，没有可投影内容，产生专门的告警而非静默 no-op。适用场景：与用户已有的手工配置/extension 共存，只想"把新模型注册进去"而不想动默认选择。
+
+**按 Agent 能力分类的投影行为**：
+
+| 类型 | 定义 | Agent | 投影行为 |
+|---|---|---|---|
+| **I. 扁平模型池** | 原生支持"一个 provider 下多个并列模型"，选择器消费该列表 | Pi（`models.json`） | 按 provider 分组，每组一条 `providers.<name>` op；`models[]` 内每个成员 `id=upstream_id`、`name=label`。**label 是次要详情文本，不是主展示名**——Pi 的 `/model`、`--list-models`、交互式 footer 均按 `id` 展示（官方文档实测确认），label 仅用于 `--model` 模式匹配；main 所属 provider 决定 `defaultProvider`/`defaultModel`/`defaultThinkingLevel`（registration-only 时跳过这三键，见上）|
+| **II. 单默认模型** | 公开配置通道只有"默认模型"一个槽位 | Claude Code、Codex | 只投 `main`；池的其余成员产生一条聚合投影损失告警（列出被跳过的 `label(upstream_id)`），不逐条刷屏。skipped 判定按 `(provider, upstream_id)` 二元组比较，而非裸 id 字符串——不同 provider 上同名 id 是不可达的不同端点，必须仍出现在 skipped 名单里 |
+| **III. 语义角色型** | 配置文件含多个具名角色槽位，运行期自动分流 | Aider（P1 契约，实施时金样校准） | label 即角色名：`main`/`default`→`model:`，`weak`→`weak-model:`，`editor`→`editor-model:`；其余自由 label 产生投影损失告警 |
+
+**已知限制**：
+
+- **op 模型只有 upsert，没有 tombstone**：profile 切换导致某个 provider 不再出现在新池中时，Pi 端磁盘上的旧 `providers.<name>` 条目不会被清理，且 ACM 对其失明（drift/status 均检测不到，回滚也还原不了，因为回滚目标快照本身已含残留）。这是当前架构的有意识取舍（避免误删用户/extension 手工维护的同名 provider 内容），清理责任显式移交用户；`acm rollback pi` 可整体恢复到投影前状态。
+- 池成员的 `reasoning.effort` 不投影（Pi 无"每模型默认思考级别"通道，`defaultThinkingLevel` 只取 main 的）；`capabilities.vision=true` 投影为模型条目的 `input: ["text", "image"]`；`temperature`/`capabilities.tools`（非 native 方言）/`capabilities.json_mode` 目前不投影，产生诚实措辞的告警（"ACM 未投影"而非"Agent 不支持"——Pi 的 openai 系方言原生具备 per-model `samplingParams.temperature` 通道，只是 ACM 尚未写入）；provider 级 `headers` 会被投影（Pi 原生支持），`proxy` 目前无 Pi 侧通道，保留告警。
+- Codex 是否支持 provider 级 `headers` 未经证实（无公开 schema 文档核实），维持告警不变，不无证据地扩展铁律 2 的边界。
 
 ### 7.4 Adapter 契约（Python Protocol）
 
@@ -641,7 +682,7 @@ Manifest 内存视图的用途：
 |---|---|---|---|---|---|
 | **Claude Code** | `~/.claude/settings.json` ✔ | JSON | `env.ANTHROPIC_BASE_URL`、`env.ANTHROPIC_AUTH_TOKEN`（或 `ANTHROPIC_API_KEY`）、`model`、reasoning -> `effortLevel` 类字段 ✔ | `permissions`、`hooks`、`enabledPlugins`、`statusLine`、`tui` 等一切非模型字段；**绝不碰 `~/.claude.json`** ✔ | env 块注入；高密度非管字段保护；热切换（WARN 级）✔；无法表达 reasoning budget_tokens -> 投影告警 |
 | **Codex** | `~/.codex/config.toml` ✔（auth.json 为**备选**：本机实证其为 Codex 运行态 OAuth 文件，默认 `env_key` 单文件方案） | TOML（+ JSON 备选） | 顶层 `model`、`model_reasoning_effort` ✔、`model_providers.<id>` 表（base_url/wire_api/**env_key=环境变量名**） | `mcp_servers`（本机实证含大量带注释条目 ✔）、`features`、`memories`、`tui`、`notify`、`sandbox` | tomlkit round-trip（注释密集 ✔）；env_key 单文件投影（待实证）；双文件事务降为备选机制（Safety Engine 多文件能力保留） |
-| **Pi** | `~/.pi/agent/models.json`（用户自定义文件，官方文档 ✔；不存在则创建）+ `~/.pi/agent/settings.json` ✔ | JSON | models.json：`providers.<name>`（baseUrl / api 方言 ✔ / apiKey / models[]：id、contextWindow、maxTokens、compat、thinkingLevelMap ✔）；settings.json：`defaultProvider`、`defaultModel`、`defaultThinkingLevel` ✔ | **`models-store.json`（pi 内部注册表，绝不写入）** ✔、`trust.json`、`auth.json`、extensions/skills | 注册式投影；方言（`openai-completions`/`anthropic-messages` ✔）+ compat/thinking level 映射，与 Core Config 同构度最高 |
+| **Pi** | `~/.pi/agent/models.json`（用户自定义文件，官方文档 ✔；不存在则创建）+ `~/.pi/agent/settings.json` ✔ | JSON | models.json：`providers.<name>`（baseUrl / api 方言 ✔ / apiKey / headers ✔ / models[]：id、contextWindow、maxTokens、compat、thinkingLevelMap ✔）；settings.json：`defaultProvider`、`defaultModel`、`defaultThinkingLevel` ✔ | **`models-store.json`（pi 内部注册表，绝不写入）** ✔、`trust.json`、`auth.json`、extensions/skills | 注册式投影；方言（`openai-completions`/`anthropic-messages` ✔）+ compat/thinking level 映射，与 Core Config 同构度最高；**模型池（§7.3.3）**按 provider 分组，一次性把全部池成员注册进 `models[]`，唯一原生支持类型 I 池投影的 P0 Agent |
 
 ### P1（Phase 2）
 
@@ -1023,7 +1064,9 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 |---|---|
 | **SSOT** | Single Source of Truth。模型世界的事实描述只有一份，存于 Core Config；Agent 配置只是投影结果 |
 | **Core Config** | `~/.acm/config.yaml`：ACM 自有的 providers / models / profiles 三层声明式配置 |
-| **Profile** | 命名的模型角色组合（main/cheap 等槽位），是投影的最小单元 |
+| **Profile** | 命名的模型角色组合（main/cheap 等槽位 + 可选模型池 pool），是投影的最小单元 |
+| **Model Pool** | Profile 下的 `pool` 子映射（label → 模型别名），供支持多模型选择器的 Agent（Pi）注册可选模型清单，§7.3.3 |
+| **Registration-only Profile** | 声明非空 `pool` 但省略 `main` 的 profile：只注册模型，不接管目标 Agent 的默认模型字段，§7.3.3 |
 | **Resolved Profile** | Profile 经 ENV 引用解析后的具体值集合 |
 | **Desired State** | 激活 Profile（Phase 2 起含 per-agent 绑定）经编译后的字段级期望状态 |
 | **Current State** | 各 Agent 配置文件中管理字段的实际落盘值 |

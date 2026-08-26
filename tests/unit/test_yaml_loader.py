@@ -2,7 +2,7 @@
 """Unit tests pinning the YAML loader contract for ACM's Core Config.
 
 Each test corresponds to a row of the loader-behavior table in
-docs/DESIGN_CONFIG_YAML_MIGRATION_v1.md §3 D2:
+docs/ACM_PROJECT_SPEC_v2.1.md §6 D3:
 - YAML 1.2 semantics via the ruamel safe loader (no yes/no/on/off coercion)
 - duplicate keys are hard errors (fail-fast, never silently dropped)
 - anchors/merge keys are allowed and safely resolved
