@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Golden tests for registration-only profiles (no `default`, schema v2)."""
+"""Golden tests for registration-only profiles (no `default`, schema v3)."""
 
 import json
 from pathlib import Path
@@ -23,7 +23,7 @@ def make_registration_only_profile() -> ResolvedProfile:
     return ResolvedProfile(
         profile_name="reg",
         models={"fast": m_a, "coder": m_b},
-        default_label=None,
+        default_model=None,
     )
 
 

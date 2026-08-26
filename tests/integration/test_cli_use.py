@@ -148,7 +148,7 @@ def test_use_pool_only_profile_leaves_settings_untouched(
 
     Uses the real pi adapter via the full write pipeline.
     """
-    pool_only_yaml = """version: 2
+    pool_only_yaml = """version: 3
 
 providers:
   vmr:

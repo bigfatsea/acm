@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Core configuration data models and parser for ~/.acm/config.yaml (schema v2)."""
+"""Core configuration data models and parser for ~/.acm/config.yaml (schema v3)."""
 
 from pathlib import Path
 from typing import Literal
@@ -74,11 +74,14 @@ class ProviderConfig(BaseModel):
 
 
 class ProfileConfig(BaseModel):
-    """Profile specification (L3): a reserved `models` member map + optional `default` opt-in.
+    """Profile specification (L3): an optional registration set + optional default R3 ref.
 
-    `models` replaces v1's main/cheap/pool/extra-role channels with a single flat set of
-    label -> model-reference entries. `default`, when present, is the only signal that
-    drives ACM to write an agent's default-model field; it must name an existing label.
+    Registration (`models`) and selection (`default`) are orthogonal axes:
+    - `models: {label: model-ref}` — the set to register into agent catalogs (Pi).
+    - `default: model-ref` — the agent's default model. Resolved by the SAME R3 rules as a
+      member value (bare id / qualified `provider.id`), NOT a member label.
+
+    At least one of the two must be declared (V2); an empty profile has nothing to project.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -88,11 +91,11 @@ class ProfileConfig(BaseModel):
 
 
 class CoreConfig(BaseModel):
-    """Top-level Core Config representation for ~/.acm/config.yaml (schema v2)."""
+    """Top-level Core Config representation for ~/.acm/config.yaml (schema v3)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 2
+    version: int = 3
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
 
@@ -100,10 +103,10 @@ class CoreConfig(BaseModel):
     @classmethod
     def validate_version(cls, v: int) -> int:
         """Validate configuration schema version (V6)."""
-        if v != 2:
+        if v != 3:
             raise ValueError(
-                f"Unsupported config schema version: {v}. Expected version = 2. "
-                "Please re-run 'acm init' or rewrite the file to version: 2."
+                f"Unsupported config schema version: {v}. Expected version = 3. "
+                "Please re-run 'acm init' or rewrite the file to version: 3."
             )
         return v
 
@@ -131,10 +134,12 @@ class CoreConfig(BaseModel):
                     raise ValueError(f"Model id must be non-empty (in provider '{prov_name}').")
 
         for profile_name, profile_cfg in self.profiles.items():
-            # V2: 'models' must declare at least one member.
-            if not profile_cfg.models:
+            # V2: a profile must declare at least one of `models` (non-empty) or `default`.
+            # Registration and selection are orthogonal; an empty profile has nothing to project.
+            if not profile_cfg.models and profile_cfg.default is None:
                 raise ValueError(
-                    f"Profile '{profile_name}' must define at least one entry under 'models'."
+                    f"Profile '{profile_name}' must declare at least one of 'models' (non-empty) "
+                    "or 'default'."
                 )
 
             # V3 + V5: every member reference resolves (existence + non-ambiguity), and no
@@ -143,7 +148,7 @@ class CoreConfig(BaseModel):
             for label, ref in profile_cfg.models.items():
                 if not label.strip():
                     raise ValueError(f"Profile '{profile_name}' member label must be non-empty.")
-                prov_name, model_key = self._resolve_ref(profile_name, label, ref)
+                prov_name, model_key = self._resolve_ref(profile_name, ref, subject=f"member '{label}'")
 
                 upstream_key = (prov_name, model_key)
                 if upstream_key in seen_upstream:
@@ -155,17 +160,18 @@ class CoreConfig(BaseModel):
                     )
                 seen_upstream[upstream_key] = label
 
-            # V4: default must name an existing member label.
-            if profile_cfg.default is not None and profile_cfg.default not in profile_cfg.models:
-                raise ValueError(
-                    f"Profile '{profile_name}' default '{profile_cfg.default}' is not a member "
-                    "defined under 'models'."
-                )
+            # V4: default (if present) is an R3 reference resolved by the SAME rules as a
+            # member value (existence + non-ambiguity). It is NOT a member label.
+            if profile_cfg.default is not None:
+                self._resolve_ref(profile_name, profile_cfg.default, subject="default")
 
         return self
 
-    def _resolve_ref(self, profile_name: str, label: str, ref: str) -> tuple[str, str]:
-        """Resolve a member's R3 model reference to (provider_name, model_key).
+    def _resolve_ref(self, profile_name: str, ref: str, subject: str = "member") -> tuple[str, str]:
+        """Resolve an R3 model reference to (provider_name, model_key).
+
+        `subject` labels the referring context in error messages (e.g. "member 'coder'"
+        for a `models:` value, "default" for the `default:` value).
 
         Full rules: docs/ACM_PROJECT_SPEC_v2.1.md §7.3.4.
 
@@ -178,12 +184,12 @@ class CoreConfig(BaseModel):
             prov_name, model_key = ref.split(".", 1)
             if prov_name not in self.providers:
                 raise ValueError(
-                    f"Profile '{profile_name}' member '{label}': provider '{prov_name}' "
+                    f"Profile '{profile_name}' {subject}: provider '{prov_name}' "
                     f"(from qualified reference '{ref}') is not defined under 'providers'."
                 )
             if model_key not in self.providers[prov_name].models:
                 raise ValueError(
-                    f"Profile '{profile_name}' member '{label}': model id '{model_key}' is not "
+                    f"Profile '{profile_name}' {subject}: model id '{model_key}' is not "
                     f"defined under provider '{prov_name}'."
                 )
             return prov_name, model_key
@@ -193,12 +199,12 @@ class CoreConfig(BaseModel):
         )
         if not candidates:
             raise ValueError(
-                f"Profile '{profile_name}' member '{label}': unknown model id '{ref}'. "
+                f"Profile '{profile_name}' {subject}: unknown model id '{ref}'. "
                 "It is not defined under any provider."
             )
         if len(candidates) > 1:
             raise ValueError(
-                f"Profile '{profile_name}' member '{label}': model id '{ref}' is ambiguous — "
+                f"Profile '{profile_name}' {subject}: model id '{ref}' is ambiguous — "
                 f"defined in providers: {candidates}. "
                 f"Use a qualified reference like '{candidates[0]}.{ref}'."
             )

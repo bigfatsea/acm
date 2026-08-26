@@ -153,10 +153,11 @@ def plan(
 ) -> tuple[list[PlannedOp], list[ProjectionWarning]]:
     """Compile ResolvedProfile into PlannedOps for Pi models.json and settings.json.
 
-    Registration and selection are independent: every member is registered into
-    models.json unconditionally; settings.json is only touched when the profile
-    declares a `default` (Spec v2.1 §7.3.3 — no default is a normal,
-    non-warning state).
+    Registration and selection are independent (schema v3): every member is registered
+    into models.json unconditionally, and the `default` model is ALWAYS registered too
+    (deduped against members by provider+model_id) so settings.json's
+    defaultProvider/defaultModel stay resolvable. settings.json is only touched when
+    the profile declares a `default` — no default is a normal, non-warning state.
     """
     env_map = get_env_map(env)
     paths = config_paths(env_map)
@@ -165,22 +166,44 @@ def plan(
     ops: list[PlannedOp] = []
     warnings: list[ProjectionWarning] = []
 
-    default_label = profile.default_label
-    default_model = profile.models[default_label] if default_label is not None else None
+    default_model = profile.default_model
     default_provider_name = default_model.provider.name if default_model is not None else None
+    default_key = (
+        (default_model.provider.name, default_model.model_id)
+        if default_model is not None
+        else None
+    )
 
-    # Group all members by provider (declared order preserved); each provider gets
-    # one 'providers.<name>' op carrying its full models[] array.
-    groups: dict[str, list[tuple[str, Any]]] = {}
+    # Registration set = every member ∪ {the default model}, deduped by (provider,
+    # model_id). The default is ALWAYS registered so settings.json's
+    # defaultProvider/defaultModel stay resolvable in models.json (schema v3: default
+    # is an independent R3 ref that may not be a member). A default that is *also* a
+    # member is registered once (dedup), preserving its member label as its name.
+    reg_entries: list[tuple[str, Any]] = []  # (name, model)
+    seen_upstream: set[tuple[str, str]] = set()
     for label, m in profile.models.items():
-        groups.setdefault(m.provider.name, []).append((label, m))
+        key = (m.provider.name, m.model_id)
+        if key not in seen_upstream:
+            seen_upstream.add(key)
+            reg_entries.append((label, m))
+    if default_model is not None:
+        key = (default_model.provider.name, default_model.model_id)
+        if key not in seen_upstream:
+            seen_upstream.add(key)
+            reg_entries.append((default_model.model_id, default_model))
+
+    # Group the registration set by provider (declared order preserved); each provider
+    # gets one 'providers.<name>' op carrying its full models[] array.
+    groups: dict[str, list[tuple[str, Any]]] = {}
+    for name, m in reg_entries:
+        groups.setdefault(m.provider.name, []).append((name, m))
 
     for prov_name, members in groups.items():
         group_prov = members[0][1].provider
         api_key_val, key_warnings = _resolve_pi_api_key(group_prov, env_map)
         warnings.extend(key_warnings)
 
-        models_arr = [_pi_model_entry(label, m) for label, m in members]
+        models_arr = [_pi_model_entry(name, m) for name, m in members]
         group_payload: dict[str, Any] = {
             "baseUrl": group_prov.base_url,
             "api": _pi_api_dialect(group_prov.protocol),
@@ -214,27 +237,27 @@ def plan(
                 )
             )
 
-        for label, m in members:
-            if label == default_label:
+        for name, m in members:
+            if default_key is not None and (m.provider.name, m.model_id) == default_key:
                 continue
             if m.reasoning and (m.reasoning.effort or m.reasoning.budget_tokens):
                 reason = (
                     "Pi does not support a per-model reasoning override in the "
                     "model registry; only the default's defaultThinkingLevel is "
                     "projected."
-                    if default_label is not None
+                    if default_model is not None
                     else "Pi does not support a per-model reasoning override in the "
                     "model registry; this profile has no default, so no "
                     "defaultThinkingLevel is projected for any member."
                 )
                 warnings.append(
                     ProjectionWarning(
-                        field=f"models.{label}.reasoning",
+                        field=f"models.{name}.reasoning",
                         agent_id=AGENT_ID,
                         reason=reason,
                     )
                 )
-            warnings.extend(_pi_member_unsupported_warnings(m, f"models.{label}"))
+            warnings.extend(_pi_member_unsupported_warnings(m, f"models.{name}"))
 
     # settings.json is driven exclusively by the opted-in default. No default means
     # ACM never touches this file — a normal, non-warning state.

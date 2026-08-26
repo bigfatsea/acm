@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Unit tests pinning the YAML loader contract for ACM's Core Config (schema v2).
+"""Unit tests pinning the YAML loader contract for ACM's Core Config (schema v3).
 
 Each test corresponds to a row of the loader-behavior table in
 docs/ACM_PROJECT_SPEC_v2.1.md §6 D3:
@@ -18,7 +18,7 @@ from acm.errors import ConfigError
 def _base(profiles_block: str) -> str:
     """Minimal valid config with the given profiles block."""
     return (
-        """version: 2
+        """version: 3
 providers:
   p:
     protocol: openai
@@ -43,7 +43,7 @@ def test_duplicate_model_key_within_provider_rejected() -> None:
     """A duplicate model id key within the same provider's models: mapping is a hard
     error at the YAML layer: ruamel's safe loader raises DuplicateKeyError,
     caught by the existing YAMLError handler."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -65,7 +65,7 @@ profiles:
 
 def test_on_off_yes_no_are_plain_strings() -> None:
     """YAML 1.2: on/off/yes/no stay strings — no boolean coercion anywhere."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   on:
     protocol: openai
@@ -85,7 +85,7 @@ profiles:
 
 def test_true_false_still_boolean() -> None:
     """true/false resolve to real booleans for pydantic bool fields."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -109,7 +109,7 @@ profiles:
 
 def test_credential_ref_unquoted_parses() -> None:
     """${VAR} values survive parsing verbatim even unquoted."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -127,7 +127,7 @@ profiles:
 
 def test_credential_ref_default_syntax() -> None:
     """${VAR:-default} survives parsing verbatim."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -170,14 +170,14 @@ def test_non_mapping_root_rejected() -> None:
 
 def test_tab_indentation_reports_syntax_error() -> None:
     """Tab indentation surfaces as a YAML syntax error (fail-fast)."""
-    content = "version: 2\nproviders:\n\tp:\n\t\tprotocol: openai\n"
+    content = "version: 3\nproviders:\n\tp:\n\t\tprotocol: openai\n"
     with pytest.raises(ConfigError, match="Failed to parse YAML"):
         parse_config_yaml(content)
 
 
 def test_merge_keys_allowed_and_resolved() -> None:
     """Anchors + merge keys are standard YAML and resolve safely (allowed, discouraged in docs)."""
-    content = """version: 2
+    content = """version: 3
 providers:
   p1: &base
     protocol: openai
@@ -200,7 +200,7 @@ profiles:
 
 def test_dotted_and_slashed_model_keys_preserved() -> None:
     """Model id keys keep dots/slashes verbatim — they are plain string keys."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai

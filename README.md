@@ -122,7 +122,7 @@ acm release
 ## ⚙️ Core Configuration Example (`~/.acm/config.yaml`)
 
 ```yaml
-version: 2
+version: 3
 
 # ── L1 providers: endpoints, credential references & embedded L2 models ──
 providers:

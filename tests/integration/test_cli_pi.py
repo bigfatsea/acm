@@ -67,7 +67,7 @@ def test_pi_pool_use_idempotent_and_drift(
     clear_adapters()
     register_adapter(pi)
 
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   vmr:
     protocol: openai
@@ -79,7 +79,7 @@ providers:
 
 profiles:
   daily:
-    default: main
+    default: coding
     models:
       main: coding
       budget: cheap
@@ -123,7 +123,7 @@ def test_pi_dry_run_and_drift_masking(tmp_home: Path, make_config: Callable[[str
     clear_adapters()
     register_adapter(pi)
 
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   secret_p:
     protocol: openai
@@ -134,7 +134,7 @@ providers:
 
 profiles:
   daily:
-    default: main
+    default: secret-model
     models:
       main: secret-model
 """

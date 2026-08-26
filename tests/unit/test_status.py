@@ -133,7 +133,7 @@ def test_managed_paths_excludes_stale_field_no_longer_planned(tmp_home: Path) ->
     from acm.resolve import ResolvedProfile
 
     no_default_profile = ResolvedProfile(
-        profile_name="daily", models=make_mock_profile("x").models, default_label=None
+        profile_name="daily", models=make_mock_profile("x").models, default_model=None
     )
     res = compute_agent_status(adapter, no_default_profile)
     assert res.state != AgentState.DRIFTED

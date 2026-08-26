@@ -4,7 +4,7 @@
 
 > 🌐 本文档另有 [English / 英文版](USER_GUIDE.md)。
 >
-> 覆盖 ACM `0.3.x`（配置 schema v2）。配套文档：[README](../README.zh.md) · [项目指导原则与核心规格 v2.1](ACM_PROJECT_PRINCIPLE_v2.1.md) · [实现参考规格 v2.1](ACM_PROJECT_SPEC_v2.1.md)
+> 覆盖 ACM `0.3.x`（配置 schema v3）。配套文档：[README](../README.zh.md) · [项目指导原则与核心规格 v2.1](ACM_PROJECT_PRINCIPLE_v2.1.md) · [实现参考规格 v2.1](ACM_PROJECT_SPEC_v2.1.md)
 
 ---
 
@@ -82,7 +82,7 @@ ACM 采用 Kubernetes Server-Side Apply 的洞见——*字段级所有权*：
 
 ### 1.5 当前成熟度
 
-本指南覆盖 **MVP 版本（0.3.x，配置 schema v2）**。已实现命令：`acm init`、`acm status`、`acm use`、`acm rollback`。内置适配器：**Claude Code**、**Codex CLI**、**Pi Agent**。其余命令（`apply`、`diff`、`doctor`、`history`、`release`、`import vmr`）与适配器（Aider、Gemini CLI、OpenCode……）为规划中的升级项——参见 [§6.6](#66-规划中命令与当前的等价做法) 与 [§7.5](#75-路线图适配器)。
+本指南覆盖 **MVP 版本（0.3.x，配置 schema v3）**。已实现命令：`acm init`、`acm status`、`acm use`、`acm rollback`。内置适配器：**Claude Code**、**Codex CLI**、**Pi Agent**。其余命令（`apply`、`diff`、`doctor`、`history`、`release`、`import vmr`）与适配器（Aider、Gemini CLI、OpenCode……）为规划中的升级项——参见 [§6.6](#66-规划中命令与当前的等价做法) 与 [§7.5](#75-路线图适配器)。
 
 ---
 
@@ -187,39 +187,39 @@ provider 直接内嵌自己的模型（`providers.<name>.models.<上游 id>`）�
 
 ### 3.9 Profile 是带 opt-in 默认项的成员集合，不是运行期自动分流
 
-Profile 是一套**命名的模型集合**（`models: {label: 模型引用}`），外加一个*可选*的 `default` label——而不是运行期规则引擎。例如：
+Profile 包含两个正交维度：可选的 `default`（R3 模型引用）与可选的 `models` 映射（注册成员集合）——而不是运行期规则引擎。例如：
 
 ```yaml
 # 片段 —— 假设 providers: 已定义模型 sonnet/o3（完整文件见 §5.6）
 profiles:
   daily:
-    default: coder      # opt-in：唯一驱动 Agent 默认模型字段的开关
+    default: sonnet     # 独立 R3 模型引用：唯一驱动 Agent 默认模型字段的开关
     models:
-      coder: sonnet      # label -> 模型引用（裸 id 或 provider.id）
-      review: o3         # 其他任意 label —— 就是普通成员，没有特殊地位
+      reviewer: o3      # label -> 模型引用：注册进 Agent 模型目录（Pi 消费）
 ```
 
 关键事实：
 
-- **注册与选型互相独立。** `models:` 是完整的成员集合（≥ 1 项）；`default`（若声明）是唯一驱动 ACM 写入 Agent 默认模型字段的信号。没有哪个 label 是结构上"特殊"的——叫 `coder` 或叫 `main` 都只是普通 label，没有本质区别。
+- **注册与选型互相独立。** `models:` 是注册集（Pi 消费）；`default:` 是独立的 R3 模型引用（裸 id 或 `provider.id`），直接声明 Agent 默认模型。两者至少声明一个。
+- **`default` 是直接的模型引用，不是成员 label。** 直接写 `default: sonnet`（模型 ID），不需要通过别名 label 中转。Pi 始终把 default 模型注册进 `models.json`（若未在 `models:` 中声明，则生成单条目组，以模型 ID 命名），因此 `settings.json` 的 `defaultProvider`/`defaultModel` 绝不悬空。
 - **不声明 `default` 是正常、合法的声明态**——即"仅注册" profile。对这种 profile，ACM 绝不触碰 Agent 的默认模型命名空间——这不是降级状态，只是另一种正常状态。在 Pi 上这是**零告警**（注册本身就是完整语义）；Claude Code 和 Codex 没有注册通道可退守，仍会给出**一条明确告警**说明无内容可投影——见 §7.4。
-- **Agent 实际能用哪些成员由 Agent 的能力决定，不由 profile 决定。** Claude Code 和 Codex 没有模型注册通道：只能投影 opt-in 的 `default` 成员；其余成员会产生一条聚合投影告警（`models.unreachable`），列出被跳过的成员——绝不静默丢弃。Pi 则有注册通道：无论是否设置 `default`，都会把**每一个**成员注册进 `models.json`；`default` 只用来驱动 `settings.json` 的 `defaultProvider`/`defaultModel`。见 §7.4。
+- **Agent 实际能用哪些成员由 Agent 的能力决定，不由 profile 决定。** Claude Code 和 Codex 没有模型注册通道：只能投影 opt-in 的 `default` 模型；其余声明的成员会产生一条聚合投影告警（`models.unreachable`），列出被跳过的成员——绝不静默丢弃。Pi 则有注册通道：会把 `models` 里的**每一个**成员连同 `default` 模型一起注册进 `models.json`；`default` 用来驱动 `settings.json` 的 `defaultProvider`/`defaultModel`。见 §7.4。
 - **"不同情况用不同模型"靠切换 Profile 实现，不是运行期自动分流。** Agent 不会按任务自动选模型；而是*你*（或脚本）切换激活 Profile：
 
   ```bash
-  acm use daily     # 每个 Agent 的默认项（如果有）现在指向 daily 的 default 成员
+  acm use daily     # 每个 Agent 的默认项（如果有）现在指向 daily 的 default 模型
   acm use budget    # ……现在指向 budget 的
   ```
 
-  对 Claude Code/Codex，配置文件里的 `model` 等字段被重写指向新的 default 成员；对 Pi：`settings.json` 的 `defaultProvider`/`defaultModel` 被更新，之前已注册的 provider 按设计保留在 `models.json` 中——见 §7.3。
+  对 Claude Code/Codex，配置文件里的 `model` 等字段被重写指向新的 default 模型；对 Pi：`settings.json` 的 `defaultProvider`/`defaultModel` 被更新，之前已注册的 provider 按设计保留在 `models.json` 中——见 §7.3。
 - **今天想让不同 Agent 用不同模型**，请按 Agent 分别投影（目前没有全局绑定命令）：
 
   ```bash
-  acm use daily claude_code    # Claude Code ← daily 的 default 成员
-  acm use budget pi            # Pi ← budget 的 default 成员
+  acm use daily claude_code    # Claude Code ← daily 的 default 模型
+  acm use budget pi            # Pi ← budget 的 default 模型
   ```
 
-> **💡 `/model` 切换与 ACM 的分工。** 多数 Agent（Claude Code `/model`、Codex `/model`、Pi `/model`……）都支持在会话中交互切换模型。那个可选模型池属于 **Agent 自己的机制**（内置目录、它自己的配置文件、或 Pi 的 `models.json`/extensions）。对没有注册通道的 Agent（Claude Code、Codex），ACM 只投影 **default 成员**外加连接层，`/model` 的候选列表完全是 Agent 自己的事。对 Pi 而言，ACM 会把每一个声明的成员都注册进 `models.json`，让它们全部出现在 `/model` 里——见 §7.3。
+> **💡 `/model` 切换与 ACM 的分工。** 多数 Agent（Claude Code `/model`、Codex `/model`、Pi `/model`……）都支持在会话中交互切换模型。那个可选模型池属于 **Agent 自己的机制**（内置目录、它自己的配置文件、或 Pi 的 `models.json`/extensions）。对没有注册通道的 Agent（Claude Code、Codex），ACM 只投影 **default 模型**外加连接层，`/model` 的候选列表完全是 Agent 自己的事。对 Pi 而言，ACM 会把每一个声明的成员都注册进 `models.json`，让它们全部出现在 `/model` 里——见 §7.3。
 
 ---
 
@@ -268,7 +268,7 @@ SSOT 文件的完整 schema。校验非常严格：未知键直接拒绝、交�
 ### 5.1 顶层
 
 ```yaml
-version: 2         # 必须恰好为 2（否则提示升级）
+version: 3         # 必须恰好为 3（否则提示升级）
 ```
 
 至少必须定义一个 `providers:` 条目（且至少内嵌一个模型），以及至少一个 `profiles:` 条目。
@@ -318,10 +318,12 @@ version: 2         # 必须恰好为 2（否则提示升级）
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `models` | 映射（label → 模型引用） | ✅ | ≥ 1 项。profile 的完整成员集合——每个 label 都是平等的，没有哪个结构上更特殊 |
-| `default` | string | ❌ | 必须指向 `models:` 里已存在的某个 label。*唯一*驱动 ACM 写入 Agent 默认模型字段的开关 |
+| `default` | string（R3 模型引用） | ❌ | 模型引用（裸 id 或 `provider.id`）。*唯一*驱动 ACM 写入 Agent 默认模型字段的开关。独立解析，不是成员 label |
+| `models` | 映射（label → 模型引用） | ❌ | profile 的注册成员集合——注册进具备模型目录的 Agent（Pi） |
 
-**模型引用语法**（`models:` 每一项的值）：
+`default` 与 `models` 至少声明一个。
+
+**模型引用语法**（用于 `default` 及 `models:` 每一项的值）：
 
 | 形式 | 解析方式 | 失败情形 |
 |---|---|---|
@@ -334,7 +336,7 @@ version: 2         # 必须恰好为 2（否则提示升级）
 # 片段 —— 假设 providers: 已定义 coding/cheap 及 anthropic-direct 下的 claude-sonnet（完整文件见 §5.6）
 profiles:
   daily:
-    default: coder                          # opt-in：只有 "coder" 会驱动 Agent 默认值
+    default: coding                         # opt-in：直接 R3 引用，驱动 Agent 默认值
     models:
       coder: coding                         # 裸 id —— 全局唯一时可用
       reviewer: anthropic-direct.claude-sonnet   # 限定引用 —— provider.id
@@ -343,31 +345,34 @@ profiles:
   budget:
     models:
       fast: cheap                           # 没有 default 行：纯注册，Agent 默认值保持用户自管
+
+  solo:
+    default: coding                         # 仅 default：不需要 models 块
 ```
 
 规则：
 
-- `models:` 至少要有一项；空映射或省略都会被拒绝。
-- `default`（若声明）必须等于 `models:` 中已存在的某个 label。
-- **不声明 `default` 是正常、合法的状态（仅注册）**：成员仍会注册进具备注册通道的 Agent（Pi），但不会触碰任何 Agent 的默认模型字段。在 Pi 上这**不产生任何告警**，因为没有任何东西被遗漏未表达——与 v1 的"仅 pool" profile 不同。Claude Code 和 Codex 没有注册通道可退守，仍会给出一条明确告警说明无内容可投影（见下方 §5.4 表格与 §7.4）。
-- 同一 profile 内两个 label 不能解析到同一个 `(provider, upstream id)` 组合，即便引用字符串不同（`both resolve to upstream model id '...' on provider '...'`）——那会在 Agent 的模型选择器里产生无法区分的重复条目。
-- 在没有注册通道的 Agent 上（Claude Code、Codex）：只有 `default` 成员会被投影；其余成员合并为一条聚合投影损失告警 `models.unreachable`，绝不静默丢弃。完全没有 `default` 时，这两个 Agent 得到零 ops，外加一条"无可投影内容"的明确告警。
+- profile 必须声明 `models`（非空）或 `default` 至少其一；二者皆空会被拒绝。
+- `default`（若声明）按与成员值相同的 R3 模型引用规则解析（存在性 + 无歧义）。
+- **Pi 始终注册 default 模型**：若声明了 `default`，Pi 会把该模型注册进 `models.json`（若未在 `models:` 中，则生成单条目组，以模型 ID 命名），确保 `settings.json` 绝不悬空。
+- **不声明 `default` 是正常、合法的状态（仅注册）**：成员仍会注册进具备注册通道的 Agent（Pi），但不会触碰任何 Agent 的默认模型字段。在 Pi 上这**不产生任何告警**，因为没有任何东西被遗漏未表达。Claude Code 和 Codex 没有注册通道可退守，仍会给出一条明确告警说明无内容可投影。
+- 同一 profile 的 `models:` 内两个 label 不能解析到同一个 `(provider, upstream id)` 组合（`both resolve to upstream model id '...' on provider '...'`）。
+- 在没有注册通道的 Agent 上（Claude Code、Codex）：只有 `default` 模型会被投影；其他已注册成员合并为一条聚合投影损失告警 `models.unreachable`，绝不静默丢弃。
 
 ### 5.5 交叉引用完整性
 
 加载时即校验（先于一切动作）：
 
 - provider 名：非空、无首尾空白、不含 `.`；模型 id（provider `models:` 的 key）：非空。
-- 每个 `profiles.*.models.*` 引用都能按 §5.4 的算法成功解析（存在性 + 无歧义）。
-- 每个 `profiles.*.default`（若设置）都指向该 profile `models:` 中已存在的 label。
-- 每个 profile 的 `models:` 至少有一项；至少定义一个 profile。
+- 每个 `profiles.*.models.*` 引用和 `profiles.*.default` 引用都能按 §5.4 的算法成功解析（存在性 + 无歧义）。
+- 每个 profile 至少声明 `models`（非空）或 `default` 之一；至少定义一个 profile。
 
 ### 5.6 完整示例集
 
 **a) VMR 中心型（探测到 VMR 时 `acm init` 自动生成）：**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   vmr:
@@ -387,7 +392,7 @@ profiles:
 **b) Anthropic 官方直连：**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   anthropic-official:
@@ -404,7 +409,7 @@ providers:
 
 profiles:
   daily:
-    default: sonnet
+    default: claude-sonnet-4-5
     models:
       sonnet: claude-sonnet-4-5
 ```
@@ -412,7 +417,7 @@ profiles:
 **c) 多供应商、多 Profile：**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   anthropic-direct:
@@ -433,18 +438,18 @@ providers:
 
 profiles:
   daily:
-    default: sonnet
+    default: claude-sonnet-4-5
     models:
       sonnet: claude-sonnet-4-5
       cheap: claude-haiku-4-5
 
   budget:
-    default: cheap
+    default: claude-haiku-4-5
     models:
       cheap: claude-haiku-4-5
 
   experimental:
-    default: flagship
+    default: gpt-4o
     models:
       flagship: gpt-4o
       review: claude-sonnet-4-5        # 其他任意成员 —— 只是个 label，没有特殊地位
@@ -455,7 +460,7 @@ profiles:
 **d) 第三方 OpenAI 兼容中转：**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   relay:
@@ -467,7 +472,7 @@ providers:
 
 profiles:
   daily:
-    default: flagship
+    default: their-flagship-model-name
     models:
       flagship: their-flagship-model-name
 ```
@@ -476,13 +481,12 @@ profiles:
 
 | 消息片段 | 原因 | 修复 |
 |---|---|---|
-| `Unsupported config schema version` | `version ≠ 2` | 改为 `version: 2` |
+| `Unsupported config schema version` | `version ≠ 3` | 改为 `version: 3` |
 | `must not contain '.'` | provider 名含点 | 改名（点是 `provider.id` 限定引用的分隔符） |
 | `unknown model id '...'` | 裸 id 在任何 provider 下都找不到 | 定义该模型，或修正 id |
 | `model id '...' is ambiguous` | 裸 id 在 ≥2 个 provider 下都有定义 | 改用 `<provider>.<id>` 限定引用 |
 | `is not defined under provider '...'` | 限定引用的 id 在该 provider 下不存在 | 定义该模型，或修正 provider/id |
-| `must define at least one entry under 'models'` | 某 profile 的 `models:` 为空或缺失 | 至少加一个成员 |
-| `is not a member defined under 'models'` | `default:` 指向不存在的 label | 修正 label，或把它加为成员 |
+| `must declare at least one of 'models' (non-empty) or 'default'` | 某 profile 既未声明 `models` 也未声明 `default` | 声明 `default`、`models` 或二者皆声明 |
 | `Configuration must define at least one profile` | 没有 `profiles:` 条目 | 补一个 |
 | `base_url must start with http(s)://` | 端点格式错误 | 修正 URL scheme |
 | `both resolve to upstream model id '...' on provider '...'` | 同一 profile 内两个 label 解析到同一 `(provider, id)` | 改用不同的上游模型，或删掉重复的 label |
@@ -1066,7 +1070,7 @@ ACM 绝对非侵入。停用只需卸载（`uv tool uninstall agent-config-manag
 `/model` 是各 Agent 的运行期能力——可选模型池来自 Agent 自身（内置目录；对 Pi 还包括 `models.json` 条目和 `pi.registerProvider()` 扩展）。ACM 管理的是另一层：注册你声明的成员，并投影 **default 成员**外加连接层，让所有 Agent 对齐 SSOT。两者干净地组合：`acm use <profile>` 设默认；`/model` 会话内临时覆盖。对 Pi 而言，ACM 会注册你声明的每一个成员，它们本身就已经出现在 `/model` 里——除非你想要 ACM 不知道的模型，否则不需要额外的 extension。见 §3.9 与 §7.3。
 
 **❓ Profile 是怎么工作的？每个 Agent 实际得到哪个模型？**
-Profile 是一套命名的成员集合（`models: {label: 引用}`，≥ 1 项）外加一个可选的 `default` label。Claude Code 和 Codex 只消费 **`default`** 成员；其余成员会以一条显式的聚合投影告警（`models.unreachable`）跳过——绝不静默丢弃。Pi 则无论是否有 `default` 都会注册**每一个**成员。切换使用场景 = 切换 Profile（`acm use daily` / `acm use budget`），这会重新把每个 Agent 的默认值指向新 profile 的 default 成员。不存在运行期自动分流。要让不同 Agent 用不同模型，请按 Agent 分别投影（`acm use <profile> <agent>`）。详见 §3.9。
+Profile 由一个可选的成员集合（`models: {label: 引用}`）和一个可选的、独立声明的 `default`（R3 模型引用，不是成员 label）组成——二者至少声明一个。Claude Code 和 Codex 只消费 **`default`**；其余成员会以一条显式的聚合投影告警（`models.unreachable`）跳过——绝不静默丢弃。Pi 则无论是否有 `default` 都会注册**每一个**成员。切换使用场景 = 切换 Profile（`acm use daily` / `acm use budget`），这会重新把每个 Agent 的默认值指向新 profile 的 default 成员。不存在运行期自动分流。要让不同 Agent 用不同模型，请按 Agent 分别投影（`acm use <profile> <agent>`）。详见 §3.9。
 
 **❓ `Unresolved environment variables in configuration: ${ANTHROPIC_API_KEY}`**
 在 shell（或 shell 配置文件）里 export 该变量，或在 config 中给兜底（`${VAR:-default}`）。此检查发生在任何文件 I/O 之前——什么都没写。
@@ -1096,7 +1100,7 @@ Profile 是一套命名的成员集合（`models: {label: 引用}`，≥ 1 项�
 暂不支持——全局写锁依赖 `fcntl`（POSIX）。目前 macOS/Linux。
 
 **❓ 升级 ACM 会动我的配置吗？**
-不会。升级只影响工具行为；在你执行写命令前，`config.yaml` 和 Agent 文件都不会被碰。schema 保持 `version: 2`（新旧 schema 不匹配会明确报错而非静默迁移——`version: 1` 的旧文件需要手工改写或用 `acm init --force` 重新生成）。
+不会。升级只影响工具行为；在你执行写命令前，`config.yaml` 和 Agent 文件都不会被碰。schema 保持 `version: 3`（新旧 schema 不匹配会明确报错而非静默迁移——`version: 1` 或 `version: 2` 的旧文件需要手工改写或用 `acm init --force` 重新生成）。手工改写时，v2 的 `default: <旧label>` 必须改成 `default: <model-id>`——如果这个旧 label 字符串碰巧也是别处一个真实存在的 model id，校验会悄悄通过但解析到错误的模型，因此手工改写后务必用 `acm status` 核对实际解析结果，不要只看校验是否通过。
 
 **❓ 我还能继续手动编辑 Agent 配置吗？**
 可以——未受管字段随时可以。受管字段的手改会产生漂移（会被刻意暴露出来，绝不静默覆盖）。更好的做法是更新 SSOT，让 ACM 去收敛。

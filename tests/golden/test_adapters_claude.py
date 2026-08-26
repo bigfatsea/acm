@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Golden tests for Claude Code adapter (schema v2): Apply, Non-destructive, Rollback."""
+"""Golden tests for Claude Code adapter (schema v3): Apply, Non-destructive, Rollback."""
 
 import hashlib
 import json
@@ -83,7 +83,7 @@ def test_claude_code_unreachable_aggregate_warning() -> None:
     profile = ResolvedProfile(
         profile_name="daily",
         models={"main": coding, "budget": cheap, "longctx": agent},
-        default_label="main",
+        default_model=coding,
     )
 
     ops, warnings = claude_code.plan(profile)
@@ -114,7 +114,7 @@ def test_claude_code_unreachable_includes_cross_provider_same_id() -> None:
     alt = ResolvedModel(model_id="coding", provider=direct)
 
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "review": alt}, default_label="main"
+        profile_name="daily", models={"main": coding, "review": alt}, default_model=coding
     )
 
     _, warnings = claude_code.plan(profile)
@@ -134,7 +134,7 @@ def test_claude_code_no_default_zero_ops_zero_warnings_when_unreachable_check_sk
         raw_api_key_ref="${KEY}",
     )
     coding = ResolvedModel(model_id="coding", provider=prov)
-    profile = ResolvedProfile(profile_name="daily", models={"fast": coding}, default_label=None)
+    profile = ResolvedProfile(profile_name="daily", models={"fast": coding}, default_model=None)
 
     ops, warnings = claude_code.plan(profile)
     assert ops == []

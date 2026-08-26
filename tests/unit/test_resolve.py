@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Unit tests for ENV reference validation and ResolvedProfile evaluation (schema v2)."""
+"""Unit tests for ENV reference validation and ResolvedProfile evaluation (schema v3)."""
 
 import pytest
 
@@ -71,7 +71,6 @@ def test_resolve_profile_success(sample_config_yaml: str) -> None:
     resolved = resolve_profile("daily", cfg, env)
 
     assert resolved.profile_name == "daily"
-    assert resolved.default_label == "coder"
     assert resolved.default_model is not None
     assert resolved.default_model.model_id == "coding"
     assert resolved.default_model.provider.name == "vmr"
@@ -80,12 +79,15 @@ def test_resolve_profile_success(sample_config_yaml: str) -> None:
     assert resolved.default_model.context_window == 131072
     assert resolved.default_model.reasoning is not None
     assert resolved.default_model.reasoning.effort == "high"
-    assert resolved.models["coder"] is resolved.default_model
+    # The default and the member labelled `coder` resolve to the SAME upstream model,
+    # but they are distinct ResolvedModel objects (schema v3 resolves the default
+    # independently); the shared provider object confirms key identity.
+    assert resolved.models["coder"].provider is resolved.default_model.provider
 
 
 def test_resolve_profile_missing_env_error() -> None:
     """Test hard error when required env vars for reachable providers are missing."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p1:
     protocol: openai
@@ -103,7 +105,7 @@ providers:
 
 profiles:
   d:
-    default: main
+    default: m1
     models:
       main: m1
       other: m2
@@ -119,7 +121,7 @@ profiles:
 
 def test_resolve_profile_ignores_unrelated_unexported_env_vars() -> None:
     """Test that missing env vars in unreferenced providers do NOT block the active profile."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   used_p:
     protocol: openai
@@ -137,7 +139,7 @@ providers:
 
 profiles:
   daily:
-    default: main
+    default: used
     models:
       main: used
 """
@@ -158,7 +160,7 @@ def test_resolve_profile_not_found(sample_config_yaml: str) -> None:
 
 # ── Multi-provider members, ordering, and no-default (registration-only) ────
 
-_MULTI_PROVIDER_YAML = """version: 2
+_MULTI_PROVIDER_YAML = """version: 3
 providers:
   vmr:
     protocol: openai
@@ -177,7 +179,7 @@ providers:
 
 profiles:
   daily:
-    default: main
+    default: coding
     models:
       main: coding
       budget: cheap
@@ -207,14 +209,52 @@ def test_resolve_cross_provider_missing_env_aborts() -> None:
 
 
 def test_resolve_no_default_profile(sample_config_yaml: str) -> None:
-    """Registration-only profile (no default): default_label/default_model are None."""
+    """Registration-only profile (no default): default_model is None."""
     yaml_str = sample_config_yaml + """  reg:
     models:
       fast: coding
 """
     cfg = parse_config_yaml(yaml_str)
     rp = resolve_profile("reg", cfg, env={"VMR_KEY": "k"})
-    assert rp.default_label is None
     assert rp.default_model is None
     assert list(rp.models.keys()) == ["fast"]
     assert rp.models["fast"].model_id == "coding"
+
+
+_DEFAULT_ONLY_YAML = """version: 3
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: "${P_KEY}"
+    models:
+      m: {}
+
+profiles:
+  budget:
+    default: m
+"""
+
+
+def test_resolve_default_only_provider_reachable_without_any_member() -> None:
+    """default-only profile (no `models`): the default's provider must still be
+    merged into the reachable set and have its credentials resolved, even though
+    no member references it."""
+    cfg = parse_config_yaml(_DEFAULT_ONLY_YAML)
+    resolved = resolve_profile("budget", cfg, {"P_KEY": "secret"})
+
+    assert resolved.models == {}
+    assert resolved.default_model is not None
+    assert resolved.default_model.model_id == "m"
+    assert resolved.default_model.provider.name == "p"
+    assert resolved.default_model.provider.api_key == "secret"
+
+
+def test_resolve_default_only_missing_env_aborts() -> None:
+    """default-only profile: an unresolved ${VAR} on the default's own provider must
+    still hard-fail, even with an empty `models:` map."""
+    cfg = parse_config_yaml(_DEFAULT_ONLY_YAML)
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_profile("budget", cfg, {})
+
+    assert "${P_KEY}" in str(excinfo.value)

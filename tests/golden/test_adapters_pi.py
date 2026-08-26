@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Golden tests for Pi adapter (schema v2): Apply, Non-destructive, Brand-new file creation & Rollback."""
+"""Golden tests for Pi adapter (schema v3): Apply, Non-destructive, Brand-new file creation & Rollback."""
 
 import json
 from pathlib import Path
@@ -130,7 +130,7 @@ def test_pi_multi_provider_registers_all_members(tmp_home: Path) -> None:
     profile = ResolvedProfile(
         profile_name="daily",
         models={"main": coding, "budget": cheap, "review": o3},
-        default_label="main",
+        default_model=coding,
     )
 
     ops, _warnings = pi.plan(profile, env={"VMR_KEY": "vmr-key", "OPENAI_KEY": "oai-key"})
@@ -170,7 +170,7 @@ def test_pi_non_default_member_temperature_warns_vision_projected() -> None:
         capabilities=ModelCapabilities(vision=True),
     )
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_model=coding
     )
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
@@ -204,7 +204,7 @@ def test_pi_no_default_reasoning_warning_does_not_mention_default() -> None:
     coding = ResolvedModel(
         model_id="coding", provider=vmr, reasoning=ModelReasoning(effort="high")
     )
-    profile = ResolvedProfile(profile_name="reg", models={"main": coding}, default_label=None)
+    profile = ResolvedProfile(profile_name="reg", models={"main": coding}, default_model=None)
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
@@ -232,7 +232,7 @@ def test_pi_non_default_member_unexpressible_capabilities_warn() -> None:
         capabilities=ModelCapabilities(tools="xml", json_mode=True, thinking=True),
     )
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_model=coding
     )
 
     _, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
@@ -259,7 +259,7 @@ def test_pi_default_temperature_honest_warning_and_vision_projected() -> None:
         temperature=0.7,
         capabilities=ModelCapabilities(vision=True),
     )
-    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_label="main")
+    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_model=coding)
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
@@ -295,7 +295,7 @@ def test_pi_non_default_provider_headers_projected_proxy_warns() -> None:
     coding = ResolvedModel(model_id="coding", provider=vmr)
     o3 = ResolvedModel(model_id="o3", provider=review_prov)
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "review": o3}, default_label="main"
+        profile_name="daily", models={"main": coding, "review": o3}, default_model=coding
     )
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v", "OPENAI_KEY": "o"})
@@ -327,7 +327,7 @@ def test_pi_default_provider_headers_projected(tmp_home: Path) -> None:
         headers={"X-Org-Id": "acme"},
     )
     coding = ResolvedModel(model_id="coding", provider=prov)
-    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_label="main")
+    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_model=coding)
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
@@ -359,7 +359,7 @@ def test_pi_apply_golden_non_destructive(tmp_home: Path) -> None:
     coding = ResolvedModel(model_id="coding", provider=vmr)
     cheap = ResolvedModel(model_id="cheap", provider=vmr)
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_model=coding
     )
 
     ops, _ = pi.plan(profile, env={"VMR_KEY": "v"})
@@ -413,9 +413,58 @@ def test_pi_keyless_uses_dummy_api_key(tmp_home: Path) -> None:
         raw_api_key_ref="",
     )
     model = ResolvedModel(model_id="coding", provider=keyless_p)
-    profile = ResolvedProfile(profile_name="daily", models={"main": model}, default_label="main")
+    profile = ResolvedProfile(profile_name="daily", models={"main": model}, default_model=model)
 
     ops, warnings = pi.plan(profile)
     op = next(o for o in ops if o.path == "providers.vmr")
     assert op.new["apiKey"] == "dummy"
     assert any(w.field == "provider.api_key" for w in warnings)
+
+
+def test_pi_default_only_registers_default_as_single_entry_group(tmp_home: Path) -> None:
+    """Schema v3: a default-only profile (no `models`) registers the default model
+    as a single-entry provider group named by its model_id, so settings.json's
+    defaultModel stays resolvable in models.json, and writes the settings trio."""
+    from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
+
+    vmr = ResolvedProvider(
+        name="vmr",
+        protocol="openai",
+        base_url="http://127.0.0.1:8800/v1",
+        api_key="k",
+        raw_api_key_ref="${VMR_KEY}",
+    )
+    coding = ResolvedModel(model_id="coding", provider=vmr)
+    profile = ResolvedProfile(profile_name="daily", models={}, default_model=coding)
+
+    ops, _warnings = pi.plan(profile, env={"VMR_KEY": "v"})
+
+    # The default is registered as a single-entry group under its provider, named by
+    # its model_id (no label indirection) — not a dangling reference.
+    vmr_op = next(o for o in ops if o.path == "providers.vmr")
+    assert vmr_op.new["models"] == [{"id": "coding", "name": "coding"}]
+    settings_ops = {o.path: o.new for o in ops if o.path.startswith("default")}
+    assert settings_ops["defaultProvider"] == "vmr"
+    assert settings_ops["defaultModel"] == "coding"
+
+
+def test_pi_default_matching_member_dedups_and_keeps_member_label(tmp_home: Path) -> None:
+    """Schema v3: when `default` resolves to the same (provider, model_id) as an existing
+    `models:` member, the registration set must collapse to a single entry — not a
+    duplicate — and that entry keeps the member's label as its `name` (not the model_id)."""
+    from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
+
+    vmr = ResolvedProvider(
+        name="vmr",
+        protocol="openai",
+        base_url="http://127.0.0.1:8800/v1",
+        api_key="k",
+        raw_api_key_ref="${VMR_KEY}",
+    )
+    coding = ResolvedModel(model_id="coding", provider=vmr)
+    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_model=coding)
+
+    ops, _warnings = pi.plan(profile, env={"VMR_KEY": "v"})
+
+    vmr_op = next(o for o in ops if o.path == "providers.vmr")
+    assert vmr_op.new["models"] == [{"id": "coding", "name": "main"}]

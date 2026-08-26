@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Environment reference resolution and ResolvedProfile computation (schema v2)."""
+"""Environment reference resolution and ResolvedProfile computation (schema v3)."""
 
 import re
 from collections.abc import Mapping
@@ -93,20 +93,18 @@ class ResolvedModel(BaseModel):
 
 
 class ResolvedProfile(BaseModel):
-    """Fully resolved Profile ready for adapter compilation."""
+    """Fully resolved Profile ready for adapter compilation.
+
+    `models` is the registration set (label -> model); `default_model` is the
+    independently-resolved default (an R3 ref, NOT a member label). Either may be
+    empty/None independently — registration and selection are orthogonal.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     profile_name: str
     models: dict[str, ResolvedModel]
-    default_label: str | None = None
-
-    @property
-    def default_model(self) -> ResolvedModel | None:
-        """The opted-in default member, or None if the profile declares no `default`."""
-        if self.default_label is None:
-            return None
-        return self.models[self.default_label]
+    default_model: ResolvedModel | None = None
 
 
 def resolve_profile(
@@ -133,11 +131,20 @@ def resolve_profile(
     # (V3) already guarantees these succeed for any CoreConfig built via parse_config_yaml;
     # this is defense-in-depth against a hand-constructed CoreConfig.
     member_refs: dict[str, tuple[str, str]] = {
-        label: core_config._resolve_ref(profile_name, label, ref)
+        label: core_config._resolve_ref(profile_name, ref, subject=f"member '{label}'")
         for label, ref in profile_cfg.models.items()
     }
 
+    # Resolve the default reference independently (same R3 rules, but it is NOT a member).
+    default_ref: tuple[str, str] | None = None
+    if profile_cfg.default is not None:
+        default_ref = core_config._resolve_ref(
+            profile_name, profile_cfg.default, subject="default"
+        )
+
     reachable_provider_keys = {prov_name for prov_name, _ in member_refs.values()}
+    if default_ref is not None:
+        reachable_provider_keys.add(default_ref[0])
 
     resolved_providers: dict[str, ResolvedProvider] = {}
     for prov_name in reachable_provider_keys:
@@ -162,8 +169,7 @@ def resolve_profile(
             "Please export them in your shell or define fallback defaults like '${VAR:-default}'."
         )
 
-    def _resolve_model(label: str) -> ResolvedModel:
-        prov_name, model_key = member_refs[label]
+    def _resolve_model(prov_name: str, model_key: str) -> ResolvedModel:
         model_cfg = core_config.providers[prov_name].models[model_key]
         return ResolvedModel(
             model_id=model_key,
@@ -183,11 +189,15 @@ def resolve_profile(
     # CoreConfig that passed parse_config_yaml is therefore guaranteed collision-free
     # already; a second check here would just be dead code re-deriving the same result.
     models: dict[str, ResolvedModel] = {
-        label: _resolve_model(label) for label in profile_cfg.models
+        label: _resolve_model(*member_refs[label]) for label in profile_cfg.models
     }
+
+    default_model: ResolvedModel | None = None
+    if default_ref is not None:
+        default_model = _resolve_model(*default_ref)
 
     return ResolvedProfile(
         profile_name=profile_name,
         models=models,
-        default_label=profile_cfg.default,
+        default_model=default_model,
     )

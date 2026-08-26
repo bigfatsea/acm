@@ -115,7 +115,7 @@ acm release
 ## ⚙️ 核心配置示例 (`~/.acm/config.yaml`)
 
 ```yaml
-version: 2
+version: 3
 
 # ── L1 供应商：端点、凭据引用与内嵌 L2 模型 ──────────────
 providers:

@@ -92,7 +92,7 @@ Agent 配置文件（如 `~/.claude/settings.json`、`~/.codex/config.toml`）�
 ### 2.2 管什么（In Scope）
 
 - **L1 连接与凭据**：base_url、protocol 方言、api_key（仅存 credential **引用**，不存密钥）、org_id、headers、proxy。
-- **L2 模型规格与行为**：模型选择（profile 为扁平成员集合 `models: {label: 模型引用}`，`default: <label>` 是唯一驱动 Agent 默认模型字段的显式 Opt-In 开关；无 `default` 即 registration-only profile，见 Spec v2.1 §7.3.3）、context window、max output tokens、reasoning、temperature、能力位。
+- **L2 模型规格与行为**：模型选择（profile 为可选成员集合 `models: {label: 模型引用}` + 独立声明的 `default: <R3 模型引用>`——`default` 走与成员值相同的引用解析规则，不是成员 label；`default` 是唯一驱动 Agent 默认模型字段的显式 Opt-In 开关；无 `default` 即 registration-only profile，见 Spec v2.1 §7.3.3）、context window、max output tokens、reasoning、temperature、能力位。
 - **Profile 管理**：多 Profile、激活态、回滚、diff。MVP 仅全局单一激活 Profile；支持向后兼容的分层配置演进（团队 Base SSOT + 本地个人 Overlay 覆盖，纯环境变量引用，零密钥入库，属 Phase 3 规划）。
 - **VMR 集成**：第一方集成，非架构依赖（无 VMR 时一切功能照常）。
 
@@ -249,7 +249,7 @@ acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.y
 | `history` | 随 Journal 一并引入 |
 | `release`（恢复接管前旧值） | 出现试用后完全退出并恢复旧值的真实诉求 |
 | `import vmr`（独立增量合并） | VMR 模型列表常变、反复增量合并成为痛点（此前 VMR 变更靠手编 config.yaml 或 init --force 重生成） |
-| Profile 成员注册与 opt-in 默认投影（schema v2：`profiles.<name>.models` + 可选 `default`） | 已触发并交付：用户需要在支持多模型选择器的 Agent（Pi）中批量维护成员清单，或只注册模型而不接管默认选择；语义与实施见 Spec v2.1 §7.3；Claude Code/Codex 无注册通道，仅投 `default` 成员 + 聚合投影损失告警（`models.unreachable`） |
+| Profile 成员注册与 opt-in 默认投影（schema v3：`profiles.<name>.models` 与独立 R3 引用 `default` 正交） | 已触发并交付：用户需要在支持多模型选择器的 Agent（Pi）中批量维护成员清单，或只注册模型而不接管默认选择；语义与实施见 Spec v2.1 §7.3；Claude Code/Codex 无注册通道，仅投 `default` 成员 + 聚合投影损失告警（`models.unreachable`） |
 | 显式 protected_paths 黑名单与双重校验 | 适配器面扩大到白名单封闭集不足以表达时 |
 | 正式 Adapter Protocol 仪式 | 社区适配器真实出现（源码内置贡献流程启动）之时 |
 

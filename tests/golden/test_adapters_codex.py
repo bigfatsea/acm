@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Golden tests for Codex adapter (schema v2): Apply, Non-destructive, Rollback."""
+"""Golden tests for Codex adapter (schema v3): Apply, Non-destructive, Rollback."""
 
 import hashlib
 from pathlib import Path
@@ -87,7 +87,7 @@ def test_codex_unreachable_aggregate_warning() -> None:
     coding = ResolvedModel(model_id="coding", provider=prov)
     cheap = ResolvedModel(model_id="cheap", provider=prov)
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_model=coding
     )
 
     ops, warnings = codex.plan(profile)
@@ -116,7 +116,7 @@ def test_codex_unreachable_includes_cross_provider_same_id() -> None:
     alt = ResolvedModel(model_id="coding", provider=direct)
 
     profile = ResolvedProfile(
-        profile_name="daily", models={"main": coding, "review": alt}, default_label="main"
+        profile_name="daily", models={"main": coding, "review": alt}, default_model=coding
     )
 
     _, warnings = codex.plan(profile)
@@ -135,7 +135,7 @@ def test_codex_no_default_zero_ops_single_warning() -> None:
         raw_api_key_ref="${KEY}",
     )
     coding = ResolvedModel(model_id="coding", provider=prov)
-    profile = ResolvedProfile(profile_name="daily", models={"fast": coding}, default_label=None)
+    profile = ResolvedProfile(profile_name="daily", models={"fast": coding}, default_model=None)
 
     ops, warnings = codex.plan(profile)
     assert ops == []

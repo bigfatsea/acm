@@ -1,5 +1,5 @@
 # // Ver 2026-08-26 00:00, by claude-sonnet-5
-"""Unit tests for Core Config parsing and schema validation (schema v2)."""
+"""Unit tests for Core Config parsing and schema validation (schema v3)."""
 
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from acm.errors import ConfigError
 def test_valid_config_parsing(sample_config_yaml: str) -> None:
     """Test parsing a valid complete config.yaml."""
     cfg = parse_config_yaml(sample_config_yaml)
-    assert cfg.version == 2
+    assert cfg.version == 3
     assert "vmr" in cfg.providers
     assert cfg.providers["vmr"].protocol == "openai"
     assert cfg.providers["vmr"].base_url == "http://127.0.0.1:8800/v1"
@@ -21,7 +21,7 @@ def test_valid_config_parsing(sample_config_yaml: str) -> None:
     assert cfg.providers["vmr"].models["coding"].reasoning is not None
     assert cfg.providers["vmr"].models["coding"].reasoning.effort == "high"
     assert "daily" in cfg.profiles
-    assert cfg.profiles["daily"].default == "coder"
+    assert cfg.profiles["daily"].default == "coding"
     assert cfg.profiles["daily"].models == {"coder": "coding"}
 
 
@@ -46,7 +46,7 @@ profiles:
 
 def test_missing_protocol() -> None:
     """Test provider missing protocol."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     base_url: http://localhost
@@ -64,7 +64,7 @@ profiles:
 
 def test_invalid_protocol() -> None:
     """Test provider with unsupported protocol dialect."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: unsupported-protocol
@@ -83,7 +83,7 @@ profiles:
 
 def test_invalid_base_url() -> None:
     """Test provider with invalid base_url (no http/https)."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -102,7 +102,7 @@ profiles:
 
 def test_empty_profiles() -> None:
     """Test config without any profiles."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -127,7 +127,7 @@ def test_load_config_file_success(tmp_path: Path, sample_config_yaml: str) -> No
     p.write_text(sample_config_yaml, encoding="utf-8")
     cfg = load_config(p)
     assert isinstance(cfg, CoreConfig)
-    assert cfg.version == 2
+    assert cfg.version == 3
 
 
 # ── V1: provider name / model id charset ─────────────────────────────────────
@@ -135,7 +135,7 @@ def test_load_config_file_success(tmp_path: Path, sample_config_yaml: str) -> No
 
 def test_v1_provider_name_with_dot_rejected() -> None:
     """Provider names must not contain '.' — it is the qualified-reference separator."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   vmr.prod:
     protocol: openai
@@ -154,7 +154,7 @@ profiles:
 
 def test_v1_empty_provider_models_allowed() -> None:
     """A provider with zero models is legal (just unreachable via any reference)."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   empty:
     protocol: openai
@@ -178,9 +178,9 @@ profiles:
 # ── V2: profile 'models' must be non-empty ───────────────────────────────────
 
 
-def test_v2_profile_without_models_rejected() -> None:
-    """A profile declaring no members at all is rejected."""
-    yaml_str = """version: 2
+def test_v2_profile_without_models_or_default_rejected() -> None:
+    """A profile declaring neither `models` nor `default` is rejected."""
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -191,13 +191,13 @@ providers:
 profiles:
   d: {}
 """
-    with pytest.raises(ConfigError, match="must define at least one entry under 'models'"):
+    with pytest.raises(ConfigError, match="must declare at least one of 'models'"):
         parse_config_yaml(yaml_str)
 
 
-def test_v2_profile_with_empty_models_map_rejected() -> None:
-    """An explicit but empty 'models: {}' is also rejected."""
-    yaml_str = """version: 2
+def test_v2_empty_models_without_default_rejected() -> None:
+    """An explicit but empty 'models: {}' with no 'default' is also rejected."""
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -209,15 +209,34 @@ profiles:
   d:
     models: {}
 """
-    with pytest.raises(ConfigError, match="must define at least one entry under 'models'"):
+    with pytest.raises(ConfigError, match="must declare at least one of 'models'"):
         parse_config_yaml(yaml_str)
+
+
+def test_v2_default_only_profile_valid() -> None:
+    """A profile declaring only `default` (no `models`) is valid (selection-only)."""
+    yaml_str = """version: 3
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {}
+profiles:
+  d:
+    default: m
+"""
+    cfg = parse_config_yaml(yaml_str)
+    assert cfg.profiles["d"].default == "m"
+    assert cfg.profiles["d"].models == {}
 
 
 # ── V3: R3 reference resolution ───────────────────────────────────────────────
 
 
 def _two_provider_yaml(daily_models_block: str) -> str:
-    return f"""version: 2
+    return f"""version: 3
 providers:
   vmr:
     protocol: openai
@@ -276,7 +295,7 @@ def test_v3_bare_ref_unknown() -> None:
 
 def test_v3_bare_ref_ambiguous() -> None:
     """A bare id defined under two providers is rejected with all candidates listed."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   vmr:
     protocol: openai
@@ -307,7 +326,7 @@ profiles:
 
 def test_v3_ref_with_dot_in_id_qualified() -> None:
     """A qualified ref whose id itself contains dots splits only on the first dot."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   vmr:
     protocol: openai
@@ -324,19 +343,51 @@ profiles:
     assert cfg.profiles["daily"].models == {"x": "vmr.gpt-4o.2"}
 
 
-# ── V4: default must name an existing member label ───────────────────────────
+# ── V4: default is an independent R3 reference (not a member label) ──────────
 
 
-def test_v4_default_matches_member_ok() -> None:
-    cfg = parse_config_yaml(_two_provider_yaml("    default: coder\n    models:\n      coder: coding\n"))
-    assert cfg.profiles["daily"].default == "coder"
+def test_v4_default_resolves_bare_ref() -> None:
+    """The default is an R3 ref resolved like a member value; it never needs to be a label."""
+    cfg = parse_config_yaml(_two_provider_yaml("    default: coding\n"))
+    assert cfg.profiles["daily"].default == "coding"
 
 
-def test_v4_default_unknown_label_rejected() -> None:
-    with pytest.raises(ConfigError, match="default 'ghost' is not a member defined under 'models'"):
-        parse_config_yaml(
-            _two_provider_yaml("    default: ghost\n    models:\n      coder: coding\n")
-        )
+def test_v4_default_qualified_ref_ok() -> None:
+    """A qualified <provider>.<id> default resolves."""
+    cfg = parse_config_yaml(_two_provider_yaml("    default: vmr.coding\n"))
+    assert cfg.profiles["daily"].default == "vmr.coding"
+
+
+def test_v4_default_unknown_model_rejected() -> None:
+    """A default naming a model id that exists nowhere is rejected."""
+    with pytest.raises(ConfigError, match="default: unknown model id 'ghost'"):
+        parse_config_yaml(_two_provider_yaml("    default: ghost\n"))
+
+
+def test_v4_default_ambiguous_rejected() -> None:
+    """A bare default id defined under two providers is ambiguous and rejected."""
+    yaml_str = """version: 3
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: k
+    models:
+      sonnet: {}
+
+  anthropic-direct:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: k2
+    models:
+      sonnet: {}
+
+profiles:
+  daily:
+    default: sonnet
+"""
+    with pytest.raises(ConfigError, match="default: model id 'sonnet' is ambiguous"):
+        parse_config_yaml(yaml_str)
 
 
 def test_v4_no_default_is_valid() -> None:
@@ -362,7 +413,7 @@ def test_v5_duplicate_upstream_within_profile_rejected() -> None:
 
 def test_v5_same_id_different_providers_allowed() -> None:
     """Same upstream id string on *different* providers is not ambiguous when qualified."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   vmr:
     protocol: openai
@@ -392,7 +443,7 @@ profiles:
 
 
 def test_v6_wrong_version_rejected() -> None:
-    yaml_str = """version: 3
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
@@ -405,7 +456,7 @@ profiles:
     models:
       x: m
 """
-    with pytest.raises(ConfigError, match="Unsupported config schema version: 3"):
+    with pytest.raises(ConfigError, match="Unsupported config schema version: 2"):
         parse_config_yaml(yaml_str)
 
 
@@ -414,7 +465,7 @@ profiles:
 
 def test_v8_top_level_models_key_rejected() -> None:
     """v1's top-level 'models:' table is gone; extra=forbid rejects it."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -438,7 +489,7 @@ profiles:
 @pytest.mark.parametrize("old_key", ["main", "cheap", "pool"])
 def test_v8_profile_old_channel_keys_rejected(old_key: str) -> None:
     """v1's main:/cheap:/pool: profile keys are gone; extra=forbid rejects them."""
-    yaml_str = f"""version: 2
+    yaml_str = f"""version: 3
 providers:
   p:
     protocol: openai
@@ -458,7 +509,7 @@ profiles:
 
 def test_v8_model_provider_id_fields_rejected() -> None:
     """v1's per-model provider:/id: fields are gone; extra=forbid rejects them."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -481,7 +532,7 @@ profiles:
 
 
 def test_capabilities_thinking_defaults_false() -> None:
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -500,7 +551,7 @@ profiles:
 
 
 def test_capabilities_thinking_settable_true() -> None:
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
@@ -527,7 +578,7 @@ profiles:
 def test_non_string_model_key_rejected() -> None:
     """An unquoted numeric YAML key is parsed as int by ruamel and pydantic then
     rejects it outright (ValidationError) rather than silently coercing to str."""
-    yaml_str = """version: 2
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai

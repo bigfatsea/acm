@@ -26,7 +26,7 @@ def test_compute_desired_state(tmp_home: Path) -> None:
     assert desired["agent_2"][0][0].new == "claude-3-7-sonnet"
 
 
-# ── Shared adapter helpers (schema v2): _effective_default / _unreachable_members /
+# ── Shared adapter helpers (schema v3): _unreachable_members /
 # check_unsupported_profile_specs (collapsed to a single-member check) ──────────
 
 
@@ -39,39 +39,25 @@ def _profile_two_members(default_label: str | None):
     prov_b = ResolvedProvider(
         name="b", protocol="openai", base_url="http://b", api_key="k", raw_api_key_ref="k"
     )
+    models = {
+        "main": ResolvedModel(model_id="coding", provider=prov_a),
+        "other": ResolvedModel(model_id="o3", provider=prov_b),
+    }
+    # Schema v3: the default is an independently-resolved R3 ref. When a label is
+    # supplied we point `default_model` at that member's model for quick test setup.
+    default_model = models[default_label] if default_label is not None else None
     return ResolvedProfile(
         profile_name="p",
-        models={
-            "main": ResolvedModel(model_id="coding", provider=prov_a),
-            "other": ResolvedModel(model_id="o3", provider=prov_b),
-        },
-        default_label=default_label,
+        models=models,
+        default_model=default_model,
     )
-
-
-def test_effective_default_present() -> None:
-    from acm.adapters import _effective_default
-
-    profile = _profile_two_members(default_label="main")
-    result = _effective_default(profile)
-    assert result is not None
-    label, model = result
-    assert label == "main"
-    assert model.model_id == "coding"
-
-
-def test_effective_default_absent() -> None:
-    from acm.adapters import _effective_default
-
-    profile = _profile_two_members(default_label=None)
-    assert _effective_default(profile) is None
 
 
 def test_unreachable_members_excludes_default() -> None:
     from acm.adapters import _unreachable_members
 
     profile = _profile_two_members(default_label="main")
-    unreachable = _unreachable_members(profile, "main")
+    unreachable = _unreachable_members(profile, profile.default_model)
     assert [label for label, _ in unreachable] == ["other"]
 
 
@@ -87,15 +73,16 @@ def test_unreachable_members_distinguishes_same_id_different_provider() -> None:
     prov_b = ResolvedProvider(
         name="b", protocol="openai", base_url="http://b", api_key="k", raw_api_key_ref="k"
     )
+    models = {
+        "main": ResolvedModel(model_id="same-id", provider=prov_a),
+        "other": ResolvedModel(model_id="same-id", provider=prov_b),
+    }
     profile = ResolvedProfile(
         profile_name="p",
-        models={
-            "main": ResolvedModel(model_id="same-id", provider=prov_a),
-            "other": ResolvedModel(model_id="same-id", provider=prov_b),
-        },
-        default_label="main",
+        models=models,
+        default_model=models["main"],
     )
-    unreachable = _unreachable_members(profile, "main")
+    unreachable = _unreachable_members(profile, profile.default_model)
     assert [label for label, _ in unreachable] == ["other"]
 
 

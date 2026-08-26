@@ -198,7 +198,7 @@ def test_acceptance_6_protection_unresolved_env_and_whitelist(
     config_path = tmp_home / ".acm" / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
-        """version: 2
+        """version: 3
 providers:
   p:
     protocol: openai
@@ -209,7 +209,7 @@ providers:
 
 profiles:
   daily:
-    default: main
+    default: m
     models:
       main: m
 """,

@@ -191,14 +191,14 @@ def make_config(tmp_home: Path) -> Callable[[str], Path]:
 
 @pytest.fixture
 def sample_config_yaml() -> str:
-    """Return a standard valid config.yaml string (schema v2).
+    """Return a standard valid config.yaml string (schema v3).
 
     Both profiles declare a `default`, matching the v1 fixture's main-driven
     behavior — most consumers of this fixture exercise `acm use <profile>` and
     expect real ops to be produced. No-default (registration-only) scenarios get
     their own dedicated inline YAML in the tests that specifically cover them.
     """
-    return """version: 2
+    return """version: 3
 
 providers:
   vmr:
@@ -223,12 +223,12 @@ providers:
 
 profiles:
   daily:
-    default: coder
+    default: coding
     models:
       coder: coding
 
   direct:
-    default: sonnet
+    default: claude-3-7-sonnet-20250219
     models:
       sonnet: claude-3-7-sonnet-20250219
 """
@@ -285,4 +285,6 @@ def make_mock_profile(model_id: str = "coding") -> ResolvedProfile:
         raw_api_key_ref="${KEY}",
     )
     model = ResolvedModel(model_id=model_id, provider=provider)
-    return ResolvedProfile(profile_name="daily", models={"coding": model}, default_label="coding")
+    return ResolvedProfile(
+        profile_name="daily", models={"coding": model}, default_model=model
+    )

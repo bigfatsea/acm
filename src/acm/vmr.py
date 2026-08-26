@@ -141,7 +141,7 @@ def generate_vmr_proposal(probe: VmrProbeResult) -> str:
     """Generate a clean, valid config.yaml tailored to detected VMR models."""
     proto = probe.models[0].vmr_protocol if probe.models else "openai"
     lines = [
-        "version: 2\n",
+        "version: 3\n",
         "# ── L1 供应商：端点、凭据引用与内嵌模型 ──────────────────",
         "providers:",
         "  vmr:",
@@ -166,6 +166,8 @@ def generate_vmr_proposal(probe: VmrProbeResult) -> str:
         model_names.append("coding")
 
     default_model = "coding" if "coding" in model_names else model_names[0]
+    # A qualified ref is needed only when the id itself contains a dot (R3 first-dot split).
+    default_ref = default_model if "." not in default_model else f"vmr.{default_model}"
 
     lines.append("# ── L3 Profile：命名的成员集合 ─────────────────────────")
     lines.append("profiles:")
@@ -174,7 +176,8 @@ def generate_vmr_proposal(probe: VmrProbeResult) -> str:
     # should actually point every agent at the detected VMR, not merely register
     # models without ever selecting one. Users who want registration-only can
     # delete this line themselves — comment it out is not the safer default here.
-    lines.append(f"    default: {_q(default_model)}")
+    # `default` is an independent R3 ref (schema v3), not a member label.
+    lines.append(f"    default: {_q(default_ref)}")
     lines.append("    models:")
     for name in model_names:
         # Always qualify with the provider prefix: a bare id containing a dot would
@@ -186,7 +189,7 @@ def generate_vmr_proposal(probe: VmrProbeResult) -> str:
 
 def generate_template_config() -> str:
     """Generate a comprehensive commented template config.yaml when no VMR is detected."""
-    return '''version: 2
+    return '''version: 3
 
 # ── L1 供应商：端点、凭据引用与内嵌模型 ──────────────────
 providers:
@@ -216,7 +219,7 @@ providers:
 # ── L3 Profile：命名的成员集合 ─────────────────────────
 profiles:
   daily:
-    default: claude-sonnet   # 唯一驱动 Agent 默认模型字段的开关；省略此行 = 仅注册，不改默认值
+    default: claude-3-7-sonnet-20250219   # 独立 R3 引用（schema v3）：唯一驱动 Agent 默认模型字段的开关；省略此行 = 仅注册，不改默认值
     models:
       claude-sonnet: claude-3-7-sonnet-20250219
       gpt-4o: gpt-4o

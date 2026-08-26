@@ -196,7 +196,7 @@ def test_generate_vmr_proposal_is_valid_yaml() -> None:
     )
     proposal = generate_vmr_proposal(probe)
     cfg = parse_config_yaml(proposal)
-    assert cfg.version == 2
+    assert cfg.version == 3
     assert "vmr" in cfg.providers
     assert "coding" in cfg.providers["vmr"].models
     assert "cheap" in cfg.providers["vmr"].models
@@ -209,10 +209,10 @@ def test_generate_template_config_is_valid_yaml() -> None:
     """Test default template configuration parses cleanly into CoreConfig."""
     template = generate_template_config()
     cfg = parse_config_yaml(template)
-    assert cfg.version == 2
+    assert cfg.version == 3
     assert "anthropic-direct" in cfg.providers
     assert "daily" in cfg.profiles
-    assert cfg.profiles["daily"].default == "claude-sonnet"
+    assert cfg.profiles["daily"].default == "claude-3-7-sonnet-20250219"
 
 
 def test_generate_vmr_proposal_with_dotted_and_namespaced_model_ids() -> None:
@@ -227,7 +227,7 @@ def test_generate_vmr_proposal_with_dotted_and_namespaced_model_ids() -> None:
     )
     proposal = generate_vmr_proposal(probe)
     cfg = parse_config_yaml(proposal)
-    assert cfg.version == 2
+    assert cfg.version == 3
     # YAML mapping keys are plain strings: ids stay verbatim (no sanitization).
     assert "gpt-4.1-mini" in cfg.providers["vmr"].models
     assert "anthropic/claude-3.7-sonnet:thinking" in cfg.providers["vmr"].models

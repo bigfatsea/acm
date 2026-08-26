@@ -26,12 +26,12 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 - Adapters are plain Python modules compiled in-source with golden-fixture gates. No DSL, no dynamic code loading/reflection.
 - Unknown/breaking upstream agent schema → set ERROR state and block; never blind-write.
 
-## Implementation Status (MVP v0.3.x, config schema v2)
+## Implementation Status (MVP v0.3.x, config schema v3)
 
 - Implemented commands: `init`, `status`, `use`, `rollback` (+ global `--dry-run --force --verbose --show-secrets --no-color`).
 - `apply / diff / doctor / history / release / import vmr` are **not implemented** — they are trigger-based upgrades (Spec v2.1 §12). Do not implement them without checking the trigger table and getting explicit direction.
 - Built-in adapters: `claude_code`, `codex`, `pi` only. A new adapter = new module + golden fixtures, merged in-source.
-- Profile member registration + opt-in default is **implemented**, per Spec v2.1 §7.3.3. A profile is a flat member set (`models: {label: ref}`, ≥ 1 entry) with an optional `default: <label>` — the only thing that drives ACM to write an agent's default-model field. No `default` is a normal, non-degraded declaration (registration-only) for every agent — but only Pi treats it as silent: Pi registers every member unconditionally into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`) and touches nothing else, with zero warnings. Claude Code/Codex have no registry channel — with a `default`, they only project that member (aggregate `models.unreachable` projection-loss warning for skipped members); without one, they project nothing and emit one explicit warning that there's nothing to project. `acm init`'s generated VMR proposal auto-sets `default` to the primary detected model so a fresh install works out of the box.
+- Profile member registration + opt-in default is **implemented**, per Spec v2.1 §7.3.3 (schema v3). A profile has two orthogonal axes: an optional `default: <R3-ref>` (the only thing that drives an agent's default-model field; resolved directly like a member value, NOT a member label) and an optional `models: {label: <R3-ref>}` (member catalog registration, consumed by Pi). At least one must be declared. Pi always registers the default model into `models.json` (as a single-entry group if not among `models:` members, named by its model_id) so `settings.json`'s `defaultProvider`/`defaultModel` are never dangling. Claude Code/Codex have no registry channel — with a `default`, they project only that model (aggregate `models.unreachable` projection-loss warning for other registered members); without one, they project nothing and emit one explicit warning that there's nothing to project. `acm init`'s generated VMR proposal auto-sets `default` to the primary detected model so a fresh install works out of the box.
 
 ## Architecture
 
@@ -62,8 +62,8 @@ src/acm/
 
 ## Config Schema Essentials
 
-- `version: 2` required; ≥ 1 entry under `providers:` (each embedding its own `models:`) and `profiles:`; cross-references enforced via R3 reference resolution (bare id, globally unique, or `<provider>.<id>`); unknown keys rejected (v1's top-level `models:` and profile `main:`/`cheap:`/`pool:` are gone).
-- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); a profile is `models: {label: ref}` (≥ 1 entry, required) + optional `default: <label>` (the only opt-in for writing an agent's default-model field — no `default` is a normal, non-warning registration-only state).
+- `version: 3` required; ≥ 1 entry under `providers:` (each embedding its own `models:`) and `profiles:`; cross-references enforced via R3 reference resolution (bare id, globally unique, or `<provider>.<id>`); unknown keys rejected (v1's top-level `models:` and profile `main:`/`cheap:`/`pool:` are gone).
+- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); a profile declares at least one of `default: <R3-ref>` (drives agent default model) or `models: {label: <R3-ref>}` (member registration for Pi) — registration and selection are orthogonal.
 - Projection mapping per agent (which fields land where, dialect conversion, what warns) → USER_GUIDE §7 / adapters' `plan()`.
 
 ## States & Exit Codes

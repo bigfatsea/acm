@@ -90,25 +90,18 @@ def check_unsupported_profile_specs(
     return warnings
 
 
-def _effective_default(profile: ResolvedProfile) -> tuple[str, ResolvedModel] | None:
-    """Return (label, model) for the profile's opted-in default, or None if unset."""
-    if profile.default_label is None:
-        return None
-    return profile.default_label, profile.models[profile.default_label]
-
-
 def _unreachable_members(
-    profile: ResolvedProfile, default_label: str
+    profile: ResolvedProfile, default_model: ResolvedModel
 ) -> list[tuple[str, ResolvedModel]]:
-    """Members other than the connectivity provider's default.
+    """Registered members other than the opted-in default.
 
     For single-default-slot agents (Claude Code, Codex): once a profile has opted in
-    a default, every other member is unreachable for that agent (it has no pool
-    channel). Compared by (provider, model_id), not label or bare id string: a member
-    on a *different* provider that happens to share the default's upstream id string
-    is still a distinct, unexpressed endpoint and must still be listed.
+    a default, every other registered member is unreachable for that agent (it has no
+    pool channel). Compared by (provider, model_id), not label or bare id string: a
+    member on a *different* provider that happens to share the default's upstream id
+    string is still a distinct, unexpressed endpoint and must still be listed.
+    Only `profile.models` members participate — the default is not itself a member.
     """
-    default_model = profile.models[default_label]
     default_key = (default_model.provider.name, default_model.model_id)
     return [
         (label, m)

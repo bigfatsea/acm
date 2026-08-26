@@ -8,7 +8,6 @@ from pathlib import Path
 from acm.adapters import (
     PlannedOp,
     ProjectionWarning,
-    _effective_default,
     _unreachable_members,
     check_unsupported_profile_specs,
 )
@@ -57,8 +56,8 @@ def plan(
     ops: list[PlannedOp] = []
     warnings: list[ProjectionWarning] = []
 
-    default = _effective_default(profile)
-    if default is None:
+    default_model = profile.default_model
+    if default_model is None:
         warnings.append(
             ProjectionWarning(
                 field="profile.default",
@@ -68,7 +67,6 @@ def plan(
             )
         )
         return ops, warnings
-    default_label, default_model = default
 
     # 1. Top-level model & model_provider
     ops.append(PlannedOp(file=target_file, path="model", new=default_model.model_id))
@@ -144,7 +142,7 @@ def plan(
     # projected. Unreachable members are compared by (provider, model_id), not bare
     # id: a member on a *different* provider with the same id string as the default
     # is a distinct, unexpressed model and must still be listed.
-    unreachable = _unreachable_members(profile, default_label)
+    unreachable = _unreachable_members(profile, default_model)
     if unreachable:
         skipped = [f"{lbl}({m.model_id})" for lbl, m in unreachable]
         warnings.append(

@@ -4,7 +4,7 @@
 
 > 🌐 This document is also available in [Chinese / 中文版](USER_GUIDE.zh.md).
 >
-> Covers ACM `0.3.x` (config schema v2). Companion documents: [README](../README.md) · [Project Principles & Core Spec v2.1](ACM_PROJECT_PRINCIPLE_v2.1.md) · [Implementation Spec v2.1](ACM_PROJECT_SPEC_v2.1.md)
+> Covers ACM `0.3.x` (config schema v3). Companion documents: [README](../README.md) · [Project Principles & Core Spec v2.1](ACM_PROJECT_PRINCIPLE_v2.1.md) · [Implementation Spec v2.1](ACM_PROJECT_SPEC_v2.1.md)
 
 ---
 
@@ -82,7 +82,7 @@ ACM applies the Kubernetes Server-Side Apply insight — *field-level ownership*
 
 ### 1.5 Current maturity
 
-This guide covers the **MVP release (0.3.x, config schema v2)**. Implemented commands: `acm init`, `acm status`, `acm use`, `acm rollback`. Built-in adapters: **Claude Code**, **Codex CLI**, **Pi Agent**. Additional commands (`apply`, `diff`, `doctor`, `history`, `release`, `import vmr`) and adapters (Aider, Gemini CLI, OpenCode…) are planned upgrades — see [§6.6](#66-planned-commands-and-todays-equivalents) and [§7.5](#75-roadmap-adapters).
+This guide covers the **MVP release (0.3.x, config schema v3)**. Implemented commands: `acm init`, `acm status`, `acm use`, `acm rollback`. Built-in adapters: **Claude Code**, **Codex CLI**, **Pi Agent**. Additional commands (`apply`, `diff`, `doctor`, `history`, `release`, `import vmr`) and adapters (Aider, Gemini CLI, OpenCode…) are planned upgrades — see [§6.6](#66-planned-commands-and-todays-equivalents) and [§7.5](#75-roadmap-adapters).
 
 ---
 
@@ -187,27 +187,27 @@ Running `acm use daily` twice in a row: the second run detects everything alread
 
 ### 3.9 Profiles are member sets with an opt-in default, not runtime dispatch
 
-A profile is a **named set of models** (`models: {label: model-ref}`), plus an *optional* `default` label — not a runtime rule engine. Example:
+A profile has two orthogonal axes: an optional `default` (an R3 model reference) and an optional `models` table (a set of models to register) — not a runtime rule engine. Example:
 
 ```yaml
 # excerpt — assumes `providers:` already defines models `sonnet`/`o3` (see §5.6 for a complete file)
 profiles:
   daily:
-    default: coder      # opt-in: the only thing that drives an agent's default-model field
+    default: sonnet     # R3 model reference: the only thing that drives an agent's default-model field
     models:
-      coder: sonnet      # label -> model reference (bare id or provider.id)
-      review: o3         # any other label — just another member, no special status
+      reviewer: o3      # label -> model reference: register into agent catalogs (Pi)
 ```
 
 Key facts:
 
-- **Registration and selection are independent.** `models:` is the full member set (≥ 1 entry required); `default`, when present, is the *only* signal that makes ACM write an agent's default-model field. There is no reserved "primary" label — a member named `coder` or `main` or anything else is just a label like any other; nothing is structurally special about it.
+- **Registration and selection are independent.** `models:` is the registration set (consumed by Pi); `default:` is an independent R3 model reference (bare id or `provider.id`) that selects the agent's default model. At least one must be declared.
+- **`default` is a direct model reference, NOT a member label.** You write `default: sonnet` (the model id), not an alias label. Pi always registers the default model into `models.json` (as a single-entry group if not declared under `models:`, named by its model id) so `settings.json`'s `defaultProvider`/`defaultModel` are never dangling.
 - **No `default` is a normal, valid declaration** — a "registration-only" profile. ACM never touches an agent's default-model namespace for such a profile — it's not a degraded state, just a different one. This is **zero warnings on Pi** (registration alone is the complete story there); Claude Code and Codex still emit **one explicit warning** that there's nothing to project for them, since they have no registry channel to fall back on — see §7.4.
-- **Which members an agent can actually use depends on the agent's capability, not on the profile.** Claude Code and Codex have no model-registry channel: they can only ever project the opted-in `default` member; every other member produces one aggregate projection warning (`models.unreachable`) listing what was skipped — never silently dropped. Pi *does* have a registry channel: it registers **every** member into `models.json` regardless of whether `default` is set, and only uses `default` to drive `settings.json`'s `defaultProvider`/`defaultModel`. See §7.4.
+- **Which members an agent can actually use depends on the agent's capability, not on the profile.** Claude Code and Codex have no model-registry channel: they can only ever project the opted-in `default` model; every other registered member produces one aggregate projection warning (`models.unreachable`) listing what was skipped — never silently dropped. Pi *does* have a registry channel: it registers **every** member into `models.json` plus the default model, and uses `default` to drive `settings.json`'s `defaultProvider`/`defaultModel`. See §7.4.
 - **"Different models for different situations" is achieved by switching profiles, not by automatic runtime dispatch.** The agent does not decide per task which model to use; *you* (or a script) switch the active profile:
 
   ```bash
-  acm use daily     # every agent's default (if any) now points at daily's default member
+  acm use daily     # every agent's default (if any) now points at daily's default model
   acm use budget    # ...and now budget's
   ```
 
@@ -215,11 +215,11 @@ Key facts:
 - **To give different agents different models today**, project per agent (there is no global binding command yet):
 
   ```bash
-  acm use daily claude_code    # Claude Code <- daily's default member
-  acm use budget pi            # Pi <- budget's default member
+  acm use daily claude_code    # Claude Code <- daily's default model
+  acm use budget pi            # Pi <- budget's default model
   ```
 
-> **💡 `/model` switching vs ACM — the division of labor.** Most agents (Claude Code `/model`, Codex `/model`, Pi `/model`, …) let you switch models interactively mid-session. That pool of selectable models belongs to the **agent's own mechanism** (built-in catalogs, its config files, or Pi's `models.json`/extensions). For agents with no registration channel (Claude Code, Codex), ACM projects only the **default member** plus connectivity — the `/model` candidate list stays entirely the agent's own. For Pi, ACM registers *every* declared member into `models.json` so they all show up in `/model` — see §7.3.
+> **💡 `/model` switching vs ACM — the division of labor.** Most agents (Claude Code `/model`, Codex `/model`, Pi `/model`, …) let you switch models interactively mid-session. That pool of selectable models belongs to the **agent's own mechanism** (built-in catalogs, its config files, or Pi's `models.json`/extensions). For agents with no registration channel (Claude Code, Codex), ACM projects only the **default model** plus connectivity — the `/model` candidate list stays entirely the agent's own. For Pi, ACM registers *every* declared member into `models.json` so they all show up in `/model` — see §7.3.
 
 ---
 
@@ -268,7 +268,7 @@ Full schema of the SSOT file. Validation is strict: unknown keys are rejected, c
 ### 5.1 Top level
 
 ```yaml
-version: 2         # must be exactly 2 (upgrade notice otherwise)
+version: 3         # must be exactly 3 (upgrade notice otherwise)
 ```
 
 At least one `providers:` entry with at least one embedded model, and at least one `profiles:` entry, are mandatory.
@@ -318,10 +318,12 @@ The mapping key **is** the upstream model id verbatim, sent to the provider as-i
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `models` | table (label → model reference) | ✅ | ≥ 1 entry. The profile's full member set — every label is a peer, nothing is structurally special |
-| `default` | string | ❌ | Must name an existing label in `models:`. The *only* thing that drives ACM to write an agent's default-model field |
+| `default` | string (R3 model reference) | ❌ | Model reference (bare id or `provider.id`). The *only* thing that drives ACM to write an agent's default-model field. Resolved independently, NOT a member label |
+| `models` | table (label → model reference) | ❌ | The profile's registration member set — registered into agent model catalogs (Pi) |
 
-**Model reference syntax** (the value side of each `models:` entry):
+At least one of `default` or `models` must be declared.
+
+**Model reference syntax** (used for `default` and the value side of each `models:` entry):
 
 | Form | Resolution | Failure |
 |---|---|---|
@@ -335,7 +337,7 @@ The mapping key **is** the upstream model id verbatim, sent to the provider as-i
 # and `anthropic-direct` with model id `claude-sonnet` (see §5.6 for a complete file)
 profiles:
   daily:
-    default: coder                          # opt-in: only "coder" drives agent defaults
+    default: coding                         # opt-in: direct R3 ref, drives agent defaults
     models:
       coder: coding                         # bare id — OK if globally unique
       reviewer: anthropic-direct.claude-sonnet   # qualified — provider.id
@@ -344,31 +346,34 @@ profiles:
   budget:
     models:
       fast: cheap                           # no `default` line: pure registration, agent defaults stay user-owned
+
+  solo:
+    default: coding                         # default-only: no `models` block needed
 ```
 
 Rules:
 
-- `models:` must have at least one entry; an empty or missing map is rejected.
-- `default`, if present, must equal one of the labels declared in `models:`.
-- **No `default` is a normal, valid state (registration-only)**: members are still registered into agents with a registry channel (Pi), but no agent's default-model fields are touched. On Pi this produces **zero warnings**, since nothing is going unexpressed — unlike v1's `pool`-only profiles. Claude Code and Codex have no registry channel to fall back on, so they still emit one explicit warning that there's nothing to project (§5.4 table below and §7.4).
-- Two labels in the same profile may not resolve to the same `(provider, upstream id)` pair, even via different reference strings (`both resolve to upstream model id '...' on provider '...'`) — that would produce indistinguishable duplicate entries in an agent's model selector.
-- On agents with no registry channel (Claude Code, Codex): only the `default` member is ever projected; every other member is reported once as a single aggregate `models.unreachable` projection-loss warning — never silently dropped. With no `default` at all, these agents get zero ops and one explicit warning that there's nothing to project.
+- A profile must declare at least one of `models` (non-empty) or `default`. An empty profile is rejected.
+- `default`, if present, is resolved by the SAME R3 reference rules as member values (existence + non-ambiguity).
+- **Pi always registers the default model**: if `default` is declared, Pi registers that model into `models.json` (as a single-entry group if not in `models:`, named by its model id) so `settings.json` is never dangling.
+- **No `default` is a normal, valid state (registration-only)**: members are still registered into agents with a registry channel (Pi), but no agent's default-model fields are touched. On Pi this produces **zero warnings**, since nothing is going unexpressed. Claude Code and Codex have no registry channel to fall back on, so they emit one explicit warning that there's nothing to project.
+- Two labels in the same profile's `models:` may not resolve to the same `(provider, upstream id)` pair (`both resolve to upstream model id '...' on provider '...'`).
+- On agents with no registry channel (Claude Code, Codex): only the `default` model is ever projected; other registered members are reported once as a single aggregate `models.unreachable` projection-loss warning — never silently dropped.
 
 ### 5.5 Cross-reference integrity
 
 Validated on load, before anything happens:
 
 - Provider names: non-empty, no leading/trailing whitespace, no `.`. Model ids (provider `models:` keys): non-empty.
-- Every `profiles.*.models.*` reference resolves per §5.4's algorithm (existence + non-ambiguity).
-- Every `profiles.*.default` (if set) names an existing label in that profile's `models:`.
-- Every profile's `models:` has ≥ 1 entry; at least one profile must be defined.
+- Every `profiles.*.models.*` reference and `profiles.*.default` reference resolves per §5.4's algorithm (existence + non-ambiguity).
+- Every profile declares at least one of `models` (non-empty) or `default`; at least one profile must be defined.
 
 ### 5.6 Complete examples
 
 **a) VMR-centric (auto-generated by `acm init` when VMR is detected):**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   vmr:
@@ -388,7 +393,7 @@ profiles:
 **b) Anthropic official direct:**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   anthropic-official:
@@ -405,7 +410,7 @@ providers:
 
 profiles:
   daily:
-    default: sonnet
+    default: claude-sonnet-4-5
     models:
       sonnet: claude-sonnet-4-5
 ```
@@ -413,7 +418,7 @@ profiles:
 **c) Multi-provider, multi-profile:**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   anthropic-direct:
@@ -434,18 +439,18 @@ providers:
 
 profiles:
   daily:
-    default: sonnet
+    default: claude-sonnet-4-5
     models:
       sonnet: claude-sonnet-4-5
       cheap: claude-haiku-4-5
 
   budget:
-    default: cheap
+    default: claude-haiku-4-5
     models:
       cheap: claude-haiku-4-5
 
   experimental:
-    default: flagship
+    default: gpt-4o
     models:
       flagship: gpt-4o
       review: claude-sonnet-4-5        # any other member — just a label, no special status
@@ -456,7 +461,7 @@ Switch with `acm use daily`, `acm use budget`, `acm use experimental`.
 **d) Third-party OpenAI-compatible relay:**
 
 ```yaml
-version: 2
+version: 3
 
 providers:
   relay:
@@ -468,7 +473,7 @@ providers:
 
 profiles:
   daily:
-    default: flagship
+    default: their-flagship-model-name
     models:
       flagship: their-flagship-model-name
 ```
@@ -477,13 +482,12 @@ profiles:
 
 | Message fragment | Cause | Fix |
 |---|---|---|
-| `Unsupported config schema version` | `version ≠ 2` | Set `version: 2` |
+| `Unsupported config schema version` | `version ≠ 3` | Set `version: 3` |
 | `must not contain '.'` | a provider name has a dot in it | Rename the provider (dots are reserved for `provider.id` references) |
 | `unknown model id '...'` | bare id not defined under any provider | Define the model, or fix the id |
 | `model id '...' is ambiguous` | bare id defined under ≥2 providers | Qualify the reference as `<provider>.<id>` |
 | `is not defined under provider '...'` | qualified reference's id doesn't exist under that provider | Define the model, or fix the provider/id |
-| `must define at least one entry under 'models'` | a profile's `models:` is empty or missing | Add at least one member |
-| `is not a member defined under 'models'` | `default:` names a label that doesn't exist | Fix the label, or add it as a member |
+| `must declare at least one of 'models' (non-empty) or 'default'` | a profile declares neither `models` nor `default` | Declare `default`, `models`, or both |
 | `Configuration must define at least one profile` | no `profiles:` entries | Add one |
 | `base_url must start with http(s)://` | malformed endpoint | Fix URL scheme |
 | `both resolve to upstream model id '...' on provider '...'` | two labels in one profile resolve to the same `(provider, id)` | Use a distinct upstream model, or drop the duplicate label |
@@ -1067,7 +1071,7 @@ ACM is absolutely non-intrusive. To stop using it: just uninstall (`uv tool unin
 `/model` is each agent's runtime capability — the pool of selectable models comes from the agent itself (built-in catalogs; for Pi additionally `models.json` entries and `pi.registerProvider()` extensions). ACM manages a different layer: it registers your declared members and projects the **default member** plus connectivity, aligning all agents with your SSOT. They compose cleanly: `acm use <profile>` sets the default; `/model` overrides per session. For Pi, ACM registers every member you declare, so they all already show up in `/model` — no separate extension needed unless you want models ACM doesn't know about. See §3.9 and §7.3.
 
 **❓ How do profiles work? Which model does each agent actually get?**
-A profile is a named member set (`models: {label: ref}`, ≥ 1 entry) plus an optional `default` label. Claude Code and Codex only ever consume the **`default`** member — every other member is skipped with an explicit aggregate projection warning (`models.unreachable`), never silently dropped. Pi registers **every** member regardless of `default`. Switching situations = switching profiles (`acm use daily` / `acm use budget`), which re-points every agent's default at the new profile's default member. There is no runtime auto-dispatch. To give agents different models, project per agent (`acm use <profile> <agent>`). See §3.9.
+A profile is an optional member set (`models: {label: ref}`) plus an optional, independently-declared `default` (an R3 model reference, not a member label) — at least one of the two must be present. Claude Code and Codex only ever consume the **`default`** — every other member is skipped with an explicit aggregate projection warning (`models.unreachable`), never silently dropped. Pi registers **every** member regardless of `default`. Switching situations = switching profiles (`acm use daily` / `acm use budget`), which re-points every agent's default at the new profile's default member. There is no runtime auto-dispatch. To give agents different models, project per agent (`acm use <profile> <agent>`). See §3.9.
 
 **❓ `Unresolved environment variables in configuration: ${ANTHROPIC_API_KEY}`**
 Export the variable in your shell (or shell profile), or provide a fallback in config (`${VAR:-default}`). Nothing was written — this check fires before any file I/O.
@@ -1097,7 +1101,7 @@ Check that (a) you restarted the agent session — most agents read config at st
 Not yet — the global write lock relies on `fcntl` (POSIX). macOS/Linux today.
 
 **❓ Will upgrading ACM change my configs?**
-No. Upgrades affect tool behavior only; neither `config.yaml` nor agent files are touched until you run a write command. Schema stays `version: 2` (older/newer schemas produce a clear error instead of silent migration — a `version: 1` file must be rewritten by hand or regenerated with `acm init --force`).
+No. Upgrades affect tool behavior only; neither `config.yaml` nor agent files are touched until you run a write command. Schema stays `version: 3` (older/newer schemas produce a clear error instead of silent migration — a `version: 1` or `version: 2` file must be rewritten by hand or regenerated with `acm init --force`). When rewriting by hand, a `default: <old-label>` from a v2 file must become `default: <model-id>` — a stray label that happens to also be a valid model id elsewhere will resolve without error but to the wrong model, so always confirm the intended model with `acm status` after a manual rewrite, not just that validation passed.
 
 **❓ Can I keep editing agent configs by hand?**
 Yes — for unmanaged fields, always. For managed fields, hand edits create drift (deliberately surfaced, never silently overwritten). Update the SSOT instead and let ACM converge.

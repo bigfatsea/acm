@@ -334,7 +334,7 @@ Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权�
 ### 7.3 Core Config（`~/.acm/config.yaml`）
 
 ```yaml
-version: 2                        # Schema 版本（非软件版本），迁移策略见 §7.3.2
+version: 3                        # Schema 版本（非软件版本），迁移策略见 §7.3.2
 
 # ── L1 供应商：端点、凭据引用与内嵌 L2 模型 ──────────────
 providers:
@@ -384,7 +384,7 @@ profiles:
 
 - **激活态存放于 `~/.acm/state/active`**（仅 profile 名），只能通过 `acm use` 改变（配置/状态分离，见 D3）。
 - **Last-write 记录（MVP，`~/.acm/state/<agent>/last_write.json`）**：记录最近一次成功投影的来源 profile、时间、backup id 与受管字段落盘值。存值而非哈希——漂移阻断消息需要给出 expected/found 具体值，展示时走掩码机制。作为 Journal 引入前的漂移检测与状态判定数据源，Journal 上线后废止。
-- 无注册通道的单默认槽位 Agent（Claude Code、Codex）只消费 `profile.default` 指向的成员；有注册通道的 Agent（Pi）消费 `profile.models` 的全部成员，`default` 只决定其默认选中项。
+- 无注册通道的单默认槽位 Agent（Claude Code、Codex）只消费 `profile.default` 解析到的模型（`default` 是独立 R3 引用，不必是 `models` 的成员）；有注册通道的 Agent（Pi）消费 `profile.models` 的全部成员，`default` 只决定其默认选中项。
 - 详细的按 Agent 能力分类投影行为见 §7.3.3。
 
 #### 7.3.1 Credential 引用规则（Core Config 不承担 secret storage）
@@ -401,39 +401,47 @@ profiles:
 
 #### 7.3.2 Schema 版本与迁移
 
-- `version: 2` 是 **config schema 版本**，非 ACM 软件版本；manifest / journal / snapshot 各自携带自己的格式版本。v1（顶层 `models:` 表 + `main`/`cheap`/`pool` 三通道）已废弃，不做自动迁移——`version: 1` 的文件直接按未支持版本拒绝，指引用户手工改写或 `acm init --force` 重新生成。
+- `version: 3` 是 **config schema 版本**，非 ACM 软件版本；manifest / journal / snapshot 各自携带自己的格式版本。旧版（v1 顶层 `models:` 表 + `main`/`cheap`/`pool`；v2 `default` 强绑定成员 label）已废弃，不做自动迁移——旧版本的文件直接按未支持版本拒绝，指引用户手工改写或 `acm init --force` 重新生成。
 - ACM 启动时校验版本：不兼容版本直接报错拒绝（拒绝优于静默误读）；`acm config migrate`（Phase 2 交付，若触发）执行未来版本间迁移。
 - 现在 only 定义位置与语义，MVP 不实现迁移命令。
 
 #### 7.3.3 Profile 成员集合与 opt-in 默认投影（`profiles.<name>.models` / `.default`）
 
-**动机**：v1 曾用 `main`/`cheap`/`pool` 三条独立通道表达"默认模型"“次要角色”“可选模型清单”，语义分裂、行为不一致。v2 收敛为一条通道：profile 就是一个成员集合（`models: {label: 模型引用}`），`default` 是唯一可选的 opt-in 开关，决定 ACM 是否代管某个 Agent 的默认模型字段。注册（把成员登记进 Agent 的模型目录）与选型（设定当前默认模型）彻底分离，按 Agent 能力分两类处理，绝不静默丢弃无法表达的成员。
+**动机**：v1 曾用 `main`/`cheap`/`pool` 三条独立通道表达"默认模型"“次要角色”“可选模型清单”，语义分裂、行为不一致。schema v3 将其彻底正交化为两个独立维度：`default`（独立 R3 模型引用，决定 ACM 是否代管某个 Agent 的默认模型字段）与 `models`（可选的注册成员集合，把模型登记进 Agent 的模型目录）。两者独立声明、各司其职，消除了"default 必须先包装成 member label"的别名冗余。
 
 **语法**：
 
 ```yaml
 profiles:
   daily:
-    default: coding        # 可选，至多一行；值必须是 models 内已存在的 label
-    models:                # 必填，保留子映射，≥ 1 项
-      coding: coding        # label -> 模型引用（裸 id 或 provider.id，见 §7.3.4 R3）
+    default: coding        # 可选，独立 R3 引用（裸 id 或 provider.id，见 §7.3.4）
+    models:                # 可选，注册成员子映射（label -> 模型引用）
+      reviewer: o3         # label -> 模型引用，可跨 provider
       longctx: vmr.agent
-      review: o3            # 可跨 provider
+
+  solo:
+    default: coding        # 仅设默认，不注册额外成员（models 块完全省略）
+
+  budget:
+    models:
+      fast: cheap          # 仅注册，不碰 Agent 默认模型字段
 ```
 
 **语义规则**：
 
-- `models` 必须非空（≥ 1 项）；`default`（若声明）必须等于 `models` 内某个已存在的 label——两者是唯一/独立命名空间，不存在"label 撞保留键"的问题。
+- profile 必须声明 `models`（非空）或 `default` 至少其一（二者皆空会被拒绝，V2）。
+- `default`（若声明）按与成员值相同的 R3 模型引用规则解析（存在性 + 无歧义，V4），**不是** member label。
+- **Pi 始终注册 default 模型**：无论 default 模型是否在 `models:` 中声明，Pi 都会将其注册进 `models.json`（若不在 members 中则生成单条目组，以 model_id 命名），确保 `settings.json` 的 `defaultProvider`/`defaultModel` 绝不悬空。
 - 不声明 `default` 是正常声明态（仅注册），不是缺陷，不产生告警。
-- 成员可跨 provider（按 provider 分组投影）；同一 profile 内不允许两个 label 解析到同一 `(provider, upstream id)` 二元组（即便引用字符串不同，上游看到的是同一个模型，会在 Agent 的模型选择器里产生无法区分的重复项）——该校验在 config 加载期一次性完成，`resolve_profile()` 复用同一解析算法，天然不会产生第二种结果。
+- 成员可跨 provider（按 provider 分组投影）；同一 profile 内不允许两个 label 解析到同一 `(provider, upstream id)` 二元组（即便引用字符串不同）——该校验在 config 加载期一次性完成。
 
 **按 Agent 能力分类的投影行为**：
 
 | 类型 | 定义 | Agent | 投影行为 |
 |---|---|---|---|
-| **I. 扁平模型池** | 原生支持"一个 provider 下多个并列模型"，选择器消费该列表 | Pi（`models.json`） | 按 provider 分组，每组一条 `providers.<name>` op；`models[]` 内每个成员 `id=upstream_id`、`name=label`，**无条件注册**（与 `default` 是否声明无关）。**label 是次要详情文本，不是主展示名**——Pi 的 `/model`、`--list-models`、交互式 footer 均按 `id` 展示（官方文档实测确认），label 仅用于 `--model` 模式匹配；`default` 所属 provider 决定 `defaultProvider`/`defaultModel`/`defaultThinkingLevel`（无 `default` 时跳过这三键，且不告警，见上）|
-| **II. 单默认模型** | 公开配置通道只有"默认模型"一个槽位 | Claude Code、Codex | 有 `default` 时只投该成员；其余成员产生一条聚合投影损失告警 `models.unreachable`（列出被跳过的 `label(upstream_id)`），不逐条刷屏。skipped 判定按 `(provider, upstream_id)` 二元组比较，而非裸 id 字符串——不同 provider 上同名 id 是不可达的不同端点，必须仍出现在 skipped 名单里。**无 `default` 时**：零 ops，一条"无可投影内容"的明确告警——与 v1 registration-only 完全一致，v2 未扩展新行为（曾评估过"无 default 但成员同 provider 时仍写连通性字段"的方案，评审后否决：那是独立新功能，非本次 schema 重构范围） |
-| **III. 语义角色型（P1 待定）** | 配置文件含多个具名角色槽位，运行期自动分流 | Aider（P1 契约，实施时金样校准） | v2 不为角色槽位预留任何保留 label；P1 实现 Aider 适配器时再决定 label→角色的映射约定，不占用本 schema 的语义空间 |
+| **I. 扁平模型池** | 原生支持"一个 provider 下多个并列模型"，选择器消费该列表 | Pi（`models.json`） | 注册集 = `models` 成员 ∪ `{default 模型}`（按 `(provider, model_id)` 去重）。按 provider 分组，每组一条 `providers.<name>` op；`models[]` 内每个成员 `id=upstream_id`、`name=label`（独立 default 项 `name=model_id`），**无条件注册**。`default` 决定 `defaultProvider`/`defaultModel`/`defaultThinkingLevel`（无 `default` 时跳过这三键，且不告警）|
+| **II. 单默认模型** | 公开配置通道只有"默认模型"一个槽位 | Claude Code、Codex | 有 `default` 时只投该模型；其他已声明的 `models:` 成员产生一条聚合投影损失告警 `models.unreachable`（列出被跳过的 `label(upstream_id)`），不逐条刷屏。skipped 判定按 `(provider, upstream_id)` 二元组比较。**无 `default` 时**：零 ops，一条"无可投影内容"的明确告警 |
+| **III. 语义角色型（P1 待定）** | 配置文件含多个具名角色槽位，运行期自动分流 | Aider（P1 契约，实施时金样校准） | 不为角色槽位预留任何保留 label；P1 实现 Aider 适配器时再决定 label→角色的映射约定 |
 
 **已知限制**：
 
@@ -441,9 +449,9 @@ profiles:
 - 非 default 成员的 `reasoning.effort` 不投影（Pi 无"每模型默认思考级别"通道，`defaultThinkingLevel` 只取 default 的）；`capabilities.vision=true` 投影为模型条目的 `input: ["text", "image"]`；`temperature`/`capabilities.tools`（非 native 方言）/`capabilities.json_mode`/`capabilities.thinking` 目前不投影，产生诚实措辞的告警（"ACM 未投影"而非"Agent 不支持"——Pi 的 openai 系方言原生具备 per-model `samplingParams.temperature` 通道，只是 ACM 尚未写入）；provider 级 `headers` 会被投影（Pi 原生支持），`proxy` 目前无 Pi 侧通道，保留告警。
 - Codex 是否支持 provider 级 `headers` 未经证实（无公开 schema 文档核实），维持告警不变，不无证据地扩展铁律 2 的边界。
 
-#### 7.3.4 模型引用语法（R3，`profiles.<name>.models` 成员的值）
+#### 7.3.4 模型引用语法（R3，`default` 及 `profiles.<name>.models` 成员的值）
 
-每个 profile 成员 `label: <model-ref>` 的值是一个**模型引用**，指向某个 provider 下某个模型的 key（即 §7.3 内嵌 `models:` 映射的键）。引用在配置加载期解析（`load_config`），解析失败即拒绝整个配置加载——符合"硬错误先于任何磁盘写"铁律。
+`default` 以及每个 profile 成员 `label: <model-ref>` 的值都是一个**模型引用**，指向某个 provider 下某个模型的 key（即 §7.3 内嵌 `models:` 映射的键）。引用在配置加载期解析（`load_config`），解析失败即拒绝整个配置加载——符合"硬错误先于任何磁盘写"铁律。
 
 **两种形式**（确定性解析，无歧义分支）：
 
@@ -1080,8 +1088,8 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 |---|---|
 | **SSOT** | Single Source of Truth。模型世界的事实描述只有一份，存于 Core Config；Agent 配置只是投影结果 |
 | **Core Config** | `~/.acm/config.yaml`：ACM 自有的 providers（内嵌 models）/ profiles 两层声明式配置 |
-| **Profile** | 命名的成员集合（`models: {label: 模型引用}`，≥ 1 项）+ 可选 `default` 开关，是投影的最小单元 |
-| **Profile 成员 / Member** | `profiles.<name>.models` 下的一个 `label: 模型引用` 条目；无结构特殊性，`default` 只是指向其中一个 label 的可选开关，§7.3.3 |
+| **Profile** | `models: {label: 模型引用}`（可选注册成员集合）与 `default: <R3 模型引用>`（可选独立默认声明）两条正交轴，至少声明一项，是投影的最小单元，§7.3.3 |
+| **Profile 成员 / Member** | `profiles.<name>.models` 下的一个 `label: 模型引用` 条目；`default` 是与成员值同规则解析的独立 R3 引用，**不是**指向某个 label 的选择器，§7.3.3 |
 | **Registration-only Profile** | 未声明 `default` 的 profile：只注册模型（有注册通道的 Agent），不接管任何 Agent 的默认模型字段，且不产生告警，§7.3.3 |
 | **Resolved Profile** | Profile 经 ENV 引用解析后的具体值集合 |
 | **Desired State** | 激活 Profile（Phase 2 起含 per-agent 绑定）经编译后的字段级期望状态 |
