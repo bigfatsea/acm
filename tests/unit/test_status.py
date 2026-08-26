@@ -112,7 +112,7 @@ def test_state_synced(tmp_home: Path) -> None:
 
 
 def test_managed_paths_excludes_stale_field_no_longer_planned(tmp_home: Path) -> None:
-    """§3.5: a stale last_write field the current plan() no longer produces (e.g.
+    """A stale last_write field the current plan() no longer produces (e.g.
     after switching to a no-default profile, or the user changed the model by
     hand) must not be compared for drift — only the intersection of last_write
     and the current plan's op paths is in scope."""

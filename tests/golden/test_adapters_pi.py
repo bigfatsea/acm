@@ -193,7 +193,7 @@ def test_pi_non_default_member_temperature_warns_vision_projected() -> None:
 def test_pi_no_default_reasoning_warning_does_not_mention_default() -> None:
     """With no `default` at all, a member's reasoning warning must not claim
     "only the default's defaultThinkingLevel is projected" — there is no
-    default, so nothing is projected for any member (R.3-G)."""
+    default, so nothing is projected for any member."""
     from acm.config import ModelReasoning
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 

@@ -165,7 +165,9 @@ class CoreConfig(BaseModel):
         return self
 
     def _resolve_ref(self, profile_name: str, label: str, ref: str) -> tuple[str, str]:
-        """Resolve a member's R3 model reference to (provider_name, model_key). See §2.4.
+        """Resolve a member's R3 model reference to (provider_name, model_key).
+
+        Full rules: docs/ACM_PROJECT_SPEC_v2.1.md §7.3.4.
 
         `<provider>.<id>` splits on the *first* dot (provider names may never contain a
         dot, so the split point is unambiguous even when the id itself contains dots).

@@ -477,7 +477,7 @@ profiles:
         parse_config_yaml(yaml_str)
 
 
-# ── capabilities.thinking (D-5) ────────────────────────────────────────────
+# ── capabilities.thinking ─────────────────────────────────────────────────────
 
 
 def test_capabilities_thinking_defaults_false() -> None:

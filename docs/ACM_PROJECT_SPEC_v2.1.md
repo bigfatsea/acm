@@ -433,13 +433,31 @@ profiles:
 |---|---|---|---|
 | **I. 扁平模型池** | 原生支持"一个 provider 下多个并列模型"，选择器消费该列表 | Pi（`models.json`） | 按 provider 分组，每组一条 `providers.<name>` op；`models[]` 内每个成员 `id=upstream_id`、`name=label`，**无条件注册**（与 `default` 是否声明无关）。**label 是次要详情文本，不是主展示名**——Pi 的 `/model`、`--list-models`、交互式 footer 均按 `id` 展示（官方文档实测确认），label 仅用于 `--model` 模式匹配；`default` 所属 provider 决定 `defaultProvider`/`defaultModel`/`defaultThinkingLevel`（无 `default` 时跳过这三键，且不告警，见上）|
 | **II. 单默认模型** | 公开配置通道只有"默认模型"一个槽位 | Claude Code、Codex | 有 `default` 时只投该成员；其余成员产生一条聚合投影损失告警 `models.unreachable`（列出被跳过的 `label(upstream_id)`），不逐条刷屏。skipped 判定按 `(provider, upstream_id)` 二元组比较，而非裸 id 字符串——不同 provider 上同名 id 是不可达的不同端点，必须仍出现在 skipped 名单里。**无 `default` 时**：零 ops，一条"无可投影内容"的明确告警——与 v1 registration-only 完全一致，v2 未扩展新行为（曾评估过"无 default 但成员同 provider 时仍写连通性字段"的方案，评审后否决：那是独立新功能，非本次 schema 重构范围） |
-| **III. 语义角色型（P1 待定）** | 配置文件含多个具名角色槽位，运行期自动分流 | Aider（P1 契约，实施时金样校准） | v2 不为角色槽位预留任何保留 label（D-6）；P1 实现 Aider 适配器时再决定 label→角色的映射约定，不占用本 schema 的语义空间 |
+| **III. 语义角色型（P1 待定）** | 配置文件含多个具名角色槽位，运行期自动分流 | Aider（P1 契约，实施时金样校准） | v2 不为角色槽位预留任何保留 label；P1 实现 Aider 适配器时再决定 label→角色的映射约定，不占用本 schema 的语义空间 |
 
 **已知限制**：
 
 - **op 模型只有 upsert，没有 tombstone**：profile 切换导致某个 provider 不再出现在新成员集合中时，Pi 端磁盘上的旧 `providers.<name>` 条目不会被清理，且 ACM 对其失明（drift/status 均检测不到，回滚也还原不了，因为回滚目标快照本身已含残留）。这是当前架构的有意识取舍（避免误删用户/extension 手工维护的同名 provider 内容），清理责任显式移交用户；`acm rollback pi` 可整体恢复到投影前状态。
 - 非 default 成员的 `reasoning.effort` 不投影（Pi 无"每模型默认思考级别"通道，`defaultThinkingLevel` 只取 default 的）；`capabilities.vision=true` 投影为模型条目的 `input: ["text", "image"]`；`temperature`/`capabilities.tools`（非 native 方言）/`capabilities.json_mode`/`capabilities.thinking` 目前不投影，产生诚实措辞的告警（"ACM 未投影"而非"Agent 不支持"——Pi 的 openai 系方言原生具备 per-model `samplingParams.temperature` 通道，只是 ACM 尚未写入）；provider 级 `headers` 会被投影（Pi 原生支持），`proxy` 目前无 Pi 侧通道，保留告警。
 - Codex 是否支持 provider 级 `headers` 未经证实（无公开 schema 文档核实），维持告警不变，不无证据地扩展铁律 2 的边界。
+
+#### 7.3.4 模型引用语法（R3，`profiles.<name>.models` 成员的值）
+
+每个 profile 成员 `label: <model-ref>` 的值是一个**模型引用**，指向某个 provider 下某个模型的 key（即 §7.3 内嵌 `models:` 映射的键）。引用在配置加载期解析（`load_config`），解析失败即拒绝整个配置加载——符合"硬错误先于任何磁盘写"铁律。
+
+**两种形式**（确定性解析，无歧义分支）：
+
+| 形式 | 解析方式 | 失败情形 |
+|---|---|---|
+| `<id>`（裸引用） | 在**全配置范围**所有 `providers.*.models` 中查找 key 恰好等于 `<id>` 的条目 | 命中 0 个 → 报错 `unknown model id`；命中 ≥ 2 个（跨 provider 同名）→ 报错并列出现有候选 provider，要求改写为限定引用 |
+| `<provider>.<id>`（限定引用） | 以**第一个** `.` 切分：前段必须命中某个 provider 名，后段整体（可再含 `.`）为其下模型 key | provider 不存在，或该 provider 下无此模型 key → 报错 |
+
+**规则**：
+
+- **provider 名禁止含 `.`**——切分点前提：限定引用按第一个 `.` 切分后，前段必为完整 provider 名，无论 id 内部含多少个 `.` 都不受影响。provider 名另须非空、无首尾空白；模型 key（`providers.*.models` 映射键）须非空。
+- **凡含 `.` 的引用一律按限定形式处理，绝不退回裸引用查找**：本身含点的模型 id 只能用 `<provider>.<id>` 引用，即便它作为裸 id 全局唯一；反之，一个看似裸引用的字符串若恰好匹配 `<某 provider 名>.<某模型 key>`，也会被按限定形式解析而非当作字面裸 id——因此要避免 provider 命名与想裸引用的 id 产生这种巧合冲突。`acm init` 生成的提案始终使用限定引用，从根源上避开。
+- **裸引用歧义检查是全局的**（不限本 profile 引用的 provider 集），确保同一配置在任何 profile 下的解析结果一致、错误可在加载时一次性穷尽。
+- **跨 profile 复用合法**：不同 profile 的成员解析到同一 `(provider, upstream_id)` 不报错；**同一 profile 内两个 label 解析到同一 `(provider, upstream_id)` 非法**（见 §7.3.3 语义规则），避免 Agent 模型选择器出现无法区分的重复项。
 
 ### 7.4 Adapter 契约（Python Protocol）
 
@@ -567,6 +585,7 @@ class FieldOwnership:
 
 - 磁盘值 == ACM 最后写入值：正常继续。
 - 磁盘值 ≠ ACM 最后写入值：**外部修改过，默认阻断**，要求 `--force` 或先 `acm diff` 确认。不存在任何"自动修复漂移"的路径--`apply` 的收敛也必须过这道闸门。
+- **比较范围 = last_write 记录 ∩ 当前 plan() 将产出的 op 路径**：切换到不再产生某字段 ops 的 profile（如无 `default` 的 registration-only profile，或用户已自行改掉默认模型）后，该字段的陈旧 last_write 记录不参与漂移判定——否则跨 profile 切换会被误判 DRIFTED 而阻断后续 use。这与回滚粒度公理一致：漂移判定对象始终是"当前管理字段"，而非历史管理过的全部字段。
 - 若命令解析为 no-op（受管字段全部 `Current == Desired`），则无写入即无覆盖风险——仅 `status`/提示展示漂移，不触发阻断（见 §7.5.8；漂移阻断定位为"写入前的覆盖保护"，非覆盖即无阻断必要）。
 
 Manifest 内存视图的用途：

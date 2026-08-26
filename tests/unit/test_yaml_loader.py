@@ -41,8 +41,8 @@ def test_duplicate_keys_rejected() -> None:
 
 def test_duplicate_model_key_within_provider_rejected() -> None:
     """A duplicate model id key within the same provider's models: mapping is a hard
-    error at the YAML layer — D-3's claim, verified: ruamel's safe loader raises
-    DuplicateKeyError, caught by the existing YAMLError handler."""
+    error at the YAML layer: ruamel's safe loader raises DuplicateKeyError,
+    caught by the existing YAMLError handler."""
     yaml_str = """version: 2
 providers:
   p:

@@ -155,7 +155,8 @@ def plan(
 
     Registration and selection are independent: every member is registered into
     models.json unconditionally; settings.json is only touched when the profile
-    declares a `default` (Spec §2.3 — no default is a normal, non-warning state).
+    declares a `default` (Spec v2.1 §7.3.3 — no default is a normal,
+    non-warning state).
     """
     env_map = get_env_map(env)
     paths = config_paths(env_map)
