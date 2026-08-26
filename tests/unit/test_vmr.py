@@ -6,7 +6,7 @@ import json
 import threading
 from typing import Any
 
-from acm.config import parse_config_toml
+from acm.config import parse_config_yaml
 from acm.vmr import (
     VmrModelInfo,
     VmrProbeResult,
@@ -67,7 +67,7 @@ def test_probe_vmr_not_running() -> None:
     assert result is None
 
 
-def test_generate_vmr_proposal_is_valid_toml() -> None:
+def test_generate_vmr_proposal_is_valid_yaml() -> None:
     """Test generated VMR proposal parses cleanly into CoreConfig."""
     probe = VmrProbeResult(
         detected=True,
@@ -78,7 +78,7 @@ def test_generate_vmr_proposal_is_valid_toml() -> None:
         ],
     )
     proposal = generate_vmr_proposal(probe)
-    cfg = parse_config_toml(proposal)
+    cfg = parse_config_yaml(proposal)
     assert cfg.version == 1
     assert "vmr" in cfg.providers
     assert "coding" in cfg.models
@@ -88,17 +88,17 @@ def test_generate_vmr_proposal_is_valid_toml() -> None:
     assert cfg.profiles["daily"].cheap == "cheap"
 
 
-def test_generate_template_config_is_valid_toml() -> None:
+def test_generate_template_config_is_valid_yaml() -> None:
     """Test default template configuration parses cleanly into CoreConfig."""
     template = generate_template_config()
-    cfg = parse_config_toml(template)
+    cfg = parse_config_yaml(template)
     assert cfg.version == 1
     assert "anthropic-direct" in cfg.providers
     assert "daily" in cfg.profiles
 
 
 def test_generate_vmr_proposal_with_dotted_and_namespaced_model_ids() -> None:
-    """Test generated VMR proposal with dotted model names like gpt-4.1-mini parses into CoreConfig."""
+    """Generated proposal keeps dotted/slashes/colon model ids verbatim as alias keys."""
     probe = VmrProbeResult(
         detected=True,
         base_url="http://127.0.0.1:8800/v1",
@@ -108,7 +108,8 @@ def test_generate_vmr_proposal_with_dotted_and_namespaced_model_ids() -> None:
         ],
     )
     proposal = generate_vmr_proposal(probe)
-    cfg = parse_config_toml(proposal)
+    cfg = parse_config_yaml(proposal)
     assert cfg.version == 1
+    # YAML mapping keys are plain strings: ids stay verbatim (no sanitization).
     assert "gpt-4.1-mini" in cfg.models
-    assert "anthropic-claude-3.7-sonnet-thinking" in cfg.models
+    assert "anthropic/claude-3.7-sonnet:thinking" in cfg.models

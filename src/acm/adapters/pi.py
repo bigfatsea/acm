@@ -156,6 +156,8 @@ def plan(
     if profile.pool:
         # Group pool members by their provider (declared order preserved); each
         # provider gets one 'providers.<name>' op carrying its full models[] array.
+        # Registration-only profiles (no main, DESIGN_MODEL_POOL_v1 §18) take this
+        # path too, but skip the settings.json ops below (§18.2 R3).
         groups: dict[str, list[tuple[str, Any]]] = {}
         for label, m in profile.pool.items():
             groups.setdefault(m.provider.name, []).append((label, m))
@@ -187,7 +189,9 @@ def plan(
             # baseUrl instead), so a non-main pool provider's proxy setting is a
             # genuine, unavoidable projection loss and must stay explicit (§13.2).
             # headers *is* supported (projected above); no warning needed for it.
-            if prov_name != profile.main.provider.name and group_prov.proxy:
+            if (
+                profile.main is None or prov_name != profile.main.provider.name
+            ) and group_prov.proxy:
                 warnings.append(
                     ProjectionWarning(
                         field=f"pool.provider.{prov_name}.proxy",
@@ -198,7 +202,7 @@ def plan(
                 )
 
             for label, m in members:
-                if m.model_id == profile.main.model_id:
+                if profile.main is not None and m.model_id == profile.main.model_id:
                     continue
                 if m.reasoning and (m.reasoning.effort or m.reasoning.budget_tokens):
                     warnings.append(
@@ -212,6 +216,9 @@ def plan(
                 warnings.extend(_pi_member_unsupported_warnings(m, f"pool.{label}"))
     else:
         # 1. Map provider into models.json (single-model path, unchanged from pre-pool behavior)
+        # Schema rule R1 (§18.2) guarantees main is declared when pool is absent.
+        if profile.main is None:  # pragma: no cover - defensive, unreachable under schema
+            return ops, warnings
         prov = profile.main.provider
         api_key_val, key_warnings = _resolve_pi_api_key(prov, env_map)
         warnings.extend(key_warnings)
@@ -242,6 +249,21 @@ def plan(
         )
 
     # 2. Map default settings into settings.json (always driven by main, regardless of pool)
+    if profile.main is None:
+        # Registration-only profile (§18.2 R3): default-model fields stay
+        # user-owned; surface that decision explicitly instead of silently
+        # leaving settings.json untouched.
+        warnings.append(
+            ProjectionWarning(
+                field="profile.main",
+                agent_id=AGENT_ID,
+                reason="Profile declares no 'main' (registration-only): ACM will not change "
+                "defaultProvider/defaultModel/defaultThinkingLevel; the current defaults "
+                "remain user-managed.",
+            )
+        )
+        return ops, warnings
+
     ops.append(
         PlannedOp(file=settings_file, path="defaultProvider", new=profile.main.provider.name)
     )

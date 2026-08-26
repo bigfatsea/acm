@@ -12,7 +12,7 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 
 **Three axioms:**
 
-1. **SSOT** — `~/.acm/config.toml` (providers L1 → models L2 → profiles L3) is the only description of the model world; agents are projection targets.
+1. **SSOT** — `~/.acm/config.yaml` (providers L1 → models L2 → profiles L3) is the only description of the model world; agents are projection targets.
 2. **Non-destructive** — ACM owns managed *fields*, never whole files. Unmanaged content (MCP servers, plugins, skills, prompts, hooks, permissions, session state) must be preserved losslessly (AST-level).
 3. **Precise reversibility** — rollback granularity is "inverse of ACM-managed fields"; physical snapshots are the disaster-recovery backstop.
 
@@ -31,11 +31,11 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 - Implemented commands: `init`, `status`, `use`, `rollback` (+ global `--dry-run --force --verbose --show-secrets --no-color`).
 - `apply / diff / doctor / history / release / import vmr` are **not implemented** — they are trigger-based upgrades (Spec v2.1 §12). Do not implement them without checking the trigger table and getting explicit direction.
 - Built-in adapters: `claude_code`, `codex`, `pi` only. A new adapter = new module + golden fixtures, merged in-source.
-- `[profiles.<name>.pool]` (optional model pool; label → model alias) is **implemented**, per `docs/DESIGN_MODEL_POOL_v1.md`. Pi registers the whole pool into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`); Claude Code/Codex have no pool channel and only project `main`, with an aggregate `pool` projection-loss warning for skipped members. `acm init` does not yet auto-generate a pool proposal (design's D7, not implemented). See the design doc's "执行记录" and "独立复核" appendices for what shipped vs. what remains open.
+- The model pool (optional `pool:` map under a profile; label → model alias) is **implemented**, per `docs/DESIGN_MODEL_POOL_v1.md`. A profile with a non-empty `pool` may omit `main` entirely (registration-only profile, §18): default-model fields on the target agent stay untouched and user-owned. Pi registers the whole pool into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`); Claude Code/Codex have no pool channel — with a `main`, they only project `main` (aggregate `pool` projection-loss warning for skipped members); without one, they project nothing and warn explicitly. `acm init` does not yet auto-generate a pool proposal (design's D7, not implemented). See the design doc's "执行记录" and "独立复核" appendices for what shipped vs. what remains open.
 
 ## Architecture
 
-Data flow: `config.toml` → load/validate (pydantic) → `resolve_profile()` (live `${ENV}` resolution) → `adapter.plan()` (pure function → ops + warnings) → `write_changeset()` (Safety Engine — **the only disk-write path**) → last_write.json.
+Data flow: `config.yaml` → load/validate (pydantic) → `resolve_profile()` (live `${ENV}` resolution) → `adapter.plan()` (pure function → ops + warnings) → `write_changeset()` (Safety Engine — **the only disk-write path**) → last_write.json.
 
 ```
 src/acm/
@@ -56,14 +56,14 @@ src/acm/
 
 **Key invariants:**
 - Adapters never touch disk — `plan()` is pure; every write goes through the 6-step pipeline: whitelist validation → pre-write snapshot + op expansion → in-memory edit + syntax self-check + AST non-destructive assertion → SHA-256 fingerprint recheck → atomic `os.replace` → last_write update.
-- Config and runtime state are strictly separated: state lives under `~/.acm/state/`, never written back into `config.toml`.
+- Config and runtime state are strictly separated: state lives under `~/.acm/state/`, never written back into `config.yaml`.
 - Idempotent: desired == current && no drift → no-op, exit 0.
 - Batch operations process agents independently; one blocked agent doesn't undo others' successes; final exit code reflects the highest severity.
 
 ## Config Schema Essentials
 
-- `version = 1` required; ≥ 1 `[profiles.*]`; cross-references enforced (profile→model→provider); unknown keys rejected.
-- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); profiles: `main` (required), optional `cheap`, extra keys = custom roles.
+- `version: 1` required; ≥ 1 entry under `profiles:`; cross-references enforced (profile→model→provider); unknown keys rejected.
+- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); profiles: `main` and/or non-empty `pool` (at least one required — a pool-only profile is registration-only, §18), optional `cheap`, extra keys = custom roles.
 - Projection mapping per agent (which fields land where, dialect conversion, what warns) → USER_GUIDE §7 / adapters' `plan()`.
 
 ## States & Exit Codes

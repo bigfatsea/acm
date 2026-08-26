@@ -32,19 +32,19 @@ def test_subprocess_usage_error_exits_1(tmp_home: Path) -> None:
 
 
 def test_subprocess_unknown_profile_exits_4(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test unknown profile name exits with 4."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
     res = run_acm_subprocess(["use", "non_existent_profile"], tmp_home)
     assert res.returncode == 4
 
 
 def test_subprocess_drift_safety_block_exits_2(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test external drift safety block exits with 2."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
     claude_dir = tmp_home / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
     claude_file = claude_dir / "settings.json"
@@ -64,10 +64,10 @@ def test_subprocess_drift_safety_block_exits_2(
 
 
 def test_subprocess_lock_contention_exits_2(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test lock contention safety block exits with 2."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
     env = {"HOME": str(tmp_home)}
     with WriteLock(env=env):
         res = run_acm_subprocess(["init", "--force"], tmp_home)

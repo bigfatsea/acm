@@ -1,6 +1,6 @@
 # ACM（Agent Config Manager）项目规格 v2.1（原则版）
 
-<!-- Version: 2.1.0 | Status: Governing Spec | Date: 2026-08-18 -->
+<!-- Version: 2.1.0 | Status: Governing Spec | Date: 2026-08-26 -->
 <!-- 本文档是 ACM 项目的治理性规格（governing spec），只保留四样东西：
      核心原则、边界定义、核心数据模型、命令语义。
      实现层面的细节（事务提交步骤、数据结构字段、状态机优先级、交互文案、
@@ -79,7 +79,7 @@ Agent 配置文件（如 `~/.claude/settings.json`、`~/.codex/config.toml`）�
 
 快照采用**Append-only 单纯追加留存**（写路径零轮转计算负担）。Agent 配置文件通常仅 5–20 KB，极重度使用 5 年（约 10,000 次变更）总快照约 150 MB，无需 FIFO 自动清理。若未来用户有强迫症清理诉求，仅通过显式命令（Phase 2+ 可选的 `acm clean`）主动触发，绝不在核心写入路径中静默删文件。
 
-技术栈基线（决策依据见 Spec v2.1 §6）:Python 3.12+,最小依赖;适配器 = 普通 Python 模块(不是 DSL);Core Config 用 TOML;分发主路径 PyPI / uvx。
+技术栈基线（决策依据见 Spec v2.1 §6）:Python 3.12+,最小依赖;适配器 = 普通 Python 模块(不是 DSL);Core Config 用 YAML;分发主路径 PyPI / uvx。
 
 ---
 
@@ -119,7 +119,7 @@ Agent 配置文件（如 `~/.claude/settings.json`、`~/.codex/config.toml`）�
 ### 3.1 概念实体与关系
 
 ```
-Core Config（~/.acm/config.toml，SSOT）
+Core Config（~/.acm/config.yaml，SSOT）
   providers ──> models ──> profiles        # 三层声明式配置，仅存可版本控制内容
        │
        ▼  解析（ENV 引用实时求值）
@@ -157,7 +157,7 @@ Current State（各 Agent 配置中管理字段的实际落盘值）
 
 ### 3.4 数据模型不变量（实现的硬约束）
 
-1. 配置与状态分离：一切运行时状态（active profile、journal、snapshots）只存在于 state 目录，**不得写回 config.toml**。
+1. 配置与状态分离：一切运行时状态（active profile、journal、snapshots）只存在于 state 目录，**不得写回 config.yaml**。
 2. Adapter 只做编译（profile → ChangeSet），**一切磁盘写入由 Safety Engine 统一执行**。适配器在架构契约上不授予写盘权限，由单元测试与金样门禁强制约束。
 3. 写入必须原子与防并发：全局排他写锁（file lock）+ 临时文件原子替换（`tempfile` + `os.replace`），写前单纯落盘 snapshot，无需引入沉重的 WAL/2PC 中间状态机；在写锁内基于 AST 直接修改受管字段（未管理字段语义级原样保留），消除 TOCTOU 与并发冲突。
 4. 非破坏性保证分两级诚实声明：未管理节点**语义级不变**（硬承诺）；注释/键序/排版保留按金样 fixture 界定。不承诺"100% 保留"。
@@ -185,7 +185,7 @@ Current State（各 Agent 配置中管理字段的实际落盘值）
 ### 4.2 命令总表（语义，非界面规格；交付分片见 §7 与 Spec v2.1 §12）
 
 ```bash
-acm init                    # 扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.toml；
+acm init                    # 扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.yaml；
                             #   交互式下绝不静默修改与破坏现有配置（--force 显式重新生成）
 acm status                  # 各 Agent 状态 + 漂移 + 投影告警摘要
 acm doctor                  # 诊断一切异常（配置语法、引用缺失、漂移、权限异常）
@@ -199,7 +199,7 @@ acm release [<agent>]       # 解除托管并恢复 pre-ACM 状态：受管字�
                             #   移除 ACM 创建的字段；ACM 全新创建且无用户内容的文件安全清理；清空状态记录。
                             #   适用于短期试用后完全退出；迁移到其他工具时无需本命令--
                             #   ACM 非侵入，直接卸载即可（建议一并删除 ~/.acm/），配置保持最后投影状态继续可用
-acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.toml
+acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.yaml
 
 # 全局：--dry-run / --force / --verbose / --no-color / --show-secrets（明文密钥 opt-in） 语义自明
 ```
@@ -243,12 +243,12 @@ acm import vmr              # 拉取 VMR 虚拟模型，增量合并进 config.t
 | 能力 | 触发条件 |
 |---|---|
 | Journal + 字段级回滚 + `rollback --to-tx`/`--hard` 分层 | 整文件回滚打丢窗口期内宿主写入的 MCP/OAuth/会话状态，成为真实发生的问题 |
-| `apply`（与 use 分立的收敛） | 手改 config.toml 成为常规动作，或 per-agent bind 上线 |
+| `apply`（与 use 分立的收敛） | 手改 config.yaml 成为常规动作，或 per-agent bind 上线 |
 | `diff` | --dry-run 与漂移阻断消息不足以支撑"先看再写/排查漂移"工作流 |
 | `doctor` | 真实故障无法用 status 与报错信息定位 |
 | `history` | 随 Journal 一并引入 |
 | `release`（恢复接管前旧值） | 出现试用后完全退出并恢复旧值的真实诉求 |
-| `import vmr`（独立增量合并） | VMR 模型列表常变、反复增量合并成为痛点（此前 VMR 变更靠手编 TOML 或 init --force 重生成） |
+| `import vmr`（独立增量合并） | VMR 模型列表常变、反复增量合并成为痛点（此前 VMR 变更靠手编 config.yaml 或 init --force 重生成） |
 | Profile 模型池投影（`[profiles.*.pool]`） | 已触发并交付：用户需要在支持多模型选择器的 Agent（Pi）中批量维护可选模型清单；语义与实施见 `docs/DESIGN_MODEL_POOL_v1.md`；Claude Code/Codex 无池通道，仅投 main + 聚合投影损失告警 |
 | 显式 protected_paths 黑名单与双重校验 | 适配器面扩大到白名单封闭集不足以表达时 |
 | 正式 Adapter Protocol 仪式 | 社区适配器真实出现（源码内置贡献流程启动）之时 |

@@ -84,7 +84,7 @@ acm use daily ───────┼─ Claude Code: 只有 coding 生效（ma
 | F6 | ProfileConfig 允许任意额外键，但仅字符串值被当作角色解析；**非字符串值（如 list/dict）当前被静默忽略** | `config.py:74`（`extra="allow"`）+ `config.py` 校验循环 `isinstance(extra_val, str)` + `resolve.py:180-182` 同样的 isinstance 守卫 |
 | F7 | 漂移检测比对 last_write 记录的整个 payload 值（dict 相等比较），敏感键递归掩码 | `status.py:detect_agent_drift` + `masking.py:mask_secrets_in_obj` |
 
-**F6 的推论（重要）**：今天在 config.toml 里写 `[profiles.daily.pool]` 子表不会报错也不会生效——它作为非字符串 extra 被**静默跳过**。这意味着引入 pool 语义**不存在语法冲突**，且是平滑"转正"；但过渡期语义变化必须在发布说明中告知（见 §10-D8）。
+**F6 的推论（重要）**：今天在 config.yaml 的 profile 下写 `pool` 子映射不会报错也不会生效——它作为非字符串 extra 被**静默跳过**。这意味着引入 pool 语义**不存在语法冲突**，且是平滑"转正"；但过渡期语义变化必须在发布说明中告知（见 §10-D8）。
 
 ### 2.2 各 Agent 配置通道的本机实证与文档核实
 
@@ -137,7 +137,7 @@ acm use daily ───────┼─ Claude Code: 只有 coding 生效（ma
 | 公理 2 非破坏性 | pool 只写入适配器声明的受管 namespace（`providers.*`），不新增可写路径 |
 | 显式暴露 | 类型 II Agent 无法表达 pool 成员时，必须产生聚合告警，绝不静默丢弃 |
 | 精准可逆 | op 粒度不变（整条 payload），快照/回滚/Journal 机制零改动 |
-| SSOT | 模型池的唯一描述仍在 `config.toml`；各 Agent 只是投影目标 |
+| SSOT | 模型池的唯一描述仍在 `config.yaml`；各 Agent 只是投影目标 |
 | 零破坏升级 | 不写 pool 的既有配置行为逐字节不变（金样回归保证） |
 | 幂等 | payload 相等比较天然覆盖多模型数组 |
 
@@ -147,48 +147,50 @@ acm use daily ───────┼─ Claude Code: 只有 coding 生效（ma
 
 ### 4.1 语法
 
-在 profile 下新增保留子表 `pool`，**map 形式**（label → 模型别名）：
+在 profile 下新增保留子映射 `pool`，**map 形式**（label → 模型别名）：
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.vmr]
-protocol = "openai"
-base_url = "http://127.0.0.1:8800/v1"
-api_key  = "${VMR_KEY:-}"
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY:-}"
 
 # ── L2：池中的每个成员仍是完整的单模型规格 ──────────────
-[models.coding]
-provider        = "vmr"
-id              = "coding"
-context_window  = 512000
-max_output_tokens = 128000
+models:
+  coding:
+    provider: vmr
+    id: coding
+    context_window: 512000
+    max_output_tokens: 128000
 
-[models.cheap]
-provider       = "vmr"
-id             = "cheap"
-context_window = 256000
-max_output_tokens = 96000
+  cheap:
+    provider: vmr
+    id: cheap
+    context_window: 256000
+    max_output_tokens: 96000
 
-[models.agent]
-provider        = "vmr"
-id              = "agent"
-context_window  = 512000
-max_output_tokens = 128000
+  agent:
+    provider: vmr
+    id: agent
+    context_window: 512000
+    max_output_tokens: 128000
 
-[models.o3]
-provider = "openai-direct"
-id       = "o3"
+  o3:
+    provider: openai-direct
+    id: o3
 
 # ── L3：profile + 模型池 ────────────────────────────────
-[profiles.daily]
-main = "coding"                    # 默认选中（必填，语义不变）
-
-[profiles.daily.pool]
-default = "coding"                 # label → [models.*] 别名
-budget  = "cheap"
-longctx = "agent"
-review  = "o3"
+profiles:
+  daily:
+    main: coding                  # 默认选中（必填，语义不变）
+    pool:
+      default: coding             # label → models.* 别名
+      budget: cheap
+      longctx: agent
+      review: o3
 ```
 
 ### 4.2 语义规则
@@ -284,7 +286,7 @@ ResolvedProfile(
 
 #### 怎么配
 
-无需特殊处理：同一个 config.toml、同一个 profile。pool 写一次，全 Agent 通用。
+无需特殊处理：同一个 config.yaml、同一个 profile。pool 写一次，全 Agent 通用。
 
 #### 怎么投影（ACM 行为）
 
@@ -309,14 +311,14 @@ ResolvedProfile(
 
 同一个 pool。**label 就是角色语义**：
 
-```toml
-[profiles.daily]
-main = "coding"
-
-[profiles.daily.pool]
-main   = "coding"      # 或省略（R2 隐式补入）
-weak   = "cheap"       # aider 自动用于 git commit 等轻任务
-editor = "o3"          # aider editor 工作流
+```yaml
+profiles:
+  daily:
+    main: coding
+    pool:
+      main: coding      # 或省略（R2 隐式补入）
+      weak: cheap       # aider 自动用于 git commit 等轻任务
+      editor: o3        # aider editor 工作流
 ```
 
 #### 怎么投影（P1 适配器契约，实施时金样校准）
@@ -383,7 +385,7 @@ acm rollback pi       # Pi 恢复投影前快照（含旧池 payload）
 沿数据流逐环节验证 pool 的侵入面：
 
 ```
-config.toml ──load/validate──▶ CoreConfig ──resolve──▶ ResolvedProfile
+config.yaml ──load/validate──▶ CoreConfig ──resolve──▶ ResolvedProfile
                                                             │ adapter.plan()（纯函数）
                                                             ▼
                                                      [PlannedOp] ──Safety Engine──▶ 磁盘
@@ -606,7 +608,7 @@ README（特性列表+示例）、USER_GUIDE 双语（§3.9 补 pool、§4.3 校
 - ✅ 执行层零改动论断成立：op 结构、白名单粒度、last_write 键格式、drift dict 比较、rollback dot-path 重建，逐一核对源码确认对多模型 payload 天然透明；
 - ✅ 向后兼容成立：无 pool 配置走原路径，金样回归把关；今日写 pool 被忽略（F6）→ 升级后生效，无语法冲突，仅需 D8 告知义务；
 - ✅ 外部事实链完整：Pi（官方文档+本机 extension 实证）、Codex（本机 0.148.0 models_cache 实证）、Claude Code（本机 settings.json 实证）、Aider（规格背书+标注置信度）；
-- ✅ 公理对齐：非破坏（不扩白名单）、显式暴露（类型 II 聚合告警）、精准可逆（机制零改动）、SSOT（池唯一描述在 config.toml）。
+- ✅ 公理对齐：非破坏（不扩白名单）、显式暴露（类型 II 聚合告警）、精准可逆（机制零改动）、SSOT（池唯一描述在 config.yaml）。
 
 ### 遗留开放项（不阻塞评审）
 
@@ -782,23 +784,25 @@ USER_GUIDE §7.3 已把它作为"registry-style 累积"语义显式写明并给�
 
 **14.2.1【中 · 校验缺口，已修复】E5 校验只覆盖 `profile_cfg.pool` 中显式声明的成员，未覆盖 R2 隐式补入的 main**
 
-`config.py` 的 E5（新增）与 §4.3 全部 E1-E4 校验都发生在 `validate_cross_references()`，此时只能看到用户在 TOML 里显式写的 `profile_cfg.pool` 字典——而 R2"main 隐式入池"要到 `resolve.py::resolve_profile()` 才会真正插入 `pool["main"]`。构造反例可实测复现：
+`config.py` 的 E5（新增）与 §4.3 全部 E1-E4 校验都发生在 `validate_cross_references()`，此时只能看到用户在配置里显式写的 `profile_cfg.pool` 字典——而 R2"main 隐式入池"要到 `resolve.py::resolve_profile()` 才会真正插入 `pool["main"]`。构造反例可实测复现：
 
-```toml
-[models.coding]
-provider = "vmr"
-id = "same-id"
-[models.replica]
-provider = "vmr"
-id = "same-id"          # 与 coding 同一 upstream id、同一 provider，但不同别名
+```yaml
+models:
+  coding:
+    provider: vmr
+    id: same-id
+  replica:
+    provider: vmr
+    id: same-id          # 与 coding 同一 upstream id、同一 provider，但不同别名
 
-[profiles.daily]
-main = "coding"
-[profiles.daily.pool]
-replica_label = "replica"   # 未显式包含 main，未被 E2/E5 判定为冲突
+profiles:
+  daily:
+    main: coding
+    pool:
+      replica_label: replica   # 未显式包含 main，未被 E2/E5 判定为冲突
 ```
 
-`parse_config_toml()` 全部校验通过；但 `resolve_profile("daily", cfg, {})` 组装出的最终 `pool` 是 `{"main": coding(same-id), "replica_label": replica(same-id)}`——两个不同 label 指向同一 upstream id，本机实测复现（`python3` 直接调用两个函数验证，输出确认冲突存在）。这正是 13.3 想拦截的问题类别，只是绕过路径是"通过隐式 main 而非显式声明"。
+`parse_config_yaml()` 全部校验通过；但 `resolve_profile("daily", cfg, {})` 组装出的最终 `pool` 是 `{"main": coding(same-id), "replica_label": replica(same-id)}`——两个不同 label 指向同一 upstream id，本机实测复现（`python3` 直接调用两个函数验证，输出确认冲突存在）。这正是 13.3 想拦截的问题类别，只是绕过路径是"通过隐式 main 而非显式声明"。
 
 **修复**：在 `resolve.py::resolve_profile()` 组装完整 `pool`（含隐式 main）后，新增一次 defense-in-depth 重新校验，与 config.py 的 E5 逻辑同构但作用于最终 `ResolvedModel` 集合，捕获 config-time 看不到的隐式插入冲突。保留 config.py 的 E5 而非删除——它能在无需解析 `${ENV}` 的更早阶段（`acm init`/纯 parse 时）就捕获显式声明的常见情形，两层校验互补而非冗余。新增单测 `test_resolve_pool_implicit_main_collision_with_explicit_alias_rejected` 复现并验证修复。
 
@@ -857,7 +861,7 @@ uv run mypy src       → Success: no issues found in 24 source files
 ### 15.3 风险评估
 
 - **执行层零影响**：与 §7/§13.0 反复验证的结论一致——新增的 `headers` 只是 `providers.<name>` payload 内的一个新 key，白名单、AST 非破坏性断言、指纹校验、幂等比较（dict 全等）、drift 检测全部对任意 payload 内部结构透明，不需要改动。
-- **掩码行为核实**：`masking.py::is_sensitive_key` 用正则 `api_?key|token|auth|secret|password|credential`（大小写不敏感）递归匹配 dict 的每一层 key；常见的认证类 header 名（`Authorization`、`X-Api-Key`、`X-Auth-Token` 等）都会命中 `auth`/`key`/`token` 子串从而在 `acm status`/dry-run/drift 输出中被掩码。非常规命名的 header（如自定义签名头）若本身携带敏感值则不会被这套启发式覆盖——但这是 `headers` 字段本身（早于本次改动、Principle §2.2 就已列为 L1 字段）的既有特征，config.toml 源文件本来就以明文保存这类值，不是本次投影改动新引入的暴露面，不在本次修复范围内重新设计。
+- **掩码行为核实**：`masking.py::is_sensitive_key` 用正则 `api_?key|token|auth|secret|password|credential`（大小写不敏感）递归匹配 dict 的每一层 key；常见的认证类 header 名（`Authorization`、`X-Api-Key`、`X-Auth-Token` 等）都会命中 `auth`/`key`/`token` 子串从而在 `acm status`/dry-run/drift 输出中被掩码。非常规命名的 header（如自定义签名头）若本身携带敏感值则不会被这套启发式覆盖——但这是 `headers` 字段本身（早于本次改动、Principle §2.2 就已列为 L1 字段）的既有特征，config.yaml 源文件本来就以明文保存这类值，不是本次投影改动新引入的暴露面，不在本次修复范围内重新设计。
 - **不影响既有金样测试**：`conftest.py::make_mock_profile` 与所有既有 fixture 均未设置 `headers`，因此现有金样断言的 payload 形状不受影响（已用 `pytest` 全量验证）。
 
 ### 15.4 遗留的公开问题（需要用户确认，非本次擅自处理）
@@ -988,3 +992,64 @@ uv run mypy src       → Success: no issues found in 24 source files
 - §16.4–§16.8（文档收口类与留档类）按用户指示本轮未处理，维持开放。
 - temperature **投影**本身（openai 方言下写 `samplingParams.temperature`）按用户的 MVP 范围决定不做，仅在文案中如实注明 Pi 具备该通道；未来如做，属增量改动，不影响本轮结构。
 - 本节记录的行为变更均不触及 Safety Engine / status / state 层：`input` 只是 `providers.<name>.models[]` 条目内的新 key，幂等/drift/回滚对其透明（§7 论断的又一次应用）。
+
+## 18. Pool-only Profile：registration-only 投影（2026-08-25）
+
+> 触发：用户在真机验证（`docs/VERIFY_PI_VMR_20260825.md`）后提出——能否**只部署模型池（注册新 Provider 及其模型），而不变更 agent 的默认主模型**，把"默认用哪个"留给用户在 Agent 内部自行决定。经分析确认这是合法且真实的需求场景（与既有手工配置/extension 共存时尤其如此），定稿方案 A 并落实。
+
+### 18.1 需求裁定
+
+- **语义**：profile 未声明 `main` 且声明了非空 `pool` → 该 profile 为 **registration-only**：仅向具备池通道的 agent 注册模型，不触碰任何默认模型字段（Pi 的 `defaultProvider` / `defaultModel` / `defaultThinkingLevel`）。
+- **所有权推论**：registration-only 意味着用户明确声明默认模型字段的 ownership 仍在自己手中；ACM 对这些字段既不写、也不纳入漂移判定（drift 跟随 `last_write.fields` 记账，未写过的字段天然不判漂移——机制无需改动）。
+- **否决方案 B**（保持 main 必填 + `set_default=false` 开关）：声明但不生效的字段违背 SSOT 的诚实性，且强迫用户编造假 main。不采纳。
+
+### 18.2 语义规则
+
+| R# | 规则 |
+|---|---|
+| R1 | `main` 与 `pool` **至少其一存在**；两者皆缺 → 配置校验错误（exit 1） |
+| R2 | 有 `main` → 行为与现状完全一致（含"main 隐式入池"逻辑）；无 `main` → 不做隐式入池 |
+| R3 | registration-only 对类型 I（Pi）：仅产出 `providers.<name>` ops，跳过全部 settings.json ops，并发一条显式提示告警（field=`profile.main`）：声明"defaults left to user" |
+| R4 | registration-only 对类型 II（Claude Code / Codex）：ops 为空 + 显式告警 "no pool channel and no main; nothing to project"。**禁止静默 no-op** |
+| R5 | registration-only 对类型 III（Aider 类）：P1 契约同 R4 处理（角色槽位通道落地时再评估） |
+| R6 | `acm use <pool-only-profile>` 仍写入 `~/.acm/state/active`（全局激活态语义不变）；use/status 输出中的 R3/R4 告警即"本次未接管默认模型"的显式暴露 |
+| R7 | 幂等 / drift / rollback 对 registration-only 天然成立：托管字段集合缩小为 `providers.*` 键，快照与 last_write 记账照旧 |
+
+### 18.3 实现改动清单
+
+| # | 文件 | 改动 |
+|---|---|---|
+| C1 | `config.py` | `ProfileConfig.main: str \| None = None`；交叉引用校验条件化（main 为 None 时跳过）；新增 model_validator 规则 R1 |
+| C2 | `resolve.py` | `ResolvedProfile.main: ResolvedModel \| None`；reachable 集合、隐式入池、`main_model` 解析均条件化 |
+| C3 | `adapters/__init__.py` | `check_unsupported_profile_specs` 对 `profile.main.*` 的访问加 None 守卫 |
+| C4 | `pi.py` | plan() 重构：池路径与 settings 路径解耦——有 pool 即走池注册；settings ops 与 main 相关警告仅在 `profile.main` 存在时产出；R3 提示告警 |
+| C5 | `claude_code.py` / `codex.py` | plan() 顶部守卫：`main is None` → 返回空 ops + R4 告警 |
+| C6 | 测试 | unit：schema R1 正反例、resolve 无隐式入池；golden：三 adapter 的 registration-only 用例；integration：CLI use pool-only → models.json 写入且 settings.json 字节级不变 |
+
+### 18.4 明确不做
+
+- 不为 registration-only 引入新的状态机取值（SYNCED 含义收窄为"ACM 托管字段对齐"，文档口径即可）
+- 不改 `init` 提案生成（D7 仍未实施，与本节无关）
+- 类型 II 的"聚合池告警"在 registration-only 下不再适用（没有 skipped 名单可言），由 R4 告警整体替代
+
+### 18.5 真机验证记录（2026-08-25，远端 VMR 192.168.0.22:8800）
+
+```
+质量门禁：pytest 136 passed（126 + 净增 10：config R1 正反例 ×2、resolve 隐式入池 ×2、
+          golden registration-only ×5、integration 全管线 ×1）；ruff ✓；mypy strict ✓
+真机流程：config 增加 [profiles.registry]（pool-only，3 成员）
+  → acm use registry pi            → Safety Block（exit 2，见发现 F1）
+  → acm use registry pi --force    → exit 0；settings.json md5 前后一致；
+                                      models.json 注册 fast/coder/smart 三成员；
+                                      R3 告警按预期出现
+  → 外部改 defaultModel 再 status  → 仍 SYNCED（默认字段所有权已释放，不再判漂移）
+  → pi -p 实际对话                 → 正常（用户自有默认 provider/model 继续生效）
+最终状态：Pi @ registry（registration-only），用户保留 vmr_openai/coding 自有默认。
+```
+
+**发现 F1（语义确认，非缺陷）**：从"接管 main 的 profile"切换到 registration-only profile
+时，此前写入的 `defaultProvider`/`defaultModel` 仍记录在 `last_write.fields` 中，外部对它
+们的改动会照常触发漂移阻断。这是显式暴露原则的正确行为——但用户需要知道：**切换到
+registration-only 后需执行一次 `--force` 来完成"默认字段所有权交还"**，此后这些字段的
+外部改动不再被 ACM 拦截（实测确认）。该操作不会覆盖用户的现有默认值（registry 的 ops
+根本不包含 settings 字段）。已补录本节，USER_GUIDE §5.4 规则区已同步说明。

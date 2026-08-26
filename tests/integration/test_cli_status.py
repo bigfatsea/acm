@@ -14,7 +14,7 @@ runner = CliRunner()
 
 
 def test_status_uninitialized_fails(tmp_home: Path) -> None:
-    """Test status fails with exit code 1 if config.toml does not exist."""
+    """Test status fails with exit code 1 if config.yaml does not exist."""
     result = runner.invoke(cli_app, ["status"])
     assert result.exit_code == 1
     normalized = " ".join((result.stdout + result.stderr).split())
@@ -22,10 +22,10 @@ def test_status_uninitialized_fails(tmp_home: Path) -> None:
 
 
 def test_status_display_table(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test status outputs a table with registered adapter state."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     target_file = tmp_home / "agent_test.json"
     adapter = MockAdapter(target_file, detected=True)

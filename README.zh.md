@@ -11,7 +11,7 @@
 
 ACM 管理的是**字段**，不是文件；模型世界的描述只有一份，Agent 只是投影目标。
 
-- **公理 1（SSOT）**：用户在 ACM 中维护一套与 Agent 无关的 Provider / 模型声明式配置（`~/.acm/config.toml`），一键投影至本机所有 Coding Agent。
+- **公理 1（SSOT）**：用户在 ACM 中维护一套与 Agent 无关的 Provider / 模型声明式配置（`~/.acm/config.yaml`），一键投影至本机所有 Coding Agent。
 - **公理 2（非破坏性）**：ACM 只拥有它写入的受管字段，绝不拥有整个文件。未管理字段（MCP Servers、插件、Skills、Prompt 规则、会话状态等）保持**语义级 100% 零破坏**。
 - **公理 3（精准可逆）**：默认回滚粒度是“ACM 管理的字段逆操作”，而非整文件粗暴替换——绝不误伤 Agent 在此期间写入的新状态；同时提供物理快照作为灾难恢复兜底。
 
@@ -112,38 +112,40 @@ acm release
 
 ---
 
-## ⚙️ 核心配置示例 (`~/.acm/config.toml`)
+## ⚙️ 核心配置示例 (`~/.acm/config.yaml`)
 
-```toml
-version = 1
+```yaml
+version: 1
 
 # ── L1 供应商：端点与凭据引用 ──────────────────────────
-[providers.vmr]
-protocol    = "openai"
-base_url    = "http://127.0.0.1:8800/v1"
-api_key     = "${VMR_KEY}"               # 整字段引用环境变量，零密钥明文入库
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY}"           # 整字段引用环境变量，零密钥明文入库
 
-[providers.anthropic-official]
-protocol    = "anthropic"
-base_url    = "https://api.anthropic.com"
-api_key     = "${ANTHROPIC_API_KEY}"
+  anthropic-official:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
 # ── L2 模型：规格、行为与能力 ──────────────────────────
-[models.coding]
-provider           = "vmr"
-id                 = "coding"
-context_window     = 131072
-max_output_tokens  = 16384
-temperature        = 0.2
-capabilities       = { vision = false, tools = "native", json_mode = true }
-
-[models.coding.reasoning]
-effort        = "high"                   # 适配器自动转译为目标 Agent 专属字段
-budget_tokens = 16000                    # 目标 Agent 无法表达时自动产生投影损失告警
+models:
+  coding:
+    provider: vmr
+    id: coding
+    context_window: 131072
+    max_output_tokens: 16384
+    temperature: 0.2
+    capabilities: { vision: false, tools: native, json_mode: true }
+    reasoning:
+      effort: high                  # 适配器自动转译为目标 Agent 专属字段
+      budget_tokens: 16000          # 目标 Agent 无法表达时自动产生投影损失告警
 
 # ── L3 Profile：命名的角色组合 ─────────────────────────
-[profiles.daily]
-main  = "coding"                         # 单模型 Agent 消费 main；多角色 Agent 消费对应槽位
+profiles:
+  daily:
+    main: coding                    # 单模型 Agent 消费 main；多角色 Agent 消费对应槽位
 ```
 
 ---

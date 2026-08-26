@@ -75,6 +75,10 @@ def check_unsupported_profile_specs(
                 reason=f"{agent_id} does not support custom role slots in config",
             )
         )
+    # Registration-only profiles (no main, DESIGN_MODEL_POOL_v1 §18) have no
+    # main-model specs to check here.
+    if profile.main is None:
+        return warnings
     if profile.main.temperature is not None and "temperature" not in supported_fields:
         warnings.append(
             ProjectionWarning(

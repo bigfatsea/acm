@@ -195,21 +195,24 @@ def test_acceptance_6_protection_unresolved_env_and_whitelist(
     tmp_home: Path, setup_p0_agents: dict[str, Path]
 ) -> None:
     """[Acceptance #6] Unresolved ENV variables abort before write with exit code 1."""
-    config_path = tmp_home / ".acm" / "config.toml"
+    config_path = tmp_home / ".acm" / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
-        """version = 1
-[providers.p]
-protocol = "openai"
-base_url = "http://localhost"
-api_key = "${UNDEFINED_REQUIRED_ENV_VAR}"
+        """version: 1
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: "${UNDEFINED_REQUIRED_ENV_VAR}"
 
-[models.m]
-provider = "p"
-id = "m"
+models:
+  m:
+    provider: p
+    id: m
 
-[profiles.daily]
-main = "m"
+profiles:
+  daily:
+    main: m
 """,
         encoding="utf-8",
     )

@@ -29,7 +29,7 @@ from acm.state import (
     write_active,
 )
 from acm.status import AgentState, compute_agent_status, is_noop
-from acm.util import get_acm_home
+from acm.util import get_acm_home, get_config_path
 from acm.vmr import generate_template_config, generate_vmr_proposal, probe_vmr
 from acm.writers.json_editor import NOT_FOUND
 
@@ -51,10 +51,10 @@ def init_cmd(
     ] = False,
     no_color: Annotated[bool, typer.Option("--no-color", help="Disable color formatting.")] = False,
 ) -> None:
-    """Scan local coding agents, probe VMR, and generate ~/.acm/config.toml."""
+    """Scan local coding agents, probe VMR, and generate ~/.acm/config.yaml."""
     stdout_c, stderr_c = get_consoles(no_color)
     acm_home = get_acm_home()
-    config_file = acm_home / "config.toml"
+    config_file = get_config_path()
 
     if config_file.exists() and not force and not dry_run:
         stdout_c.print(f"[yellow]Configuration file already exists at {config_file}[/yellow]")
@@ -87,16 +87,16 @@ def init_cmd(
 
     # 2.5 Validate generated proposal syntax & schema
     try:
-        from acm.config import parse_config_toml
+        from acm.config import parse_config_yaml
 
-        parse_config_toml(proposal_content)
+        parse_config_yaml(proposal_content)
     except Exception as e:
         stderr_c.print(f"[bold red]Error: Generated proposal failed validation: {e}[/bold red]")
         raise typer.Exit(code=1) from e
 
     # 3. Present proposal
     stdout_c.print(
-        "\n[bold cyan]── Proposed ~/.acm/config.toml ────────────────────────[/bold cyan]"
+        "\n[bold cyan]── Proposed ~/.acm/config.yaml ────────────────────────[/bold cyan]"
     )
     stdout_c.print(proposal_content.strip())
     stdout_c.print(
@@ -122,7 +122,7 @@ def init_cmd(
             except OSError:
                 pass
 
-            temp_cfg = acm_home / f"config.toml.{os.getpid()}.acm_tmp"
+            temp_cfg = acm_home / f"config.yaml.{os.getpid()}.acm_tmp"
             temp_cfg.write_text(proposal_content, encoding="utf-8")
             try:
                 os.chmod(temp_cfg, 0o600)
@@ -161,8 +161,7 @@ def status_cmd(
 ) -> None:
     """Display configuration alignment, active profile, and drift for coding agents."""
     stdout_c, stderr_c = get_consoles(no_color)
-    acm_home = get_acm_home()
-    config_file = acm_home / "config.toml"
+    config_file = get_config_path()
 
     try:
         if not config_file.exists():
@@ -225,8 +224,7 @@ def use_cmd(
     """Change desired profile and project model configurations to local agents."""
     stdout_c, stderr_c = get_consoles(no_color)
     setup_logger(verbose)
-    acm_home = get_acm_home()
-    config_file = acm_home / "config.toml"
+    config_file = get_config_path()
 
     try:
         if not config_file.exists():

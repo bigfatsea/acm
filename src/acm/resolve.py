@@ -95,7 +95,7 @@ class ResolvedProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile_name: str
-    main: ResolvedModel
+    main: ResolvedModel | None = None
     cheap: ResolvedModel | None = None
     extra_roles: dict[str, ResolvedModel] = Field(default_factory=dict)
     pool: dict[str, ResolvedModel] = Field(default_factory=dict)
@@ -122,7 +122,9 @@ def resolve_profile(
     missing_vars: set[str] = set()
 
     # Collect models and providers reachable from this specific profile
-    reachable_model_keys: set[str] = {profile_cfg.main}
+    reachable_model_keys: set[str] = set()
+    if profile_cfg.main is not None:
+        reachable_model_keys.add(profile_cfg.main)
     if profile_cfg.cheap:
         reachable_model_keys.add(profile_cfg.cheap)
     if profile_cfg.__pydantic_extra__:
@@ -177,7 +179,7 @@ def resolve_profile(
             reasoning=model_cfg.reasoning,
         )
 
-    main_model = _resolve_model(profile_cfg.main)
+    main_model = _resolve_model(profile_cfg.main) if profile_cfg.main is not None else None
     cheap_model = _resolve_model(profile_cfg.cheap) if profile_cfg.cheap else None
 
     extra_roles: dict[str, ResolvedModel] = {}
@@ -186,12 +188,18 @@ def resolve_profile(
             if isinstance(model_key, str) and model_key in core_config.models:
                 extra_roles[role_name] = _resolve_model(model_key)
 
-    # Model pool: label -> ResolvedModel, in declared order; main is implicitly
-    # ensured a member (prepended under label "main" if not already referenced).
+    # Model pool: label -> ResolvedModel, in declared order; when the profile has a
+    # main model it is implicitly ensured a member (prepended under label "main" if
+    # not already referenced). A registration-only profile (no main, §18 R2) skips
+    # that implicit insertion.
     pool: dict[str, ResolvedModel] = {}
     if profile_cfg.pool:
         declared_pool = {label: _resolve_model(alias) for label, alias in profile_cfg.pool.items()}
-        if not any(m.model_id == profile_cfg.main for m in declared_pool.values()):
+        if (
+            profile_cfg.main is not None
+            and not any(m.model_id == profile_cfg.main for m in declared_pool.values())
+        ):
+            assert main_model is not None  # guaranteed by profile_cfg.main check above
             pool = {"main": main_model, **declared_pool}
         else:
             pool = declared_pool

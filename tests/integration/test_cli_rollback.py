@@ -14,10 +14,10 @@ runner = CliRunner()
 
 
 def test_rollback_restores_file_and_clears_drift(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test rollback restores pre-write bytes and status is not DRIFTED, allowing subsequent use."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     target_file = tmp_home / "settings.json"
     initial_content = '{\n  "model": "initial-model",\n  "custom": 123\n}\n'
@@ -49,10 +49,10 @@ def test_rollback_restores_file_and_clears_drift(
 
 
 def test_double_rollback_undo_chain(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test undo-undo rollback restores forward projection."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     target_file = tmp_home / "settings.json"
     initial_content = '{\n  "model": "initial-model"\n}\n'
@@ -76,10 +76,10 @@ def test_double_rollback_undo_chain(
 
 
 def test_rollback_does_not_claim_unmanaged_user_fields(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """[R-4 Regression] Rollback must not claim ownership of user-owned keys in managed namespaces."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     target_file = tmp_home / "settings.json"
     # User file has a key inside a managed namespace ("env.KEY") that ACM does not manage in this projection
@@ -110,10 +110,10 @@ def test_rollback_does_not_claim_unmanaged_user_fields(
 
 
 def test_rollback_dry_run_zero_writes(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """[N-4 Regression] Rollback --dry-run must not restore files or create new snapshots."""
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     target_file = tmp_home / "settings.json"
     initial_content = '{\n  "model": "initial-model"\n}\n'

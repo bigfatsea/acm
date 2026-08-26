@@ -13,13 +13,13 @@ runner = CliRunner()
 
 
 def test_claude_code_cli_lifecycle(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test full CLI lifecycle with Claude Code adapter."""
     clear_adapters()
     register_adapter(claude_code)
 
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     # Setup Claude Code settings file
     claude_dir = tmp_home / ".claude"

@@ -14,7 +14,7 @@
 - [2. 安装](#2-安装)
 - [3. 核心概念](#3-核心概念)
 - [4. 快速上手](#4-快速上手)
-- [5. 配置完全参考（~/.acm/config.toml）](#5-配置完全参考-acmconfigtoml)
+- [5. 配置完全参考（~/.acm/config.yaml）](#5-配置完全参考-acmconfigyaml)
 - [6. 命令参考](#6-命令参考)
 - [7. Agent 适配器详解](#7-agent-适配器详解)
 - [8. VMR 协同](#8-vmr-协同)
@@ -35,7 +35,7 @@
 
 如果你同时使用多个 AI Coding Agent（Claude Code、Codex CLI、Pi Agent……），你一定体会过这种痛苦：每个 Agent 有自己的配置文件、自己的格式（JSON / TOML / YAML）、自己指定"用哪个模型、连哪个端点"的方式。切换模型或供应商意味着手动编辑多个文件——与此同时 Agent 运行时还在不停地往这些文件里写自己的状态。
 
-**ACM 就是为解决这个问题而生**：你在单一声明式文件（`~/.acm/config.toml`）里把模型世界描述**一遍**，ACM 用一条命令把它安全地投影到你机器上所有已装的 Coding Agent；改主意时还能精准回滚。
+**ACM 就是为解决这个问题而生**：你在单一声明式文件（`~/.acm/config.yaml`）里把模型世界描述**一遍**，ACM 用一条命令把它安全地投影到你机器上所有已装的 Coding Agent；改主意时还能精准回滚。
 
 ### 1.2 三条公理
 
@@ -126,14 +126,14 @@ $ acm --version
 
 ### 3.1 三层配置模型
 
-你的整个模型世界住在一个 TOML 文件里，分三层：
+你的整个模型世界住在一个 YAML 文件里，分三层：
 
 ```
-[providers]   L1 —— 端点与凭据引用          （"API 在哪里"）
+providers:    L1 —— 端点与凭据引用          （"API 在哪里"）
     ↓ 被引用
-[models]      L2 —— 模型规格与行为          （"模型是什么"）
+models:       L2 —— 模型规格与行为          （"模型是什么"）
     ↓ 被引用
-[profiles]    L3 —— 命名的角色组合          （"什么场景用哪个模型"）
+profiles:     L3 —— 命名的角色组合          （"什么场景用哪个模型"）
 ```
 
 ### 3.2 Desired State vs Current State
@@ -156,14 +156,14 @@ $ acm --version
 
 ### 3.6 凭据引用（Credential References）
 
-`config.toml` 中密钥只以环境变量引用的形式存储：
+`config.yaml` 中密钥只以环境变量引用的形式存储：
 
 - `${VAR}` —— 从环境解析；未设置则硬错误。
 - `${VAR:-default}` —— 带默认值兜底。
 
 语法规则：**仅支持整字段替换**——不支持子串插值（`foo-${VAR}-bar` 非法），不支持嵌套。投影时若引用的环境变量缺失，ACM 以退出码 1 中止，且发生在**触碰任何文件之前**。
 
-`config.toml` 里写明文密钥技术上允许（单用户机器上的合法选择），但强烈推荐 `${VAR}` 引用；某些投影场景下引用形式工作得更好（见 [§7.2](#72-codex-cli)）。
+`config.yaml` 里写明文密钥技术上允许（单用户机器上的合法选择），但强烈推荐 `${VAR}` 引用；某些投影场景下引用形式工作得更好（见 [§7.2](#72-codex-cli)）。
 
 ### 3.7 六态状态机
 
@@ -188,11 +188,12 @@ $ acm --version
 
 Profile 是一套**命名的“角色→模型”绑定表**，而不是运行期规则引擎。例如：
 
-```toml
-[profiles.daily]
-main   = "sonnet"    # 主模型——必填，每个 profile 都必须有
-cheap  = "haiku"     # 经济模型——可选
-review = "o3"        # 自定义角色——可选，键名任意
+```yaml
+profiles:
+  daily:
+    main: sonnet      # 主模型——必填，每个 profile 都必须有
+    cheap: haiku      # 经济模型——可选
+    review: o3        # 自定义角色——可选，键名任意
 ```
 
 关键事实：
@@ -214,10 +215,10 @@ review = "o3"        # 自定义角色——可选，键名任意
   acm use budget pi            # Pi ← budget.main
   ```
 
-- **将来谁会消费 `cheap` / 自定义角色？** 规划中的多角色适配器（Aider，含 main/weak/editor 槽位）会自动映射它们——`cheap` → weak 槽位，自定义角色 → 对应角色名。在那之前，在 profile 里定义它们没有任何代价：当前适配器只会给出告警，且未来适配器上线时你的 `config.toml` 无需改动。
-- **另有一个独立、正交的机制——`[profiles.<name>.pool]`——用于声明可选模型池**，供那些原生支持"在多个已注册模型间选择"的 Agent 使用。与 `cheap`/自定义角色（当前仅告警的单槽位角色绑定）不同，只要目标 Agent 具备注册通道，pool 成员会被真正*注册*进它自己的模型目录。语法见 §5.4，各 Agent 支持情况见 §7.4。
+- **将来谁会消费 `cheap` / 自定义角色？** 规划中的多角色适配器（Aider，含 main/weak/editor 槽位）会自动映射它们——`cheap` → weak 槽位，自定义角色 → 对应角色名。在那之前，在 profile 里定义它们没有任何代价：当前适配器只会给出告警，且未来适配器上线时你的 `config.yaml` 无需改动。
+- **另有一个独立、正交的机制——profile 下的 `pool:` 键——用于声明可选模型池**，供那些原生支持"在多个已注册模型间选择"的 Agent 使用。与 `cheap`/自定义角色（当前仅告警的单槽位角色绑定）不同，只要目标 Agent 具备注册通道，pool 成员会被真正*注册*进它自己的模型目录。语法见 §5.4，各 Agent 支持情况见 §7.4。
 
-> **💡 `/model` 切换与 ACM 的分工。** 多数 Agent（Claude Code `/model`、Codex `/model`、Pi `/model`……）都支持在会话中交互切换模型。那个可选模型池属于 **Agent 自己的机制**（内置目录、它自己的配置文件、或 Pi 的 `models.json`/extensions）。对没有注册通道的 Agent（Claude Code、Codex），ACM 只投影**默认/激活模型**外加连接层，`/model` 的候选列表完全是 Agent 自己的事。对 Pi 而言，ACM *可以*把整个 `[profiles.<name>.pool]` 注册进 `models.json`，让它们全部出现在 `/model` 里——见 §7.3。
+> **💡 `/model` 切换与 ACM 的分工。** 多数 Agent（Claude Code `/model`、Codex `/model`、Pi `/model`……）都支持在会话中交互切换模型。那个可选模型池属于 **Agent 自己的机制**（内置目录、它自己的配置文件、或 Pi 的 `models.json`/extensions）。对没有注册通道的 Agent（Claude Code、Codex），ACM 只投影**默认/激活模型**外加连接层，`/model` 的候选列表完全是 Agent 自己的事。对 Pi 而言，ACM *可以*把整个 `pool:` 注册进 `models.json`，让它们全部出现在 `/model` 里——见 §7.3。
 
 ---
 
@@ -227,7 +228,7 @@ review = "o3"        # 自定义角色——可选，键名任意
 
 ```bash
 # 1. 初始化：扫描已装 Agent + 探测本地 VMR，
-#    交互确认后生成 ~/.acm/config.toml
+#    交互确认后生成 ~/.acm/config.yaml
 acm init
 
 # 2. 将 "daily" Profile 投影到所有检测到的 Agent
@@ -245,7 +246,7 @@ acm status
 
 ### 4.3 无 VMR（直连）场景
 
-没有 VMR 时，`acm init` 生成带注释的模板（含 Anthropic/OpenAI 直连示例）。编辑 `~/.acm/config.toml`，填入真实模型 ID，并确保引用的环境变量已导出（见第 5 章）。直连任何 OpenAI-/Anthropic-兼容端点都是一等公民。
+没有 VMR 时，`acm init` 生成带注释的模板（含 Anthropic/OpenAI 直连示例）。编辑 `~/.acm/config.yaml`，填入真实模型 ID，并确保引用的环境变量已导出（见第 5 章）。直连任何 OpenAI-/Anthropic-兼容端点都是一等公民。
 
 ### 4.4 验证结果
 
@@ -259,33 +260,33 @@ cat ~/.pi/agent/models.json     # provider 已注册；settings.json defaultProv
 
 ---
 
-## 5. 配置完全参考 (`~/.acm/config.toml`)
+## 5. 配置完全参考 (`~/.acm/config.yaml`)
 
 SSOT 文件的完整 schema。校验非常严格：未知键直接拒绝、交叉引用强制检查、文件损坏会让所有命令快速失败（退出码 1）。
 
 ### 5.1 顶层
 
-```toml
-version = 1        # 必须恰好为 1（否则提示升级）
+```yaml
+version: 1         # 必须恰好为 1（否则提示升级）
 ```
 
-至少必须定义一个 `[profiles.*]`。
+至少必须定义一个 `profiles:` 条目。
 
-### 5.2 `[providers.<name>]` —— L1 连接层
+### 5.2 `providers.<name>` —— L1 连接层
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
 | `protocol` | string | ✅ | `openai` \| `anthropic` \| `openai-responses` 三选一 |
 | `base_url` | string | ✅ | 必须以 `http://` 或 `https://` 开头 |
 | `api_key` | string | ✅ | `${VAR}`、`${VAR:-default}` 或明文（不推荐） |
-| `headers` | string 表 | ❌ | 额外 HTTP 头，如 `{ x-org-id = "org-123" }` |
+| `headers` | string 映射 | ❌ | 额外 HTTP 头，如 `{ x-org-id: org-123 }` |
 | `proxy` | string | ❌ | 代理 URL |
 
-> ⚠️ `[providers.*]` 下出现未知多余键属于校验错误。
+> ⚠️ `providers.*` 下出现未知多余键属于校验错误。
 
-### 5.3 `[models.<name>]` —— L2 模型规格层
+### 5.3 `models.<name>` —— L2 模型规格层
 
-表名（`<name>`）是你本地的别名；`id` 是发给供应商的上游模型标识符。
+映射键名（`<name>`）是你本地的别名；`id` 是发给供应商的上游模型标识符。
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
@@ -294,10 +295,10 @@ version = 1        # 必须恰好为 1（否则提示升级）
 | `context_window` | int | ❌ | > 0 |
 | `max_output_tokens` | int | ❌ | > 0 |
 | `temperature` | float | ❌ | 0.0 – 2.0 |
-| `capabilities` | table | ❌ | 见下 |
-| `reasoning` | table | ❌ | 见下 |
+| `capabilities` | mapping | ❌ | 见下 |
+| `reasoning` | mapping | ❌ | 见下 |
 
-`[models.<name>.capabilities]`：
+`models.<name>.capabilities`：
 
 | 字段 | 类型 | 默认值 | 取值 |
 |---|---|---|---|
@@ -305,43 +306,45 @@ version = 1        # 必须恰好为 1（否则提示升级）
 | `tools` | string | `"native"` | `native` \| `xml` \| `markdown` |
 | `json_mode` | bool | `false` | |
 
-`[models.<name>.reasoning]`：
+`models.<name>.reasoning`：
 
 | 字段 | 类型 | 约束 |
 |---|---|---|
 | `effort` | string | `low` \| `medium` \| `high` |
 | `budget_tokens` | int | > 0 |
 
-### 5.4 `[profiles.<name>]` —— L3 角色组合层
+### 5.4 `profiles.<name>` —— L3 角色组合层
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `main` | string | ✅ | 单模型 Agent 使用的模型（多角色 Agent 的主角色） |
+| `main` | string | ⚠️ | 除非声明了非空 `pool`（见下文），否则必填。单模型 Agent 使用的模型（多角色 Agent 的主角色） |
 | `cheap` | string | ❌ | 次要/经济角色；仅被拥有对应槽位的 Agent 消费（否则成为投影损失告警） |
-| `pool` | 表（label → 模型别名） | ❌ | 可选模型池——见下文 |
-| *（任意自定义键）* | string | ❌ | 自定义角色槽位（如 `review = "o3"`）——仅被支持自定义角色的 Agent 消费 |
+| `pool` | 映射（label → 模型别名） | ❌ | 可选模型池——见下文 |
+| *（任意自定义键）* | string | ❌ | 自定义角色槽位（如 `review: o3`）——仅被支持自定义角色的 Agent 消费 |
 
-#### `[profiles.<name>.pool]` —— 可选模型池
+#### `profiles.<name>.pool` —— 可选模型池
 
-`pool` 子表用自由文本 `label` 声明一组模型，供能注册"可选模型清单"的 Agent 使用（目前：Pi）。它与 `cheap`/自定义角色相互独立，二者之间不做任何隐式转换。
+`pool` 子映射用自由文本 `label` 声明一组模型，供能注册"可选模型清单"的 Agent 使用（目前：Pi）。它与 `cheap`/自定义角色相互独立，二者之间不做任何隐式转换。
 
-```toml
-[profiles.daily]
-main = "coding"
-
-[profiles.daily.pool]
-budget  = "cheap"     # label -> [models.*] 别名
-longctx = "agent"
-review  = "o3"         # 可以指向不同的 provider
+```yaml
+profiles:
+  daily:
+    main: coding
+    pool:
+      budget: cheap     # label -> models.* 别名
+      longctx: agent
+      review: o3        # 可以指向不同的 provider
 ```
 
 规则：
 
-- `main` 始终隐式作为池成员（若未显式列出，以 label `main` 自动补入）——保证默认项永远可选；
-- 每个 label 必须非空，且引用的别名必须在 `[models]` 下有定义；
+- `main` 是可选的，**前提是**声明了非空 `pool`（见下文）；两者皆缺的 profile 会被拒绝。
+- 声明了 `main` 时，它始终隐式作为池成员（若未显式列出，以 label `main` 自动补入）——保证默认项永远可选。
+- **仅池 profile（省略 `main`）是 registration-only**：模型会注册进具备池通道的 Agent（Pi），但该 Agent 的默认模型字段（`defaultProvider`/`defaultModel`/`defaultThinkingLevel`）完全不动、所有权仍在用户手中。ACM 会发一条显式投影警告说明这一点；在没有池通道的 Agent 上（Claude Code、Codex）则无可投影内容，会有专门的告警说明。
+- 每个 label 必须非空，且引用的别名必须在 `models:` 下有定义；
 - 两个 label 不能指向同一个模型别名（`Duplicate model alias '...' in pool`）；
 - 两个不同别名也不能解析到同一个 `(provider, upstream id)` 组合——即便别名不同，若最终发给上游的模型 id 相同，会在 Pi 的 `models[]` 数组里产生无法区分的重复条目（`both resolve to upstream model id '...'`）；
-- `pool = {}`（空表）等同于未声明 `pool`；
+- 空 pool 映射等同于未声明 `pool`；
 - 保留 label `main`/`default`/`weak`/`editor` 对具有角色化模型槽位的 Agent（如规划中的 Aider 适配器）有特殊含义；其余 label 是自由显示名，大小写原样保留；
 - 在没有池注册通道的 Agent 上（Claude Code、Codex），只有 `main` 会被投影；其余成员合并为一条聚合投影损失告警，绝不静默丢弃。
 
@@ -349,122 +352,133 @@ review  = "o3"         # 可以指向不同的 provider
 
 加载时即校验（先于一切动作）：
 
-- 每个 `models.*.provider` 必须存在于 `[providers]` 下；
-- 每个 `profiles.*.main` / `.cheap` / 自定义角色值 / pool 成员值必须存在于 `[models]` 下;
+- 每个 `models.*.provider` 必须存在于 `providers:` 下；
+- 每个 `profiles.*.main` / `.cheap` / 自定义角色值 / pool 成员值必须存在于 `models:` 下;
 - 至少定义一个 profile。
 
 ### 5.6 完整示例集
 
 **a) VMR 中心型（探测到 VMR 时 `acm init` 自动生成）：**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.vmr]
-protocol = "openai"
-base_url = "http://127.0.0.1:8800/v1"
-api_key  = "${VMR_KEY:-}"   # 本地 VMR 无鉴权可留空
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY:-}"   # 本地 VMR 无鉴权可留空
 
-[models.coding]
-provider = "vmr"
-id       = "coding"
+models:
+  coding:
+    provider: vmr
+    id: coding
 
-[profiles.daily]
-main = "coding"
+profiles:
+  daily:
+    main: coding
 ```
 
 **b) Anthropic 官方直连：**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.anthropic-official]
-protocol = "anthropic"
-base_url = "https://api.anthropic.com"
-api_key  = "${ANTHROPIC_API_KEY}"
+providers:
+  anthropic-official:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
-[models.sonnet]
-provider           = "anthropic-official"
-id                 = "claude-sonnet-4-5"
-context_window     = 200000
-max_output_tokens  = 8192
-temperature        = 0.2
+models:
+  sonnet:
+    provider: anthropic-official
+    id: claude-sonnet-4-5
+    context_window: 200000
+    max_output_tokens: 8192
+    temperature: 0.2
+    reasoning:
+      effort: high
 
-[models.sonnet.reasoning]
-effort = "high"
-
-[profiles.daily]
-main = "sonnet"
+profiles:
+  daily:
+    main: sonnet
 ```
 
 **c) 多供应商、多 Profile：**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.anthropic-direct]
-protocol = "anthropic"
-base_url = "https://api.anthropic.com"
-api_key  = "${ANTHROPIC_API_KEY}"
+providers:
+  anthropic-direct:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
-[providers.openai-direct]
-protocol = "openai"
-base_url = "https://api.openai.com/v1"
-api_key  = "${OPENAI_API_KEY}"
+  openai-direct:
+    protocol: openai
+    base_url: https://api.openai.com/v1
+    api_key: "${OPENAI_API_KEY}"
 
-[models.sonnet]
-provider       = "anthropic-direct"
-id             = "claude-sonnet-4-5"
-context_window = 200000
+models:
+  sonnet:
+    provider: anthropic-direct
+    id: claude-sonnet-4-5
+    context_window: 200000
 
-[models.haiku]
-provider       = "anthropic-direct"
-id             = "claude-haiku-4-5"
+  haiku:
+    provider: anthropic-direct
+    id: claude-haiku-4-5
 
-[models.gpt-4o]
-provider = "openai-direct"
-id       = "gpt-4o"
+  gpt-4o:
+    provider: openai-direct
+    id: gpt-4o
 
-[profiles.daily]
-main  = "sonnet"
-cheap = "haiku"
+profiles:
+  daily:
+    main: sonnet
+    cheap: haiku
 
-[profiles.budget]
-main = "haiku"
+  budget:
+    main: haiku
 
-[profiles.experimental]
-main   = "gpt-4o"
-review = "sonnet"        # 自定义角色槽位
+  experimental:
+    main: gpt-4o
+    review: sonnet        # 自定义角色槽位
 ```
 
 切换方式：`acm use daily`、`acm use budget`、`acm use experimental`。
 
 **d) 第三方 OpenAI 兼容中转：**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.relay]
-protocol = "openai"                      # 与中转端点实际说的线协议保持一致
-base_url = "https://relay.example.com/v1"
-api_key  = "${RELAY_KEY}"
+providers:
+  relay:
+    protocol: openai          # 与中转端点实际说的线协议保持一致
+    base_url: https://relay.example.com/v1
+    api_key: "${RELAY_KEY}"
 
-[models.flagship]
-provider = "relay"
-id       = "their-flagship-model-name"
+models:
+  flagship:
+    provider: relay
+    id: their-flagship-model-name
 
-[profiles.daily]
-main = "flagship"
+profiles:
+  daily:
+    main: flagship
 ```
 
 ### 5.7 常见校验错误对照
 
 | 消息片段 | 原因 | 修复 |
 |---|---|---|
-| `Unsupported config schema version` | `version ≠ 1` | 改为 `version = 1` |
+| `Unsupported config schema version` | `version ≠ 1` | 改为 `version: 1` |
 | `references non-existent provider` | model → provider 引用断裂 | 定义该 provider 或修正名字 |
-| `is not defined under [models]` | profile → model 引用断裂 | 定义该 model 或修正名字 |
-| `Configuration must define at least one profile` | 没有 `[profiles.*]` | 补一个 |
+| `is not defined under models` | profile → model 引用断裂 | 定义该 model 或修正名字 |
+| `Configuration must define at least one profile` | 没有 `profiles:` 条目 | 补一个 |
 | `base_url must start with http(s)://` | 端点格式错误 | 修正 URL scheme |
 | `Invalid credential reference syntax` | 如 `pre-${VAR}-post` | 仅用整字段 `${VAR}` |
 | `Extra inputs are not permitted` | 严格表中出现拼写错误的键 | 修正键名 |
@@ -496,7 +510,7 @@ main = "flagship"
 acm init [--dry-run] [--force] [--no-color]
 ```
 
-扫描本机已装 Agent、探测本地 VMR、生成 `~/.acm/config.toml` 提案、校验并在确认后写入。
+扫描本机已装 Agent、探测本地 VMR、生成 `~/.acm/config.yaml` 提案、校验并在确认后写入。
 
 详细流程：
 
@@ -505,7 +519,7 @@ acm init [--dry-run] [--force] [--no-color]
 3. 写入前先对提案做校验（语法 + schema）——校验失败以退出码 1 中止。
 4. 打印提案。`--dry-run` 到此为止（什么都不写）。
 5. 请求确认（默认 Yes）后写入：
-   - `~/.acm/config.toml`（权限 `0600`）
+   - `~/.acm/config.yaml`（权限 `0600`）
    - `~/.acm/state/`、`~/.acm/logs/`（权限 `0700`）
    - `~/.acm/.gitignore`（忽略 `state/`、`logs/`、`.lock` 及临时文件）
 
@@ -518,10 +532,10 @@ Detected 3 local coding agent(s): Claude Code, Codex CLI, Pi Agent
 Probing local Virtual Model Router (VMR)...
 ✓ VMR detected at http://127.0.0.1:8800/v1 with 4 model(s).
 
-── Proposed ~/.acm/config.toml ────────────────────────
+── Proposed ~/.acm/config.yaml ────────────────────────
 ...
-Write configuration to /Users/you/.acm/config.toml? [Y/n]:
-✓ Successfully initialized ACM at ~/.acm/config.toml!
+Write configuration to /Users/you/.acm/config.yaml? [Y/n]:
+✓ Successfully initialized ACM at ~/.acm/config.yaml!
 Next step: Run acm use daily to project models to your agents.
 ```
 
@@ -560,7 +574,7 @@ acm use <profile> [agent] [--dry-run] [--force] [--show-secrets] [--verbose] [--
 
 执行顺序：
 
-1. 加载并校验 `config.toml`，结合当前环境解析 `<profile>`。Profile 不存在 ⇒ 退出码 4 并列出所有可用 Profile；`${VAR}` 缺失 ⇒ 硬错误、退出码 1——两种情况都零写盘。
+1. 加载并校验 `config.yaml`，结合当前环境解析 `<profile>`。Profile 不存在 ⇒ 退出码 4 并列出所有可用 Profile；`${VAR}` 缺失 ⇒ 硬错误、退出码 1——两种情况都零写盘。
 2. 将 `<profile>` 记录为激活态（`~/.acm/state/active`）。¹
 3. 对每个检测到的 Agent（或仅指定者）：
    - `ERROR` 态 → **安全阻断**（除非 `--force`，此时以 ACM 受管字段重建文件——损坏内容无法保留）。
@@ -617,7 +631,7 @@ ACM 为脚本化而生——退出码就是 API：
 | 码 | 含义 | 典型成因 |
 |---|---|---|
 | `0` | 成功（含幂等 no-op） | |
-| `1` | 配置错误 | TOML 语法/schema 错误；`${VAR}` 未解析；无配置（提示 `run acm init first`）；用法错误 |
+| `1` | 配置错误 | YAML 语法/schema 错误；`${VAR}` 未解析；无配置（提示 `run acm init first`）；用法错误 |
 | `2` | 安全阻断 | 外部漂移；损坏配置未加 `--force`；写锁竞争；白名单违规 |
 | `3` | I/O / 权限失败 | 投影/init 过程中的磁盘错误 |
 | `4` | 资源未找到 | 未知的 agent ID；Agent 未安装；指定 Agent 无快照 |
@@ -636,7 +650,7 @@ ACM 为脚本化而生——退出码就是 API：
 | `acm doctor` | 全面诊断 | `acm status --verbose` + 查看 `~/.acm/logs/acm.log` |
 | `acm history` | 事务日志 | 浏览 `~/.acm/state/<agent>/last_write.json` 与 `snapshots/`（时间戳命名目录） |
 | `acm release` | 解除托管并恢复接管前旧值 | 先 `acm rollback <agent>`（恢复投影前快照）；或干脆直接卸载 ACM——文件保持最后生效状态继续可用 |
-| `acm import vmr` | 增量合并新的 VMR 模型 | 重跑 `acm init --force`（重新生成 SSOT），或手编 `config.toml` |
+| `acm import vmr` | 增量合并新的 VMR 模型 | 重跑 `acm init --force`（重新生成 SSOT），或手编 `config.yaml` |
 
 ---
 
@@ -761,16 +775,16 @@ env_key = "OPENAI_API_KEY"
 
 投影损失（告警）：`budget_tokens`、`temperature`、`capabilities.tools`（非 native 方言）/ `capabilities.json_mode`、`proxy`、未被 `pool` 覆盖的 `cheap`/自定义角色（见下文）。与 Claude Code/Codex 不同，Pi **能**消费 `context_window`、`max_output_tokens`，也**能**消费 provider 级 `headers`（会写进 `providers.<name>.headers`，Pi 官方文档确认支持该字段），还**能**消费 `capabilities.vision`（写进模型条目的 `input: ["text", "image"]` 字段）。Pi 本可通过 openai 系方言下的模型级 `samplingParams` 表达每模型 temperature，但 ACM 尚未投影——因此声明了 temperature 仍会告警，且告警文案如实说明这一点。Pi 没有独立的 `proxy` 概念，因此这一项仍是真实投影损失。
 
-**通过 `pool` 原生支持多模型 `/model`（推荐）：** Pi 是当前唯一具备真实注册通道的适配器，因此声明 `[profiles.<name>.pool]`（见 §5.4）会让 ACM 把*全部*池成员注册进 `models.json`，而不只是 `main`：
+**通过 `pool` 原生支持多模型 `/model`（推荐）：** Pi 是当前唯一具备真实注册通道的适配器，因此在 profile 下声明 `pool`（见 §5.4）会让 ACM 把*全部*池成员注册进 `models.json`，而不只是 `main`：
 
-```toml
-[profiles.daily]
-main = "coding"
-
-[profiles.daily.pool]
-budget  = "cheap"
-longctx = "agent"
-review  = "o3"          # 可以在另一个 provider 上
+```yaml
+profiles:
+  daily:
+    main: coding
+    pool:
+      budget: cheap
+      longctx: agent
+      review: o3          # 可以在另一个 provider 上
 ```
 
 - 成员按 provider 分组；每个 provider 生成一条 `providers.<name>` 条目，其 `models[]` 数组承载整组成员。`main` 始终包含在内；
@@ -802,7 +816,7 @@ review  = "o3"          # 可以在另一个 provider 上
 | `capabilities.tools` / `.json_mode` | ⚠️ 告警 | ⚠️ 告警 | ⚠️ 告警（Pi 无通道） |
 | provider `headers` | ⚠️ 告警 | ⚠️ 告警 | ✅ `providers.<name>.headers` |
 | provider `proxy` | ⚠️ 告警 | ⚠️ 告警 | ⚠️ 告警（Pi 无此概念） |
-| 模型池（`[profiles.*.pool]`） | ⚠️ 聚合告警，仅 main 生效 | ⚠️ 聚合告警，仅 main 生效 | ✅ 全员注册进 `models.json`，label→`name`（次要详情文本，选择器主展示为 `id`） |
+| 模型池（`profiles.*.pool`） | ⚠️ 聚合告警，仅 main 生效 | ⚠️ 聚合告警，仅 main 生效 | ✅ 全员注册进 `models.json`，label→`name`（次要详情文本，选择器主展示为 `id`） |
 | `cheap` 角色 | ⚠️ 告警 | ⚠️ 告警 | ⚠️ 告警 |
 | 自定义角色 | ⚠️ 告警 | ⚠️ 告警 | ⚠️ 告警 |
 
@@ -823,7 +837,7 @@ VMR（Virtual Model Router）是配套的本地路由器，通过一个 OpenAI �
 
 ### 8.2 探测序列（`acm init`）
 
-1. `GET $ACM_VMR_PROBE_URL/v1/models`（默认主机 `http://127.0.0.1:8800`）——主数据源；发现的模型 ID（及可选 `vmr_protocol` 提示）变成 `[models.*]` 条目。
+1. `GET $ACM_VMR_PROBE_URL/v1/models`（默认主机 `http://127.0.0.1:8800`）——主数据源；发现的模型 ID（及可选 `vmr_protocol` 提示）变成 `models:` 下的条目。
 2. `GET $ACM_VMR_PROBE_URL/healthz` —— 兜底存活检查（生成占位模型的提案）。
 3. `~/.vmr/config.toml` 存在性 —— 离线兜底。
 
@@ -831,11 +845,11 @@ VMR（Virtual Model Router）是配套的本地路由器，通过一个 OpenAI �
 
 ### 8.3 生成的提案
 
-探测到 VMR 后，`acm init` 产出：一个指向 `<host>/v1` 的 `[providers.vmr]`、每个发现模型一个 `[models.<safe-name>]`，以及一个 `[profiles.daily]`——其 `main` 优先取名为 `coding` 的模型，否则取第一个发现的模型。
+探测到 VMR 后，`acm init` 产出：一个指向 `<host>/v1` 的 `providers.vmr` 条目、每个发现模型在 `models:` 下一个条目（键名即模型自身 id，原样保留，不做任何净化改名），以及一个 `profiles.daily` profile——其 `main` 优先取名为 `coding` 的模型，否则取第一个发现的模型。
 
 ### 8.4 跟上 VMR 的变化
 
-VMR 模型列表后续发生变化时，可手编 `~/.acm/config.toml`（增删 `[models.*]` 条目），或重跑 `acm init --force` 重新生成。（专用的增量 `acm import vmr` 属于触发式升级规划。）
+VMR 模型列表后续发生变化时，可手编 `~/.acm/config.yaml`（增删 `models:` 下条目），或重跑 `acm init --force` 重新生成。（专用的增量 `acm import vmr` 属于触发式升级规划。）
 
 ---
 
@@ -881,14 +895,14 @@ VMR 模型列表后续发生变化时，可手编 `~/.acm/config.toml`（增删 
 每次 `status`/`use` 都会把每个受管字段的磁盘值与最后写入记录比对。不一致 ⇒ `DRIFTED`，写入被阻断并给出逐字段 `expected vs found` 报告。你的选择：
 
 1. 检查（`acm status`、与最新快照对比），判断谁对谁错；
-2. 手工调和（把 Agent 文件改回去，或更新 `config.toml` 采纳新现实）；
+2. 手工调和（把 Agent 文件改回去，或更新 `config.yaml` 采纳新现实）；
 3. 或者深思熟虑后用 `acm use --force` 覆盖（外部改动将被冲掉）。
 
 特例：磁盘值与 last-write 不同、但*已经等于*期望状态时，`use` 视其为 no-op 成功而非阻断。
 
 ### 9.6 密钥安全与掩码
 
-- `config.toml` 存引用（`${VAR}`）不存密钥——可以放心入库。
+- `config.yaml` 存引用（`${VAR}`）不存密钥——可以放心入库。
 - 任何展示场景（漂移明细、dry-run 计划）中，敏感命名（`api_key`、`token`、`auth`、`secret`、`password`、`credential`——大小写不敏感）的值一律掩码：前 3 字符 + `...` + 后 3 字符（短值变 `***`）。`${VAR}` 引用形式原样显示。
 - 传 `--show-secrets` 显式选择明文显示。
 - 文件系统卫生：`~/.acm` 的 state/log 目录 `0700`；生成的文件 `0600`。
@@ -906,7 +920,7 @@ VMR 模型列表后续发生变化时，可手编 `~/.acm/config.toml`（增删 
 
 ```
 ~/.acm/
-├── config.toml                  # SSOT（由你编辑与版本管理）
+├── config.yaml                  # SSOT（由你编辑与版本管理）
 ├── .gitignore                   # 忽略 state/、logs/、.lock、临时文件
 ├── logs/
 │   └── acm.log                  # 操作日志（INFO；--verbose 时 DEBUG）
@@ -924,7 +938,7 @@ VMR 模型列表后续发生变化时，可手编 `~/.acm/config.toml`（增删 
         └── snapshots/<ts>/…
 ```
 
-配置与状态严格分离：ACM 绝不把运行时状态写回 `config.toml`。
+配置与状态严格分离：ACM 绝不把运行时状态写回 `config.yaml`。
 
 ### 10.2 `state/<agent>/last_write.json`
 
@@ -968,7 +982,7 @@ VMR 模型列表后续发生变化时，可手编 `~/.acm/config.toml`（增删 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-…
 acm init                       # 无 VMR → 模板；按需编辑 providers/models
-${EDITOR:-vi} ~/.acm/config.toml
+${EDITOR:-vi} ~/.acm/config.yaml
 acm use daily
 acm status                     # 期望全部 SYNCED
 ```
@@ -993,7 +1007,7 @@ acm use daily                  # ……再切回来；重复执行则是 no-op
 acm status                     # 该 Agent 显示 DRIFTED 及 expected/found 明细
 ```
 
-决策：想保留手改 → 把它同步录入 `config.toml`（让 ACM 的期望状态与新现实一致），再 `acm use daily` 干净收敛；想丢弃 → `acm use daily --force` 恢复 ACM 的值。
+决策：想保留手改 → 把它同步录入 `config.yaml`（让 ACM 的期望状态与新现实一致），再 `acm use daily` 干净收敛；想丢弃 → `acm use daily --force` 恢复 ACM 的值。
 
 ### R5 · 撤销最近一次投影
 
@@ -1015,7 +1029,7 @@ acm status claude_code         # 只查看 Claude Code
 
 ### R7 · SSOT 入版本库（团队基线）
 
-`config.toml` 只含 `${ENV}` 引用，`.gitignore` 也已排除 state/logs——所以 `~/.acm`（或仓库里的 `config.toml` 副本）可以放心提交。团队成员各自在本地导出自己的凭据。
+`config.yaml` 只含 `${ENV}` 引用，`.gitignore` 也已排除 state/logs——所以 `~/.acm`（或仓库里的 `config.yaml` 副本）可以放心提交。团队成员各自在本地导出自己的凭据。
 
 ### R8 · 脚本 & CI
 
@@ -1063,7 +1077,7 @@ Profile 是一套命名的“角色→模型”绑定表（`main` 必填；`chea
 这是设计使然（注册式增量投影；§7.3）。手动删除失效的 `providers.*` 条目，或 `acm rollback pi`。
 
 **❓ 我的密钥到底存在哪里？**
-用 `${VAR}` 引用时不在 `config.toml`——在你的环境变量里。Claude Code 因自身设计必然在 `settings.json` 中拿到解析后的 token。除非传 `--show-secrets`，ACM 所有输出均掩码敏感值；state 文件有权限限制（0600/0700）。
+用 `${VAR}` 引用时不在 `config.yaml`——在你的环境变量里。Claude Code 因自身设计必然在 `settings.json` 中拿到解析后的 token。除非传 `--show-secrets`，ACM 所有输出均掩码敏感值；state 文件有权限限制（0600/0700）。
 
 **❓ `acm use` 显示成功，但 Agent 行为不对**
 检查：(a) 是否重启了 Agent 会话——多数 Agent 在启动时读配置；(b) 该 Agent 是否真的读取 ACM 管理的那个文件（见 §7）；(c) `acm status` 里该 Agent 是否 SYNCED。
@@ -1072,7 +1086,7 @@ Profile 是一套命名的“角色→模型”绑定表（`main` 必填；`chea
 暂不支持——全局写锁依赖 `fcntl`（POSIX）。目前 macOS/Linux。
 
 **❓ 升级 ACM 会动我的配置吗？**
-不会。升级只影响工具行为；在你执行写命令前，`config.toml` 和 Agent 文件都不会被碰。schema 保持 `version = 1`（新旧 schema 不匹配会明确报错而非静默迁移）。
+不会。升级只影响工具行为；在你执行写命令前，`config.yaml` 和 Agent 文件都不会被碰。schema 保持 `version: 1`（新旧 schema 不匹配会明确报错而非静默迁移）。
 
 **❓ 我还能继续手动编辑 Agent 配置吗？**
 可以——未受管字段随时可以。受管字段的手改会产生漂移（会被刻意暴露出来，绝不静默覆盖）。更好的做法是更新 SSOT，让 ACM 去收敛。
@@ -1083,7 +1097,7 @@ Profile 是一套命名的“角色→模型”绑定表（`main` 必填；`chea
 
 | 术语 | 定义 |
 |---|---|
-| **SSOT** | Single Source of Truth，单一事实源——`~/.acm/config.toml`，模型世界的唯一描述。 |
+| **SSOT** | Single Source of Truth，单一事实源——`~/.acm/config.yaml`，模型世界的唯一描述。 |
 | **Desired State** | 激活 Profile 经适配器编译出的字段级期望状态。 |
 | **Current State** | 受管字段在磁盘上的实际值。 |
 | **收敛（Convergence）** | 幂等地使 Current 等于 Desired。 |
@@ -1101,7 +1115,7 @@ Profile 是一套命名的“角色→模型”绑定表（`main` 必填；`chea
 
 | 路径 | 角色 |
 |---|---|
-| `~/.acm/config.toml` | SSOT 配置（编辑这个） |
+| `~/.acm/config.yaml` | SSOT 配置（编辑这个） |
 | `~/.acm/state/active` | 当前激活 Profile 名 |
 | `~/.acm/state/<agent>/last_write.json` | 最近投影记录（漂移依据、回滚指针） |
 | `~/.acm/state/<agent>/snapshots/<ts>/` | 写前字节级备份 |

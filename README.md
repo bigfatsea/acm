@@ -11,7 +11,7 @@
 
 ACM manages **fields**, not files. There is exactly one description of your model world; agents are merely projection targets.
 
-- **Axiom 1 (SSOT)**: You maintain one agent-agnostic declarative configuration of providers/models (`~/.acm/config.toml`) and project it onto all local coding agents in one command.
+- **Axiom 1 (SSOT)**: You maintain one agent-agnostic declarative configuration of providers/models (`~/.acm/config.yaml`) and project it onto all local coding agents in one command.
 - **Axiom 2 (Non-destructive)**: ACM owns only the managed fields it writes — never the whole file. Unmanaged content (MCP servers, plugins, skills, prompt rules, session state, …) is preserved with **100% semantic fidelity**.
 - **Axiom 3 (Precise reversibility)**: Rollback granularity is "the inverse operation of ACM-managed fields", not blunt whole-file replacement — agent-written state is never clobbered; physical snapshots serve as disaster-recovery backstop.
 
@@ -119,39 +119,41 @@ acm release
 
 ---
 
-## ⚙️ Core Configuration Example (`~/.acm/config.toml`)
+## ⚙️ Core Configuration Example (`~/.acm/config.yaml`)
 
-```toml
-version = 1
+```yaml
+version: 1
 
 # ── L1 providers: endpoints & credential references ──────────────
-[providers.vmr]
-protocol    = "openai"
-base_url    = "http://127.0.0.1:8800/v1"
-api_key     = "${VMR_KEY}"               # env-var reference; no plaintext secrets on disk
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY}"          # env-var reference; no plaintext secrets on disk
 
-[providers.anthropic-official]
-protocol    = "anthropic"
-base_url    = "https://api.anthropic.com"
-api_key     = "${ANTHROPIC_API_KEY}"
+  anthropic-official:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
 # ── L2 models: spec, behavior & capabilities ─────────────────────
-[models.coding]
-provider           = "vmr"
-id                 = "coding"
-context_window     = 131072
-max_output_tokens  = 16384
-temperature        = 0.2
-capabilities       = { vision = false, tools = "native", json_mode = true }
-
-[models.coding.reasoning]
-effort        = "high"                   # adapters translate this into agent-specific fields
-budget_tokens = 16000                    # projection-loss warning if the target can't express it
+models:
+  coding:
+    provider: vmr
+    id: coding
+    context_window: 131072
+    max_output_tokens: 16384
+    temperature: 0.2
+    capabilities: { vision: false, tools: native, json_mode: true }
+    reasoning:
+      effort: high                 # adapters translate this into agent-specific fields
+      budget_tokens: 16000         # projection-loss warning if the target can't express it
 
 # ── L3 profiles: named role bundles ──────────────────────────────
-[profiles.daily]
-main  = "coding"                         # single-model agents consume main;
-                                         # multi-role agents consume matching slots
+profiles:
+  daily:
+    main: coding                   # single-model agents consume main;
+                                   # multi-role agents consume matching slots
 ```
 
 ---

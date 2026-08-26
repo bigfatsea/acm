@@ -13,13 +13,13 @@ runner = CliRunner()
 
 
 def test_codex_cli_lifecycle(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test full CLI lifecycle with Codex adapter."""
     clear_adapters()
     register_adapter(codex)
 
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     # Setup Codex config file
     codex_dir = tmp_home / ".codex"

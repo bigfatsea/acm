@@ -50,6 +50,19 @@ def plan(
     ops: list[PlannedOp] = []
     warnings: list[ProjectionWarning] = []
 
+    # Registration-only profile (DESIGN_MODEL_POOL_v1 §18.2 R4): this agent has no
+    # model-pool channel, so with no main there is nothing to project. Never silent.
+    if profile.main is None:
+        warnings.append(
+            ProjectionWarning(
+                field="profile.main",
+                agent_id=AGENT_ID,
+                reason=f"{AGENT_ID} has no model-pool channel and the profile declares no "
+                "'main'; nothing to project for this agent.",
+            )
+        )
+        return ops, warnings
+
     # 1. Top-level model & model_provider
     ops.append(PlannedOp(file=target_file, path="model", new=profile.main.upstream_id))
     ops.append(PlannedOp(file=target_file, path="model_provider", new=profile.main.provider.name))

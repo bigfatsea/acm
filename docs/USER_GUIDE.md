@@ -14,7 +14,7 @@
 - [2. Installation](#2-installation)
 - [3. Core Concepts](#3-core-concepts)
 - [4. Quick Start](#4-quick-start)
-- [5. Configuration Reference (`~/.acm/config.toml`)](#5-configuration-reference-acmconfigtoml)
+- [5. Configuration Reference (`~/.acm/config.yaml`)](#5-configuration-reference-acmconfigyaml)
 - [6. Command Reference](#6-command-reference)
 - [7. Agent Adapters](#7-agent-adapters)
 - [8. VMR Integration](#8-vmr-integration)
@@ -35,7 +35,7 @@
 
 If you use more than one AI coding agent (Claude Code, Codex CLI, Pi Agent, …), you already know the pain: every agent has its own config file, its own format (JSON / TOML / YAML), and its own way of specifying *which model* and *which API endpoint* to use. Switching models or providers means hand-editing several files — while the agents themselves keep writing their own state into those very same files.
 
-**ACM solves this**: you describe your model world **once**, in a single declarative file (`~/.acm/config.toml`), and ACM safely projects it onto every coding agent installed on your machine with one command. It can also roll back precisely when you change your mind.
+**ACM solves this**: you describe your model world **once**, in a single declarative file (`~/.acm/config.yaml`), and ACM safely projects it onto every coding agent installed on your machine with one command. It can also roll back precisely when you change your mind.
 
 ### 1.2 Three axioms
 
@@ -126,14 +126,14 @@ Master these eight concepts and everything else in ACM follows.
 
 ### 3.1 The three-layer configuration model
 
-Your entire model world lives in one TOML file with three layers:
+Your entire model world lives in one YAML file with three layers:
 
 ```
-[providers]   L1 — endpoints & credential references   ("where the API is")
+providers:    L1 — endpoints & credential references   ("where the API is")
     ↓ referenced by
-[models]      L2 — model specs & behavior              ("what the model is")
+models:       L2 — model specs & behavior              ("what the model is")
     ↓ referenced by
-[profiles]    L3 — named role bundles                  ("which model for which purpose")
+profiles:     L3 — named role bundles                  ("which model for which purpose")
 ```
 
 ### 3.2 Desired State vs Current State
@@ -156,14 +156,14 @@ Some desired settings cannot be expressed by every agent (e.g. Codex has no `tem
 
 ### 3.6 Credential references
 
-Secrets are stored in `config.toml` only as environment-variable references:
+Secrets are stored in `config.yaml` only as environment-variable references:
 
 - `${VAR}` — resolve from env; hard error if unset.
 - `${VAR:-default}` — fall back to a default value.
 
 Syntax rules: **whole-field replacement only** — no substring interpolation (`foo-${VAR}-bar` is invalid), no nesting. If a referenced variable is missing at projection time, ACM aborts with exit code 1 **before any file is touched**.
 
-Plaintext keys in `config.toml` are technically allowed (a legitimate choice on a single-user machine), but `${VAR}` references are strongly recommended; some projections work better with them (see [§7.2](#72-codex-cli)).
+Plaintext keys in `config.yaml` are technically allowed (a legitimate choice on a single-user machine), but `${VAR}` references are strongly recommended; some projections work better with them (see [§7.2](#72-codex-cli)).
 
 ### 3.7 The six-state machine
 
@@ -188,11 +188,12 @@ Running `acm use daily` twice in a row: the second run detects everything alread
 
 A profile is a **named set of role→model bindings**, not a runtime rule engine. Example:
 
-```toml
-[profiles.daily]
-main   = "sonnet"    # primary model — required, every profile must have it
-cheap  = "haiku"     # economy model — optional
-review = "o3"        # custom role — optional, arbitrary key name
+```yaml
+profiles:
+  daily:
+    main: sonnet      # primary model — required, every profile must have it
+    cheap: haiku      # economy model — optional
+    review: o3        # custom role — optional, arbitrary key name
 ```
 
 Key facts:
@@ -214,10 +215,10 @@ Key facts:
   acm use budget pi            # Pi ← budget.main
   ```
 
-- **Who will consume `cheap` / custom roles?** Future multi-role adapters (planned: Aider with main/weak/editor slots) will map them automatically — `cheap` → weak slot, custom roles → matching role names. Until then, defining them in your profiles costs nothing: it only produces warnings on the current adapters, and your `config.toml` won't need changes when those adapters ship.
-- **A separate, orthogonal mechanism — `[profiles.<name>.pool]` — declares an optional *model pool* for agents that natively support choosing among several registered models.** Unlike `cheap`/custom roles (single-slot role bindings, currently warn-only), pool members are actually *registered* into an agent's own model catalog when the agent has a channel for it. See §5.4 for syntax and §7.4 for which agents support it.
+- **Who will consume `cheap` / custom roles?** Future multi-role adapters (planned: Aider with main/weak/editor slots) will map them automatically — `cheap` → weak slot, custom roles → matching role names. Until then, defining them in your profiles costs nothing: it only produces warnings on the current adapters, and your `config.yaml` won't need changes when those adapters ship.
+- **A separate, orthogonal mechanism — a profile's `pool:` key — declares an optional *model pool* for agents that natively support choosing among several registered models.** Unlike `cheap`/custom roles (single-slot role bindings, currently warn-only), pool members are actually *registered* into an agent's own model catalog when the agent has a channel for it. See §5.4 for syntax and §7.4 for which agents support it.
 
-> **💡 `/model` switching vs ACM — the division of labor.** Most agents (Claude Code `/model`, Codex `/model`, Pi `/model`, …) let you switch models interactively mid-session. That pool of selectable models belongs to the **agent's own mechanism** (built-in catalogs, its config files, or Pi's `models.json`/extensions). For agents with no registration channel (Claude Code, Codex), ACM projects only the **default/active model** plus connectivity — the `/model` candidate list stays entirely the agent's own. For Pi, ACM *can* register the full `[profiles.<name>.pool]` set into `models.json` so all of them show up in `/model` — see §7.3.
+> **💡 `/model` switching vs ACM — the division of labor.** Most agents (Claude Code `/model`, Codex `/model`, Pi `/model`, …) let you switch models interactively mid-session. That pool of selectable models belongs to the **agent's own mechanism** (built-in catalogs, its config files, or Pi's `models.json`/extensions). For agents with no registration channel (Claude Code, Codex), ACM projects only the **default/active model** plus connectivity — the `/model` candidate list stays entirely the agent's own. For Pi, ACM *can* register the full `pool:` set into `models.json` so all of them show up in `/model` — see §7.3.
 
 ---
 
@@ -227,7 +228,7 @@ Key facts:
 
 ```bash
 # 1. Initialize: scan installed agents + probe local VMR,
-#    then interactively generate ~/.acm/config.toml
+#    then interactively generate ~/.acm/config.yaml
 acm init
 
 # 2. Project the "daily" profile onto all detected agents
@@ -245,7 +246,7 @@ If you run [VMR](https://github.com/bigfatsea/vmr) (Virtual Model Router) locall
 
 ### 4.3 Without VMR (direct connections)
 
-Without VMR, `acm init` generates a commented template with example Anthropic/OpenAI direct providers. Edit `~/.acm/config.toml`, fill in real model IDs, and make sure the referenced environment variables are exported (see §5). Direct connections to any OpenAI-/Anthropic-compatible endpoint are first-class citizens.
+Without VMR, `acm init` generates a commented template with example Anthropic/OpenAI direct providers. Edit `~/.acm/config.yaml`, fill in real model IDs, and make sure the referenced environment variables are exported (see §5). Direct connections to any OpenAI-/Anthropic-compatible endpoint are first-class citizens.
 
 ### 4.4 Verify the result
 
@@ -259,33 +260,33 @@ cat ~/.pi/agent/models.json     # provider registered; settings.json defaultProv
 
 ---
 
-## 5. Configuration Reference (`~/.acm/config.toml`)
+## 5. Configuration Reference (`~/.acm/config.yaml`)
 
 Full schema of the SSOT file. Validation is strict: unknown keys are rejected, cross-references are checked, and a broken file means every command fails fast with exit code 1.
 
 ### 5.1 Top level
 
-```toml
-version = 1        # must be exactly 1 (upgrade notice otherwise)
+```yaml
+version: 1         # must be exactly 1 (upgrade notice otherwise)
 ```
 
-At least one `[profiles.*]` entry is mandatory.
+At least one `profiles:` entry is mandatory.
 
-### 5.2 `[providers.<name>]` — L1 connectivity
+### 5.2 `providers.<name>` — L1 connectivity
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
 | `protocol` | string | ✅ | One of `openai` \| `anthropic` \| `openai-responses` |
 | `base_url` | string | ✅ | Must start with `http://` or `https://` |
 | `api_key` | string | ✅ | `${VAR}`, `${VAR:-default}`, or plaintext (not recommended) |
-| `headers` | table of strings | ❌ | Extra HTTP headers, e.g. `{ x-org-id = "org-123" }` |
+| `headers` | mapping of strings | ❌ | Extra HTTP headers, e.g. `{ x-org-id: org-123 }` |
 | `proxy` | string | ❌ | Proxy URL |
 
-> ⚠️ Unknown extra keys under `[providers.*]` are a validation error.
+> ⚠️ Unknown extra keys under `providers.*` are a validation error.
 
-### 5.3 `[models.<name>]` — L2 model spec
+### 5.3 `models.<name>` — L2 model spec
 
-The table name (`<name>`) is your local alias; `id` is the upstream model identifier sent to the provider.
+The mapping key (`<name>`) is your local alias; `id` is the upstream model identifier sent to the provider.
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
@@ -297,7 +298,7 @@ The table name (`<name>`) is your local alias; `id` is the upstream model identi
 | `capabilities` | table | ❌ | See below |
 | `reasoning` | table | ❌ | See below |
 
-`[models.<name>.capabilities]`:
+`models.<name>.capabilities`:
 
 | Field | Type | Default | Values |
 |---|---|---|---|
@@ -305,43 +306,45 @@ The table name (`<name>`) is your local alias; `id` is the upstream model identi
 | `tools` | string | `"native"` | `native` \| `xml` \| `markdown` |
 | `json_mode` | bool | `false` | |
 
-`[models.<name>.reasoning]`:
+`models.<name>.reasoning`:
 
 | Field | Type | Constraints |
 |---|---|---|
 | `effort` | string | `low` \| `medium` \| `high` |
 | `budget_tokens` | int | > 0 |
 
-### 5.4 `[profiles.<name>]` — L3 role bundles
+### 5.4 `profiles.<name>` — L3 role bundles
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `main` | string | ✅ | Model used by single-model agents (and the main role of multi-role agents) |
+| `main` | string | ⚠️ | Required unless a non-empty `pool` is declared (see below). Model used by single-model agents (and the main role of multi-role agents) |
 | `cheap` | string | ❌ | Secondary/economy role; only consumed by agents that have such a slot (elsewhere it becomes a projection-loss warning) |
 | `pool` | table (label → model alias) | ❌ | Optional model pool — see below |
-| *(any other key)* | string | ❌ | Custom role slots (e.g. `review = "o3"`) — consumed only by agents supporting custom roles |
+| *(any other key)* | string | ❌ | Custom role slots (e.g. `review: o3`) — consumed only by agents supporting custom roles |
 
-#### `[profiles.<name>.pool]` — optional model pool
+#### `profiles.<name>.pool` — optional model pool
 
-A `pool` sub-table declares a set of models under free-text `label`s, for agents that can register a *choice list* of models (today: Pi). It is independent of `cheap`/custom roles — no implicit conversion happens between them.
+A `pool` sub-mapping declares a set of models under free-text `label`s, for agents that can register a *choice list* of models (today: Pi). It is independent of `cheap`/custom roles — no implicit conversion happens between them.
 
-```toml
-[profiles.daily]
-main = "coding"
-
-[profiles.daily.pool]
-budget  = "cheap"     # label -> [models.*] alias
-longctx = "agent"
-review  = "o3"         # may point at a model on a different provider
+```yaml
+profiles:
+  daily:
+    main: coding
+    pool:
+      budget: cheap     # label -> models.* alias
+      longctx: agent
+      review: o3        # may point at a model on a different provider
 ```
 
 Rules:
 
-- `main` is always implicitly a pool member (inserted under label `main` if not explicitly listed) — the default is guaranteed to always be selectable.
-- Each label must be non-empty and map to an alias defined under `[models]`.
+- `main` is optional **iff** a non-empty `pool` is declared (see below); a profile with neither is rejected.
+- When `main` is declared, it is always implicitly a pool member (inserted under label `main` if not explicitly listed) — the default is guaranteed to always be selectable.
+- **A pool-only profile (no `main`) is registration-only**: models are registered into pool-capable agents (Pi), but that agent's default-model fields (`defaultProvider`/`defaultModel`/`defaultThinkingLevel`) are left entirely untouched and remain user-owned. ACM surfaces an explicit projection warning stating this; on agents without a pool channel (Claude Code, Codex) there is nothing to project and a dedicated warning says so.
+- Each label must be non-empty and map to an alias defined under `models:`.
 - Two labels may not point at the same model alias (`Duplicate model alias '...' in pool`).
 - Two different aliases also may not resolve to the same `(provider, upstream id)` pair — even with distinct alias names, an identical upstream model id produces indistinguishable duplicate entries in Pi's `models[]` array (`both resolve to upstream model id '...'`).
-- `pool = {}` (an empty table) is equivalent to omitting `pool` entirely.
+- An empty pool mapping is equivalent to omitting `pool` entirely.
 - Labels `main`/`default`/`weak`/`editor` carry special meaning for agents with role-typed model slots (e.g. the planned Aider adapter); any other label is a free-text display name. Case is preserved as written.
 - On agents with no pool channel (Claude Code, Codex), only `main` is ever projected; the rest are reported once as a single aggregate `pool` projection-loss warning, never silently dropped.
 
@@ -349,127 +352,138 @@ Rules:
 
 Validated on load, before anything happens:
 
-- Every `models.*.provider` must exist under `[providers]`.
-- Every `profiles.*.main` / `.cheap` / custom-role / pool-member value must exist under `[models]`.
+- Every `models.*.provider` must exist under `providers:`.
+- Every `profiles.*.main` / `.cheap` / custom-role / pool-member value must exist under `models:`.
 - At least one profile must be defined.
 
 ### 5.6 Complete examples
 
 **a) VMR-centric (auto-generated by `acm init` when VMR is detected):**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.vmr]
-protocol = "openai"
-base_url = "http://127.0.0.1:8800/v1"
-api_key  = "${VMR_KEY:-}"   # leave empty for a keyless local VMR
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY:-}"   # leave empty for a keyless local VMR
 
-[models.coding]
-provider = "vmr"
-id       = "coding"
+models:
+  coding:
+    provider: vmr
+    id: coding
 
-[profiles.daily]
-main = "coding"
+profiles:
+  daily:
+    main: coding
 ```
 
 **b) Anthropic official direct:**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.anthropic-official]
-protocol = "anthropic"
-base_url = "https://api.anthropic.com"
-api_key  = "${ANTHROPIC_API_KEY}"
+providers:
+  anthropic-official:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
-[models.sonnet]
-provider           = "anthropic-official"
-id                 = "claude-sonnet-4-5"
-context_window     = 200000
-max_output_tokens  = 8192
-temperature        = 0.2
+models:
+  sonnet:
+    provider: anthropic-official
+    id: claude-sonnet-4-5
+    context_window: 200000
+    max_output_tokens: 8192
+    temperature: 0.2
+    reasoning:
+      effort: high
 
-[models.sonnet.reasoning]
-effort = "high"
-
-[profiles.daily]
-main = "sonnet"
+profiles:
+  daily:
+    main: sonnet
 ```
 
 **c) Multi-provider, multi-profile:**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.anthropic-direct]
-protocol = "anthropic"
-base_url = "https://api.anthropic.com"
-api_key  = "${ANTHROPIC_API_KEY}"
+providers:
+  anthropic-direct:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
-[providers.openai-direct]
-protocol = "openai"
-base_url = "https://api.openai.com/v1"
-api_key  = "${OPENAI_API_KEY}"
+  openai-direct:
+    protocol: openai
+    base_url: https://api.openai.com/v1
+    api_key: "${OPENAI_API_KEY}"
 
-[models.sonnet]
-provider       = "anthropic-direct"
-id             = "claude-sonnet-4-5"
-context_window = 200000
+models:
+  sonnet:
+    provider: anthropic-direct
+    id: claude-sonnet-4-5
+    context_window: 200000
 
-[models.haiku]
-provider       = "anthropic-direct"
-id             = "claude-haiku-4-5"
+  haiku:
+    provider: anthropic-direct
+    id: claude-haiku-4-5
 
-[models.gpt-4o]
-provider = "openai-direct"
-id       = "gpt-4o"
+  gpt-4o:
+    provider: openai-direct
+    id: gpt-4o
 
-[profiles.daily]
-main  = "sonnet"
-cheap = "haiku"
+profiles:
+  daily:
+    main: sonnet
+    cheap: haiku
 
-[profiles.budget]
-main = "haiku"
+  budget:
+    main: haiku
 
-[profiles.experimental]
-main   = "gpt-4o"
-review = "sonnet"        # custom role slot
+  experimental:
+    main: gpt-4o
+    review: sonnet        # custom role slot
 ```
 
 Switch with `acm use daily`, `acm use budget`, `acm use experimental`.
 
 **d) Third-party OpenAI-compatible relay:**
 
-```toml
-version = 1
+```yaml
+version: 1
 
-[providers.relay]
-protocol = "openai"                      # match the wire protocol the relay speaks
-base_url = "https://relay.example.com/v1"
-api_key  = "${RELAY_KEY}"
+providers:
+  relay:
+    protocol: openai          # match the wire protocol the relay speaks
+    base_url: https://relay.example.com/v1
+    api_key: "${RELAY_KEY}"
 
-[models.flagship]
-provider = "relay"
-id       = "their-flagship-model-name"
+models:
+  flagship:
+    provider: relay
+    id: their-flagship-model-name
 
-[profiles.daily]
-main = "flagship"
+profiles:
+  daily:
+    main: flagship
 ```
 
 ### 5.7 Common validation errors
 
 | Message fragment | Cause | Fix |
 |---|---|---|
-| `Unsupported config schema version` | `version ≠ 1` | Set `version = 1` |
+| `Unsupported config schema version` | `version ≠ 1` | Set `version: 1` |
 | `references non-existent provider` | model → provider link broken | Define the provider or fix the name |
-| `is not defined under [models]` | profile → model link broken | Define the model or fix the name |
-| `Configuration must define at least one profile` | no `[profiles.*]` | Add one |
+| `is not defined under models` | profile → model link broken | Define the model or fix the name |
+| `Configuration must define at least one profile` | no `profiles:` entries | Add one |
 | `base_url must start with http(s)://` | malformed endpoint | Fix URL scheme |
-| `pool label '...' references non-existent model` | pool value not in `[models]` | Define the model or fix the alias |
+| `pool label '...' references non-existent model` | pool value not in `models:` | Define the model or fix the alias |
 | `Duplicate model alias '...' in pool` | two labels point at the same model | Give each pool member a distinct model |
 | `both resolve to upstream model id '...' on provider '...'` | two different aliases resolve to the same `(provider, id)` | Use a distinct upstream model, or drop the duplicate |
-| `Pool label must be non-empty` | `"" = "alias"` in a pool table | Use a real label |
+| `Pool label must be non-empty` | an empty-string label in a pool mapping | Use a real label |
 | `Invalid credential reference syntax` | e.g. `pre-${VAR}-post` | Use whole-field `${VAR}` only |
 | `Extra inputs are not permitted` | typo'd key in a strict table | Correct the key name |
 
@@ -496,7 +510,7 @@ main = "flagship"
 acm init [--dry-run] [--force] [--no-color]
 ```
 
-Scans locally installed agents, probes for a local VMR, generates a proposed `~/.acm/config.toml`, validates it, and (after confirmation) writes it.
+Scans locally installed agents, probes for a local VMR, generates a proposed `~/.acm/config.yaml`, validates it, and (after confirmation) writes it.
 
 Flow in detail:
 
@@ -505,7 +519,7 @@ Flow in detail:
 3. Validates the proposal (syntax + schema) before showing it — a validation failure aborts with exit code 1.
 4. Prints the proposal. With `--dry-run`, stops here (nothing is ever written).
 5. Asks for confirmation (default Yes) and writes:
-   - `~/.acm/config.toml` (mode `0600`)
+   - `~/.acm/config.yaml` (mode `0600`)
    - `~/.acm/state/`, `~/.acm/logs/` (mode `0700`)
    - `~/.acm/.gitignore` (ignoring `state/`, `logs/`, `.lock`, temp files)
 
@@ -518,10 +532,10 @@ Detected 3 local coding agent(s): Claude Code, Codex CLI, Pi Agent
 Probing local Virtual Model Router (VMR)...
 ✓ VMR detected at http://127.0.0.1:8800/v1 with 4 model(s).
 
-── Proposed ~/.acm/config.toml ────────────────────────
+── Proposed ~/.acm/config.yaml ────────────────────────
 ...
-Write configuration to /Users/you/.acm/config.toml? [Y/n]:
-✓ Successfully initialized ACM at ~/.acm/config.toml!
+Write configuration to /Users/you/.acm/config.yaml? [Y/n]:
+✓ Successfully initialized ACM at ~/.acm/config.yaml!
 Next step: Run acm use daily to project models to your agents.
 ```
 
@@ -560,7 +574,7 @@ acm use <profile> [agent] [--dry-run] [--force] [--show-secrets] [--verbose] [--
 
 Execution order:
 
-1. Loads & validates `config.toml`, resolves `<profile>` against the current environment. Unknown profile ⇒ exit code 4 with a list of available profiles; missing `${VAR}` ⇒ hard error, exit 1 — both before anything is written.
+1. Loads & validates `config.yaml`, resolves `<profile>` against the current environment. Unknown profile ⇒ exit code 4 with a list of available profiles; missing `${VAR}` ⇒ hard error, exit 1 — both before anything is written.
 2. Records `<profile>` as active (`~/.acm/state/active`).¹
 3. For each detected agent (or only the given one):
    - `ERROR` state → **safety block** (unless `--force`, which reconstructs the file with ACM-managed fields — corrupted content cannot be preserved).
@@ -617,7 +631,7 @@ ACM is designed for scripting — the exit code *is* the API:
 | Code | Meaning | Typical causes |
 |---|---|---|
 | `0` | Success (including idempotent no-op) | |
-| `1` | Configuration error | TOML syntax/schema error; unresolved `${VAR}`; no config (`run acm init first`); usage error |
+| `1` | Configuration error | YAML syntax/schema error; unresolved `${VAR}`; no config (`run acm init first`); usage error |
 | `2` | Safety block | External drift; corrupted config (ERROR) without `--force`; lock contention; whitelist violation |
 | `3` | I/O / permission failure | Disk errors during projection/init |
 | `4` | Resource not found | Unknown agent ID; agent not installed; no snapshot for requested agent |
@@ -636,7 +650,7 @@ Several commands from the governing spec ship in later milestones. Until then:
 | `acm doctor` | Full diagnostics | `acm status --verbose` + check `~/.acm/logs/acm.log` |
 | `acm history` | Transaction log | Browse `~/.acm/state/<agent>/last_write.json` and `snapshots/` (timestamp-named directories) |
 | `acm release` | Un-manage and restore pre-ACM values | Run `acm rollback <agent>` (restores pre-projection snapshot); or simply uninstall ACM — files stay in their last effective state and keep working |
-| `acm import vmr` | Incrementally merge new VMR models | Re-run `acm init --force` (regenerates SSOT), or edit `config.toml` by hand |
+| `acm import vmr` | Incrementally merge new VMR models | Re-run `acm init --force` (regenerates SSOT), or edit `config.yaml` by hand |
 
 ---
 
@@ -761,16 +775,16 @@ Credential handling in `models.json`: if your `api_key` is a `${VAR}` reference 
 
 Projection losses (warnings): `budget_tokens`, `temperature`, `capabilities.tools` (non-native dialect) / `capabilities.json_mode`, `proxy`, `cheap`/custom roles not covered by `pool` (see below). Unlike Claude Code/Codex, Pi **does** consume `context_window`, `max_output_tokens`, provider-level `headers` (written to `providers.<name>.headers` — confirmed supported by Pi's own docs), and **does** consume `capabilities.vision` (written to the model entry's `input: ["text", "image"]` field). Pi can express per-model temperature via model-level `samplingParams` on OpenAI-compatible dialects, which ACM does not project yet — so a declared temperature still warns, with wording that says exactly that. Pi has no separate `proxy` concept, so that one remains a genuine projection loss.
 
-**Multi-model `/model` support via `pool` (native, recommended):** Pi is the only current adapter with a real registration channel, so declaring `[profiles.<name>.pool]` (see §5.4) makes ACM register *every* pool member into `models.json`, not just `main`:
+**Multi-model `/model` support via `pool` (native, recommended):** Pi is the only current adapter with a real registration channel, so declaring a `pool` under your profile (see §5.4) makes ACM register *every* pool member into `models.json`, not just `main`:
 
-```toml
-[profiles.daily]
-main = "coding"
-
-[profiles.daily.pool]
-budget  = "cheap"
-longctx = "agent"
-review  = "o3"          # may live on a different provider
+```yaml
+profiles:
+  daily:
+    main: coding
+    pool:
+      budget: cheap
+      longctx: agent
+      review: o3          # may live on a different provider
 ```
 
 - Members are grouped by provider; each provider gets one `providers.<name>` entry whose `models[]` array carries the whole group. `main` is always included.
@@ -804,7 +818,7 @@ review  = "o3"          # may live on a different provider
 | provider `proxy` | ⚠️ warn | ⚠️ warn | ⚠️ warn (Pi has no such concept) |
 | `cheap` role | ⚠️ warn | ⚠️ warn | ⚠️ warn |
 | custom roles | ⚠️ warn | ⚠️ warn | ⚠️ warn |
-| model pool (`[profiles.*.pool]`) | ⚠️ aggregate warn, only `main` projected | ⚠️ aggregate warn, only `main` projected | ✅ full pool registered into `models.json`, label → `name` (secondary detail text; the picker's primary display is `id`) |
+| model pool (`profiles.*.pool`) | ⚠️ aggregate warn, only `main` projected | ⚠️ aggregate warn, only `main` projected | ✅ full pool registered into `models.json`, label → `name` (secondary detail text; the picker's primary display is `id`) |
 
 ✅ = projected · ⚠️ warn = skipped with an explicit projection-loss warning on stderr.
 
@@ -823,7 +837,7 @@ VMR (Virtual Model Router) is a companion local router that exposes many upstrea
 
 ### 8.2 Probe sequence (`acm init`)
 
-1. `GET $ACM_VMR_PROBE_URL/v1/models` (default host `http://127.0.0.1:8800`) — primary source; discovered model IDs (and optional `vmr_protocol` hints) become `[models.*]` entries.
+1. `GET $ACM_VMR_PROBE_URL/v1/models` (default host `http://127.0.0.1:8800`) — primary source; discovered model IDs (and optional `vmr_protocol` hints) become entries under `models:`.
 2. `GET $ACM_VMR_PROBE_URL/healthz` — fallback liveness check (proposal generated with placeholder model).
 3. `~/.vmr/config.toml` existence — offline fallback.
 
@@ -831,11 +845,11 @@ Probes are fault-tolerant and time out quickly; a machine without VMR proceeds s
 
 ### 8.3 Generated proposal
 
-When VMR is detected, `acm init` produces: one `[providers.vmr]` pointing at `<host>/v1`, one `[models.<safe-name>]` per discovered model, and a `[profiles.daily]` whose `main` is a model named `coding` if present, else the first discovered model.
+When VMR is detected, `acm init` produces: a `providers.vmr` entry pointing at `<host>/v1`, one entry under `models:` per discovered model (keyed by the model's own id, verbatim — no name sanitization), and a `profiles.daily` profile whose `main` is a model named `coding` if present, else the first discovered model.
 
 ### 8.4 Keeping up with VMR changes
 
-If VMR's model list changes later, either edit `~/.acm/config.toml` by hand (add/remove `[models.*]` entries) or re-run `acm init --force` to regenerate. (A dedicated incremental `acm import vmr` is a planned trigger-based upgrade.)
+If VMR's model list changes later, either edit `~/.acm/config.yaml` by hand (add/remove entries under `models:`) or re-run `acm init --force` to regenerate. (A dedicated incremental `acm import vmr` is a planned trigger-based upgrade.)
 
 ---
 
@@ -881,14 +895,14 @@ Orphaned temp files from crashed runs are cleaned up automatically at the start 
 On every `status`/`use`, ACM compares each managed field's disk value with the value recorded at last write. Mismatches ⇒ `DRIFTED`, and writes are blocked with a field-by-field `expected vs found` report. Your options:
 
 1. Inspect (`acm status`, compare with the latest snapshot), decide who's right;
-2. Reconcile manually (edit the agent file back, or update `config.toml` to adopt the new reality);
+2. Reconcile manually (edit the agent file back, or update `config.yaml` to adopt the new reality);
 3. Or override deliberately with `acm use --force` (external changes are overwritten).
 
 Special case: if the disk differs from last-write but *already equals* the desired state, `use` treats it as a no-op success instead of blocking.
 
 ### 9.6 Secret handling and masking
 
-- `config.toml` stores references (`${VAR}`), not secrets — commit-friendly.
+- `config.yaml` stores references (`${VAR}`), not secrets — commit-friendly.
 - Wherever values are displayed (drift details, dry-run plans), sensitive-looking values (`api_key`, `token`, `auth`, `secret`, `password`, `credential` — case-insensitive) are masked: first 3 + `...` + last 3 characters (short values become `***`). `${VAR}` reference forms are shown as-is.
 - Pass `--show-secrets` to opt into plaintext display.
 - Filesystem hygiene: `~/.acm` state/log dirs `0700`; generated files `0600`.
@@ -906,7 +920,7 @@ Atomic replaces mean a crash can never leave a half-written config. Fault-inject
 
 ```
 ~/.acm/
-├── config.toml                  # SSOT (yours to edit/version)
+├── config.yaml                  # SSOT (yours to edit/version)
 ├── .gitignore                   # ignores state/, logs/, .lock, tmp files
 ├── logs/
 │   └── acm.log                  # operation log (INFO; DEBUG with --verbose)
@@ -924,7 +938,7 @@ Atomic replaces mean a crash can never leave a half-written config. Fault-inject
         └── snapshots/<ts>/…
 ```
 
-Configuration and state are strictly separated: ACM never writes runtime state back into `config.toml`.
+Configuration and state are strictly separated: ACM never writes runtime state back into `config.yaml`.
 
 ### 10.2 `state/<agent>/last_write.json`
 
@@ -968,7 +982,7 @@ Configuration and state are strictly separated: ACM never writes runtime state b
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-…
 acm init                       # no VMR → template; edit providers/models to taste
-${EDITOR:-vi} ~/.acm/config.toml
+${EDITOR:-vi} ~/.acm/config.yaml
 acm use daily
 acm status                     # expect all SYNCED
 ```
@@ -993,7 +1007,7 @@ Either run VMR (then `acm init` picks it up automatically), or declare a provide
 acm status                     # agent shows DRIFTED with expected/found details
 ```
 
-Decide: keep your manual change → also record it in `config.toml` (make ACM's desired state match), then `acm use daily` converges cleanly; discard it → `acm use daily --force` restores ACM's values.
+Decide: keep your manual change → also record it in `config.yaml` (make ACM's desired state match), then `acm use daily` converges cleanly; discard it → `acm use daily --force` restores ACM's values.
 
 ### R5 · Undo the last projection
 
@@ -1015,7 +1029,7 @@ acm status claude_code         # inspect only Claude Code
 
 ### R7 · Version-control the SSOT (team baseline)
 
-`config.toml` contains only `${ENV}` references, and `.gitignore` already excludes state/logs — so `~/.acm` (or a copy of `config.toml` in your repo) is safe to commit. Team members export their own credentials locally.
+`config.yaml` contains only `${ENV}` references, and `.gitignore` already excludes state/logs — so `~/.acm` (or a copy of `config.yaml` in your repo) is safe to commit. Team members export their own credentials locally.
 
 ### R8 · Scripting & CI
 
@@ -1063,7 +1077,7 @@ Should never happen in normal use — it means an internal inconsistency where a
 By design (registry-style incremental registration; §7.3). Delete stale `providers.*` entries manually or `acm rollback pi`.
 
 **❓ Where do my secrets live?**
-Not in `config.toml` if you use `${VAR}` references — they live in your environment. Claude Code necessarily receives the resolved token in `settings.json` (its own design). All ACM output masks sensitive values unless `--show-secrets`; state files are permission-restricted (0600/0700).
+Not in `config.yaml` if you use `${VAR}` references — they live in your environment. Claude Code necessarily receives the resolved token in `settings.json` (its own design). All ACM output masks sensitive values unless `--show-secrets`; state files are permission-restricted (0600/0700).
 
 **❓ `acm use` said success but the agent behaves differently**
 Check that (a) you restarted the agent session — most agents read config at startup; (b) the agent actually reads the file ACM manages (see §7); (c) `acm status` shows SYNCED for that agent.
@@ -1072,7 +1086,7 @@ Check that (a) you restarted the agent session — most agents read config at st
 Not yet — the global write lock relies on `fcntl` (POSIX). macOS/Linux today.
 
 **❓ Will upgrading ACM change my configs?**
-No. Upgrades affect tool behavior only; neither `config.toml` nor agent files are touched until you run a write command. Schema stays `version = 1` (older/newer schemas produce a clear error instead of silent migration).
+No. Upgrades affect tool behavior only; neither `config.yaml` nor agent files are touched until you run a write command. Schema stays `version: 1` (older/newer schemas produce a clear error instead of silent migration).
 
 **❓ Can I keep editing agent configs by hand?**
 Yes — for unmanaged fields, always. For managed fields, hand edits create drift (deliberately surfaced, never silently overwritten). Update the SSOT instead and let ACM converge.
@@ -1083,7 +1097,7 @@ Yes — for unmanaged fields, always. For managed fields, hand edits create drif
 
 | Term | Definition |
 |---|---|
-| **SSOT** | Single Source of Truth — `~/.acm/config.toml`, the one description of your model world. |
+| **SSOT** | Single Source of Truth — `~/.acm/config.yaml`, the one description of your model world. |
 | **Desired State** | Field-level target computed by compiling the active profile through an adapter. |
 | **Current State** | Actual on-disk values of managed fields. |
 | **Convergence** | Idempotently making Current equal Desired. |
@@ -1101,7 +1115,7 @@ Yes — for unmanaged fields, always. For managed fields, hand edits create drif
 
 | Path | Role |
 |---|---|
-| `~/.acm/config.toml` | SSOT configuration (edit me) |
+| `~/.acm/config.yaml` | SSOT configuration (edit me) |
 | `~/.acm/state/active` | Currently active profile name |
 | `~/.acm/state/<agent>/last_write.json` | Last projection record (drift basis, rollback pointer) |
 | `~/.acm/state/<agent>/snapshots/<ts>/` | Pre-write byte-exact backups |

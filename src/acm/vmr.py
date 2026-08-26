@@ -92,6 +92,8 @@ def probe_vmr(env: Mapping[str, str] | None = None) -> VmrProbeResult | None:
         pass
 
     # 3. Check ~/.vmr configuration directory (optional fallback path)
+    #    NOTE: ~/.vmr/config.toml is VMR's own project file (not ACM's Core Config);
+    #    never migrate or clean it up when touching ACM config formats.
     vmr_home = get_home(env_map) / ".vmr"
     if vmr_home.exists() and (vmr_home / "config.toml").exists():
         return VmrProbeResult(
@@ -103,35 +105,45 @@ def probe_vmr(env: Mapping[str, str] | None = None) -> VmrProbeResult | None:
     return None
 
 
+def _q(value: Any) -> str:
+    """Render a scalar as a YAML-safe double-quoted string.
+
+    JSON string escaping is a valid subset of YAML double-quoted style,
+    so json.dumps covers all edge cases (leading indicators, ': ', unicode).
+    """
+    return json.dumps(str(value))
+
+
 def generate_vmr_proposal(probe: VmrProbeResult) -> str:
-    """Generate a clean, valid config.toml tailored to detected VMR models."""
+    """Generate a clean, valid config.yaml tailored to detected VMR models."""
     proto = probe.models[0].vmr_protocol if probe.models else "openai"
     lines = [
-        "version = 1\n",
+        "version: 1\n",
         "# ── L1 供应商：端点与凭据引用 ──────────────────────────",
-        "[providers.vmr]",
-        f'protocol = "{proto}"',
-        f'base_url = "{probe.base_url}"',
-        'api_key = "${VMR_KEY:-}" # 本地 VMR 无鉴权可留空，如需鉴权可 export VMR_KEY\n',
+        "providers:",
+        "  vmr:",
+        f"    protocol: {_q(proto)}",
+        f"    base_url: {_q(probe.base_url)}",
+        f"    api_key: {_q('${VMR_KEY:-}')}   # 本地 VMR 无鉴权可留空，如需鉴权可 export VMR_KEY\n",
         "# ── L2 模型：规格、行为与能力 ──────────────────────────",
+        "models:",
     ]
 
     model_names: list[str] = []
     if probe.models:
         for m in probe.models:
-            safe_name = m.id.replace(":", "-").replace("/", "-")
-            header_key = f'"{safe_name}"' if ("." in safe_name or " " in safe_name) else safe_name
-            lines.append(f"[models.{header_key}]")
-            lines.append('provider = "vmr"')
-            lines.append(f'id = "{m.id}"')
+            # YAML mapping keys are plain strings: dots and slashes stay as-is.
+            lines.append(f"  {_q(m.id)}:")
+            lines.append("    provider: vmr")
+            lines.append(f"    id: {_q(m.id)}")
             lines.append("")
-            model_names.append(safe_name)
+            model_names.append(m.id)
     else:
-        lines.append("# NOTE: VMR is running but models endpoint could not be enumerated.")
-        lines.append("# Please replace 'coding' with your actual target model ID if different.")
-        lines.append("[models.coding]")
-        lines.append('provider = "vmr"')
-        lines.append('id = "coding"')
+        lines.append("  # NOTE: VMR is running but models endpoint could not be enumerated.")
+        lines.append("  # Please replace 'coding' with your actual target model ID if different.")
+        lines.append(f"  {_q('coding')}:")
+        lines.append("    provider: vmr")
+        lines.append(f"    id: {_q('coding')}")
         lines.append("")
         model_names.append("coding")
 
@@ -139,48 +151,51 @@ def generate_vmr_proposal(probe: VmrProbeResult) -> str:
     cheap_model = "cheap" if "cheap" in model_names else None
 
     lines.append("# ── L3 Profile：命名的角色组合 ─────────────────────────")
-    lines.append("[profiles.daily]")
-    lines.append(f'main = "{main_model}"')
+    lines.append("profiles:")
+    lines.append("  daily:")
+    lines.append(f"    main: {_q(main_model)}")
     if cheap_model and cheap_model != main_model:
-        lines.append(f'cheap = "{cheap_model}"')
+        lines.append(f"    cheap: {_q(cheap_model)}")
 
     return "\n".join(lines) + "\n"
 
 
 def generate_template_config() -> str:
-    """Generate a comprehensive commented template config.toml when no VMR is detected."""
-    return """version = 1
+    """Generate a comprehensive commented template config.yaml when no VMR is detected."""
+    return '''version: 1
 
 # ── L1 供应商：端点与凭据引用 ──────────────────────────
-[providers.anthropic-direct]
-protocol = "anthropic"
-base_url = "https://api.anthropic.com"
-api_key = "${ANTHROPIC_API_KEY}" # 整字段引用环境变量，零密钥明文入库
+providers:
+  anthropic-direct:
+    protocol: anthropic          # openai | anthropic | openai-responses
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"   # 整字段引用环境变量，零密钥明文入库
 
-[providers.openai-direct]
-protocol = "openai"
-base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"
+  openai-direct:
+    protocol: openai
+    base_url: https://api.openai.com/v1
+    api_key: "${OPENAI_API_KEY}"
 
 # ── L2 模型：规格、行为与能力 ──────────────────────────
-[models.claude-sonnet]
-provider = "anthropic-direct"
-id = "claude-3-7-sonnet-20250219"
-context_window = 200000
-max_output_tokens = 8192
-temperature = 0.2
+models:
+  claude-sonnet:
+    provider: anthropic-direct
+    id: claude-3-7-sonnet-20250219
+    context_window: 200000
+    max_output_tokens: 8192
+    temperature: 0.2             # 缺省 = 不写入，用 Agent 默认
+    reasoning:
+      effort: high               # low | medium | high
 
-[models.claude-sonnet.reasoning]
-effort = "high"
-
-[models.gpt-4o]
-provider = "openai-direct"
-id = "gpt-4o"
-context_window = 128000
-max_output_tokens = 4096
+  gpt-4o:
+    provider: openai-direct
+    id: gpt-4o
+    context_window: 128000
+    max_output_tokens: 4096
 
 # ── L3 Profile：命名的角色组合 ─────────────────────────
-[profiles.daily]
-main = "claude-sonnet"
-cheap = "gpt-4o"
-"""
+profiles:
+  daily:
+    main: claude-sonnet
+    cheap: gpt-4o
+'''

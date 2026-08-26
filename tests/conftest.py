@@ -76,12 +76,12 @@ def tmp_home(isolate_home: Path) -> Path:
 
 @pytest.fixture
 def make_config(tmp_home: Path) -> Callable[[str], Path]:
-    """Helper to create a ~/.acm/config.toml file with custom content."""
+    """Helper to create a ~/.acm/config.yaml file with custom content."""
 
     def _maker(content: str) -> Path:
         acm_dir = tmp_home / ".acm"
         acm_dir.mkdir(parents=True, exist_ok=True)
-        config_path = acm_dir / "config.toml"
+        config_path = acm_dir / "config.yaml"
         config_path.write_text(content, encoding="utf-8")
         return config_path
 
@@ -89,40 +89,42 @@ def make_config(tmp_home: Path) -> Callable[[str], Path]:
 
 
 @pytest.fixture
-def sample_config_toml() -> str:
-    """Return a standard valid config.toml string."""
-    return """version = 1
+def sample_config_yaml() -> str:
+    """Return a standard valid config.yaml string."""
+    return """version: 1
 
-[providers.vmr]
-protocol = "openai"
-base_url = "http://127.0.0.1:8800/v1"
-api_key = "${VMR_KEY:-sk-test-mock-key}"
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY:-sk-test-mock-key}"
 
-[providers.anthropic-direct]
-protocol = "anthropic"
-base_url = "https://api.anthropic.com"
-api_key = "${ANTHROPIC_API_KEY:-sk-ant-test-key}"
+  anthropic-direct:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY:-sk-ant-test-key}"
 
-[models.coding]
-provider = "vmr"
-id = "coding"
-context_window = 131072
-max_output_tokens = 16384
-temperature = 0.2
+models:
+  coding:
+    provider: vmr
+    id: coding
+    context_window: 131072
+    max_output_tokens: 16384
+    temperature: 0.2
+    reasoning:
+      effort: high
+      budget_tokens: 16000
 
-[models.coding.reasoning]
-effort = "high"
-budget_tokens = 16000
+  claude-sonnet:
+    provider: anthropic-direct
+    id: claude-3-7-sonnet-20250219
 
-[models.claude-sonnet]
-provider = "anthropic-direct"
-id = "claude-3-7-sonnet-20250219"
+profiles:
+  daily:
+    main: coding
 
-[profiles.daily]
-main = "coding"
-
-[profiles.direct]
-main = "claude-sonnet"
+  direct:
+    main: claude-sonnet
 """
 
 

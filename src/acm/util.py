@@ -29,6 +29,14 @@ def get_acm_home(env: Mapping[str, str] | None = None) -> Path:
     return get_home(env_map) / ".acm"
 
 
+CONFIG_FILENAME = "config.yaml"
+
+
+def get_config_path(env: Mapping[str, str] | None = None) -> Path:
+    """Return the absolute path of ACM's Core Config file (~/.acm/config.yaml)."""
+    return get_acm_home(env) / CONFIG_FILENAME
+
+
 def get_state_dir(env: Mapping[str, str] | None = None) -> Path:
     """Resolve ACM state directory (~/.acm/state)."""
     return get_acm_home(env) / "state"

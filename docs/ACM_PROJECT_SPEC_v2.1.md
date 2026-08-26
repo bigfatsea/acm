@@ -1,6 +1,6 @@
 # ACM（Agent Config Manager）项目规格 v2.1（实现参考）
 
-<!-- Version: 2.1.0 | Status: Implementation Reference（治理地位归 PRINCIPLE v2.1）| Date: 2026-08-18 -->
+<!-- Version: 2.1.0 | Status: Implementation Reference（治理地位归 PRINCIPLE v2.1）| Date: 2026-08-26 -->
 <!-- ⚠️ 角色变更（2026-08-18）：本文档已降级为**实现参考**（implementation reference）。
      治理性规格（原则、边界、数据模型、命令语义）见 docs/ACM_PROJECT_PRINCIPLE_v2.1.md。
      实现可偏离本文档的实现层细节（事务步骤、数据结构字段、状态机枚举、文案、目录布局等），
@@ -12,7 +12,7 @@
      状态枚举保持 6 种配置主状态。
      v1.1.2 变更：按一致性评审与 v2.0 规格全面对齐裁决--
      移除进程守护机制与适配器动态热加载（v2.0 已否决）；release 语义定为"恢复 pre-ACM 状态"，
-     明确 config.toml 永不自动删除，迁移其他工具时直接卸载即可；崩溃恢复从简，
+     明确 config.yaml 永不自动删除，迁移其他工具时直接卸载即可；崩溃恢复从简，
      靠"写前快照 + 原子替换无损坏中间态 + 漂移阻断与 force 收敛"兜底；
      use 保持全局 Profile 切换收敛语义，单 Agent 收敛统一由 apply <agent> 承载；init 移除 --yes。
      v2.1 变更（自 ACM_PROJECT_SPEC_FINAL_v1.1.md 更名升版；依据四份 MVP 范围提案的逐项裁决，
@@ -184,7 +184,7 @@
 
 ### D2：语言 = Python 3.12+，而非 Go
 
-**结论：纯 Python，最小依赖（typer+rich、tomlkit；pydantic 可选，决策标准见下；ruamel.yaml 随 P1 Aider 引入），uv 生态分发与锁定。**
+**结论：纯 Python，最小依赖（typer+rich、tomlkit、ruamel.yaml；pydantic 可选，决策标准见下），uv 生态分发与锁定。**
 
 | 需求特征 | Go | Python |
 |---|---|---|
@@ -200,25 +200,27 @@ Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致
 
 依赖预算与锁定（硬约束）：
 
-- MVP 运行时依赖 ≤ 3 个：`typer`+`rich`（计 1 组）、`tomlkit`，外加可选 `pydantic`。`ruamel.yaml` 随 P1 Aider 引入。
+- MVP 运行时依赖 ≤ 4 个：`typer`+`rich`（计 1 组）、`tomlkit`（Codex 端 round-trip 写路径）、`ruamel.yaml`（Core Config 解析，未来 Agent 端 YAML round-trip 复用同一依赖），外加可选 `pydantic`。
 - P1 引入 OpenCode（JSONC 注释保留）时，可放宽引入 1 个依赖（此时运行时依赖上限 ≤ 5 个）。**注意（附录 B 实证）**：现有候选 `commentjson` / `jstyleson` 均只在解析时剥离注释、写回即丢失，无法满足 §7.5.4 的注释保留硬要求（`commentjson` 还拖带 `lark-parser` 依赖且实测存在解析缺陷）；注释保留 Writer 预计需自研轻量 JSONC 编辑器（与 D1"适配器即代码"一致），放宽的名额仅用于届时评估确有必要时。
 - `pydantic` 引入标准：当 Core Config 校验逻辑超过 ~200 行或校验规则开始互相组合时引入；否则用 dataclass + 显式校验函数。引入即计入依赖预算。
 - 依赖以 uv lock 锁定，CI 中检查 lock 漂移；文件锁用 `fcntl` 标准库实现（MVP 仅 macOS/Linux、无 Win 分支；`msvcrt` 属终局语义）。
 
-### D3：Core Config = ACM 自有的模型世界 SSOT，格式 TOML
+### D3：Core Config = ACM 自有的模型世界 SSOT，格式 YAML
 
-**结论：采纳"核心配置"概念并保持 TOML 格式（`~/.acm/config.toml`）。**
+**结论：采纳"核心配置"概念，采用 YAML 格式（`~/.acm/config.yaml`），以 ruamel.yaml safe 模式加载。**
 
 这是**所有权声明**：模型世界的事实源在 ACM 内部（providers / models / profiles 三层），Agent 端永远是投影的影子。
 
-**否决"改为 YAML"的建议，理由：**
+**格式选型理由：**
 
-1. 该文件同时被用户手写和 ACM 机器读写（`acm import vmr` 会增量改写它）。TOML 无缩进语义、无类型歧义（YAML 的挪威问题/隐式类型/缩进错误），**双向读写场景下损坏概率显著更低**。
-2. 实际嵌套深度只有 3 层（provider -> model -> reasoning），"TOML 深层嵌套可读性差"的论据在此深度不成立。
-3. 依赖经济性：Codex 适配器是 P0，tomlkit 本来就是硬依赖，Core Config 用 TOML **零新增依赖**；与 Agent 端 YAML 文件（Aider/Hermes）在扩展名上天然区分，降低误编辑概率。
-4. ruamel/tomlkit 均具备注释保留的 round-trip 能力，ACM 改写自身配置时同样保用户注释。
+1. 层级可读性：models 下每项可带可选子块（reasoning / capabilities），YAML 的嵌套缩进把子属性自然归位到所属模型之下；pool-only profile 一个 `pool:` 子键即可表达。三层声明式配置在 YAML 中一眼可读。
+2. 键名表达力：YAML 映射键是普通字符串，`.` `/` `:` 等字符可直接入键，VMR 探测到的上游模型 id 无需净化改名即可作为别名。
+3. 语义安全：ruamel.yaml 实现 YAML 1.2（无 yes/no/on/off 隐式布尔化）且重复键直接报错（fail-fast），两大经典 YAML 陷阱在加载器层面消解；锚点/merge key 安全展开。
+4. 依赖经济性：ruamel.yaml 同时服务未来的 Agent 端 YAML round-trip 需求（Aider 等），单一 YAML 依赖覆盖 Core Config 解析与后续 P1 写路径，不引入双库共存。ACM 自身 SSOT 只有 init 整文件重生成一种写路径，无需增量改写能力；若未来 import vmr 需要注释保留式合并，同一依赖切至 rt 模式即可。
 
-**配置与状态的边界（成文以防漂移）**：`config.toml` 只包含用户可版本控制的**声明式内容**（providers / models / profiles）；一切运行时状态（active profile、journal、snapshots、logs）只存在于 `~/.acm/state/` 与 `~/.acm/logs/`，**任何功能都不得把状态写回 config.toml**。
+**加载行为契约**：空文件、非映射根、多文档流均为硬错误；`${VAR}` / `${VAR:-default}` 原样保留待投影时解析；行为逐项有测试钉死。
+
+**配置与状态的边界（成文以防漂移）**：`config.yaml` 只包含用户可版本控制的**声明式内容**（providers / models / profiles）；一切运行时状态（active profile、journal、snapshots、logs）只存在于 `~/.acm/state/` 与 `~/.acm/logs/`，**任何功能都不得把状态写回 config.yaml**。
 
 ### D4：安全引擎 = 事件日志为脉 + 内存所有权推导 + 物理快照兜底
 
@@ -258,7 +260,7 @@ Homebrew Tap 与 pyapp 打包各自需要持续 CI 维护成本，触发式后�
    | JSON + env 块注入 + 大量非管字段保护 | Claude Code（`settings.json` 与 `~/.claude.json` 状态文件的边界） |
    | TOML round-trip + **新建表形状**（env_key 单文件默认；双文件事务降为备选机制） | Codex（本机实证：用户 config.toml 含大量带注释的 `mcp_servers` 表） |
    | Provider/Model **注册式**投影 + api 方言映射 + compat 能力位 + thinking level 映射 | Pi（其 schema 与 Core Config 概念同构度最高） |
-   | YAML round-trip + 角色模型（main/weak/editor）+ 元数据文件派生 | **Aider（P1 首位，架构压力测试）**；ruamel round-trip 能力随 P1 Aider 一并引入 |
+   | YAML round-trip + 角色模型（main/weak/editor）+ 元数据文件派生 | **Aider（P1 首位，架构压力测试）**；复用已有的 ruamel.yaml 依赖启用其 round-trip 能力 |
 
 3. 结论：P0 三件套已覆盖 JSON/TOML 双格式、单/多文件、覆盖式/注册式两种投影形态；唯一未覆盖项由 P1 首位的 Aider 承担。**MVP 的架构验证充分性不受损，同时不做无用功。**
 
@@ -329,56 +331,58 @@ Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权�
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 7.3 Core Config（`~/.acm/config.toml`）
+### 7.3 Core Config（`~/.acm/config.yaml`）
 
-```toml
-version = 1                        # Schema 版本（非软件版本），迁移策略见 §7.3.2
+```yaml
+version: 1                        # Schema 版本（非软件版本），迁移策略见 §7.3.2
 
 # ── L1 供应商：端点与凭据引用 ──────────────────────────
-[providers.vmr]
-protocol    = "openai"                  # openai | anthropic | openai-responses
-base_url    = "http://127.0.0.1:8800/v1"
-api_key     = "${VMR_KEY}"              # credential 引用，规则见 §7.3.1
-# headers    = { x-org-id = "..." }
-# proxy      = "http://127.0.0.1:7890"
+providers:
+  vmr:
+    protocol: openai              # openai | anthropic | openai-responses
+    base_url: http://127.0.0.1:8800/v1
+    api_key: "${VMR_KEY}"         # credential 引用，规则见 §7.3.1
+    # headers: { x-org-id: "..." }
+    # proxy: http://127.0.0.1:7890
 
-[providers.anthropic-official]
-protocol    = "anthropic"
-base_url    = "https://api.anthropic.com"
-api_key     = "${ANTHROPIC_API_KEY}"
+  anthropic-official:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
 
-[providers.deepseek]
-protocol    = "openai"
-base_url    = "https://api.deepseek.com/v1"
-api_key     = "${DEEPSEEK_API_KEY}"
+  deepseek:
+    protocol: openai
+    base_url: https://api.deepseek.com/v1
+    api_key: "${DEEPSEEK_API_KEY}"
 
 # ── L2 模型：规格、行为与能力 ──────────────────────────
-[models.coding]
-provider           = "vmr"
-id                 = "coding"
-display_name       = "VMR Coding"
-context_window     = 131072
-max_output_tokens  = 16384
-temperature        = 0.2                # 缺省 = 不写入，用 Agent 默认
-capabilities       = { vision = false, tools = "native", json_mode = true }
+models:
+  coding:
+    provider: vmr
+    id: coding
+    display_name: VMR Coding
+    context_window: 131072
+    max_output_tokens: 16384
+    temperature: 0.2              # 缺省 = 不写入，用 Agent 默认
+    capabilities: { vision: false, tools: native, json_mode: true }
+    reasoning:
+      effort: high                # 适配器负责换算为各家表达
+      budget_tokens: 16000        # 仅目标 Agent 能表达时才投影（否则告警，§7.4.1）
 
-[models.coding.reasoning]
-effort        = "high"                  # 适配器负责换算为各家表达
-budget_tokens = 16000                   # 仅目标 Agent 能表达时才投影（否则告警，§7.4.1）
-
-[models.cheap]
-provider           = "vmr"
-id                 = "cheap"
-context_window     = 131072
-max_output_tokens  = 8192
+  cheap:
+    provider: vmr
+    id: cheap
+    context_window: 131072
+    max_output_tokens: 8192
 
 # ── L3 Profile：命名的角色组合 ─────────────────────────
-[profiles.daily]
-main  = "coding"
-cheap = "cheap"                          # 角色槽位：仅支持多模型的 Agent 消费
+profiles:
+  daily:
+    main: coding
+    cheap: cheap                  # 角色槽位：仅支持多模型的 Agent 消费
 
-[profiles.budget]
-main  = "cheap"
+  budget:
+    main: cheap
 ```
 
 - **激活态存放于 `~/.acm/state/active`**（仅 profile 名），只能通过 `acm use` 改变（配置/状态分离，见 D3）。
@@ -400,7 +404,7 @@ main  = "cheap"
 
 #### 7.3.2 Schema 版本与迁移
 
-- `version = 1` 是 **config schema 版本**，非 ACM 软件版本；manifest / journal / snapshot 各自携带自己的格式版本。
+- `version: 1` 是 **config schema 版本**，非 ACM 软件版本；manifest / journal / snapshot 各自携带自己的格式版本。
 - ACM 启动时校验版本：低版本配置向前兼容读取；不兼容版本由 `acm doctor` 检测并提示，`acm config migrate`（Phase 2 交付）执行迁移。
 - 现在 only 定义位置与语义，MVP 不实现迁移命令。
 
@@ -535,7 +539,7 @@ class FieldOwnership:
 Manifest 内存视图的用途：
 
 1. **ownership 状态查询**：status / doctor / diff 判断"这个字段现在归不归我管、有没有被动过"。
-2. **`release` 的精确语义**：解除托管并**恢复 pre-ACM 状态**--受管字段按 Journal 回滚至接管前旧值（接管前不存在的字段移除），清理状态记录（指定 `<agent>` 时仅清理对应 `~/.acm/state/<agent>/`；未指定时清理 `~/.acm/state/` 全部 Agent 状态与 active，但 `~/.acm/config.toml` 作为用户 SSOT 资产绝不自动删除）；若某文件为 ACM 全新创建（`created_by_acm=true`，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。适用于"短期试用后完全退出"。若只是迁移到其他配置管理工具，**无需执行 release**：ACM 非侵入，直接卸载 ACM（建议一并删除 `~/.acm/`，其中快照可能含明文密钥）即可，各 Agent 配置保持最后一次投影状态继续可用。
+2. **`release` 的精确语义**：解除托管并**恢复 pre-ACM 状态**--受管字段按 Journal 回滚至接管前旧值（接管前不存在的字段移除），清理状态记录（指定 `<agent>` 时仅清理对应 `~/.acm/state/<agent>/`；未指定时清理 `~/.acm/state/` 全部 Agent 状态与 active，但 `~/.acm/config.yaml` 作为用户 SSOT 资产绝不自动删除）；若某文件为 ACM 全新创建（`created_by_acm=true`，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。适用于"短期试用后完全退出"。若只是迁移到其他配置管理工具，**无需执行 release**：ACM 非侵入，直接卸载 ACM（建议一并删除 `~/.acm/`，其中快照可能含明文密钥）即可，各 Agent 配置保持最后一次投影状态继续可用。
 3. **幂等判断**：期望值 == current 且磁盘无漂移 -> ChangeSet 为空 -> no-op。
 
 #### 7.5.3 文件快照（Safety Net，只读审计与灾难恢复）
@@ -610,7 +614,7 @@ Manifest 内存视图的用途：
 
 ```
 ~/.acm/
-├── config.toml                 # Core Config（SSOT；仅声明式内容，可入 dotfiles git）
+├── config.yaml                 # Core Config（SSOT；仅声明式内容，可入 dotfiles git）
 ├── .gitignore                  # 由 acm init 自动创建（忽略 state/、logs/、.lock）
 ├── state/                      # 0700（含敏感内容）
 │   ├── active                  # 当前激活 profile 名（仅 acm use 可改）
@@ -623,7 +627,7 @@ Manifest 内存视图的用途：
 └── logs/                       # 运行日志；--verbose = DEBUG 级入日志，默认 INFO 摘要
 ```
 
-推荐用法（写入 README 与 init 自动化）：`acm init` 会默认自动生成 `~/.acm/.gitignore`（排除 `state/`、`logs/` 与 `.lock`）。用户可放心将 `~/.acm/config.toml` 纳入个人 dotfiles 仓库，明文密钥、快照与状态数据绝不会误入版本控制。
+推荐用法（写入 README 与 init 自动化）：`acm init` 会默认自动生成 `~/.acm/.gitignore`（排除 `state/`、`logs/` 与 `.lock`）。用户可放心将 `~/.acm/config.yaml` 纳入个人 dotfiles 仓库，明文密钥、快照与状态数据绝不会误入版本控制。
 
 ---
 
@@ -674,7 +678,7 @@ $ acm status                # 总览：各 Agent 状态机 + 漂移
 - **零依赖原则**：无 VMR 时一切功能照常（直连 OpenRouter / DeepSeek / SiliconFlow / Ollama / 任意兼容端点）。
 - **VMR 侧零改动**：只需暴露标准的模型列表查询端点；ACM 对 VMR 的全部"感知"就是一次 import。
 - **退出对等**：离开 ACM 直接卸载（建议一并删除 `~/.acm/`），配置保持最后投影状态继续可用；`acm release`（恢复接管前旧值）按触发引入。
-- `acm use-vmr <virtual_model>`（Phase 2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（Phase 2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足“≤3 条命令”成功标准。独立 `import vmr` 命令同样后置（触发条件：VMR 模型列表常变、反复增量合并成为痛点）；MVP 阶段增量合并以手编 TOML 或 `init --force` 重生成解决。
+- `acm use-vmr <virtual_model>`（Phase 2 薄糖层 = import-if-needed + 选 profile + `use`）与 `acm vmr status`（Phase 2）仅在真实使用中出现重复按键痛点后再做--MVP 的 `init -> use` 两步已满足“≤3 条命令”成功标准。独立 `import vmr` 命令同样后置（触发条件：VMR 模型列表常变、反复增量合并成为痛点）；MVP 阶段增量合并以手编 config.yaml 或 `init --force` 重生成解决。
 
 ---
 
@@ -685,7 +689,7 @@ $ acm status                # 总览：各 Agent 状态机 + 漂移
 ```bash
 # ── 初始化与状态 ────────────────────────────────────────
 acm init [--dry-run] [--force]
-                            # 【MVP】首次：扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.toml
+                            # 【MVP】首次：扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.yaml
                             #   （VMR 探测命中则将 providers.vmr + models.* 并入提案）
                             # 重复执行（config 已存在）：提示 覆盖 / 增量合并 / 取消，
                             #   默认取消（绝不破坏现有配置）；--force 跳过提示重新生成
@@ -700,7 +704,7 @@ acm use <profile> [--dry-run] [--force]
                             # 设为激活 profile 并投影到全部已检测 Agent（遇漂移默认阻断，--force 覆盖）；
                             # 若只需收敛单个 Agent，请使用 acm apply <agent>
 acm apply [<agent>] [--dry-run] [--force]
-                            # 【触发式后置：手改 config.toml 成为常规动作或 bind 上线】
+                            # 【触发式后置：手改 config.yaml 成为常规动作或 bind 上线】
                             # 幂等收敛 Current -> Desired；漂移同样默认阻断
 
 # ── 安全与审计 ─────────────────────────────────────────
@@ -724,7 +728,7 @@ acm release [<agent>] [--force]
                             # 解除托管并恢复 pre-ACM 状态（§7.5.2）：受管字段按 Journal 回滚至
                             # 接管前旧值、移除 ACM 创建的字段；ACM 全新创建且无用户内容的文件
                             # 整文件清理；清理状态记录（指定 Agent 清理对应 state/<agent>，
-                            # 缺省清理全部 Agent 状态，config.toml 永不自动删除），零残留。
+                            # 缺省清理全部 Agent 状态，config.yaml 永不自动删除），零残留。
                             # 适用于短期试用后完全退出。迁移到其他工具时无需 release：ACM 非侵入，
                             # 直接卸载（建议一并删除 ~/.acm/，其中快照可能含明文密钥）即可
 
@@ -824,7 +828,7 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 | 维度 | 范围 |
 |---|---|
 | 命令 | `init`（含 VMR 探测与提案确认）/ `use <profile>` / `status` / `rollback`；全局旗标 `--dry-run` `--force` `--no-color` `--show-secrets` |
-| 数据 | `~/.acm/config.toml`（providers/models/profiles 三层）+ `state/active` + `state/<agent>/last_write.json`（存受管字段值而非哈希）+ `state/<agent>/snapshots/<ts>/`（Append-only） |
+| 数据 | `~/.acm/config.yaml`（providers/models/profiles 三层）+ `state/active` + `state/<agent>/last_write.json`（存受管字段值而非哈希）+ `state/<agent>/snapshots/<ts>/`（Append-only） |
 | 安全底线（不可降级） | 白名单路径表封闭写入；写前整文件快照；tempfile + `os.replace` + 非阻塞 flock；pre-commit 指纹校验；`${ENV}` 硬失败零写盘；**受管字段漂移检测 + 默认阻断（退出码 2）+ --force 显式覆盖**（例外：no-op 且全部受管字段 Current==Desired 时仅提示不阻断，见 §7.5.8）；投影损失 stderr 单行告警并在 status 汇总；输出掩码；state 目录 0700 |
 | Writer | JSON = stdlib 保序解析（键序天然保持、语义无损）；TOML = tomlkit round-trip（注释免费保留）；YAML/JSONC 随对应适配器后置 |
 | 架构形态 | 适配器 = 数据驱动的映射表（路径表）+ 少量普通代码，产出纯数据 ops 与未映射告警；磁盘写入走唯一通道函数（白名单校验 → 快照 → 内存修改与非管节点断言 → 指纹校验 → 原子替换 → 记 last_write）。不做正式 Protocol 类层级、不设 ChangeSet 子系统命名，契约等价于 PRINCIPLE §3.4（适配器只编译，运行时零 I/O） |
@@ -911,7 +915,7 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 | 矛盾点 | V1 立场 | V2/V3 立场 | 裁决 | 关键依据 |
 |---|---|---|---|---|
 | MVP 首批适配器 | Claude Code + OpenClaw + Aider | Claude Code + Codex + Pi | **P0 = Claude Code + Codex + Pi；Aider 升为 P1 首位（压力测试）** | 本机实证：Aider/OpenClaw 未实际使用，第一动因是服务真实场景；架构覆盖缺口（YAML/角色模型/跨文件派生）由 P1 首位 Aider + Helper 级前置单测补齐（§6 D6） |
-| Core Config 格式 | TOML -> YAML | 保持 TOML | **保持 TOML** | 双向读写场景 TOML 无歧义性更优；实际嵌套仅 3 层；Codex P0 使 tomlkit 零新增依赖（§6 D3） |
+| Core Config 格式 | 扁平表头格式 | YAML | **YAML** | 三层嵌套（模型子块/pool 子键）缩进可读性最优；ruamel.yaml 提供 1.2 语义与重复键 fail-fast；单一 YAML 依赖同时覆盖未来 Agent 端 round-trip 预算（§6 D3） |
 | 分发渠道 | 全通道矩阵 | 压缩为主路径 | **单一主路径（PyPI + uvx/uv tool），brew/pyapp 触发式后置 P3** | 为想象中的用户建设 CI 渠道是浪费（§6 D5） |
 | 动态适配器热加载 | 尽早交付 | 推迟出 MVP | **架构预留、Phase 2 落地（后经 v2.0 裁决彻底否决，见 D7）** | 先验证官方适配器质量；现社区适配器一律源码内置（§6 D7） |
 
@@ -936,7 +940,7 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 | 二.5 | 多文件事务原子性 | **采纳（v1.1 强化）** | §7.5.1 + 崩溃恢复 §7.5.6 |
 | 二.6 | Diff 输出 rich 高亮 | **采纳** | §10.1 |
 | 三.1 | MVP 换 OpenClaw+Aider | **拒绝（吸收其内核）** | 见 A.1 |
-| 三.2 | TOML->YAML | **拒绝** | 见 A.1 |
+| 三.2 | Core Config 采用 YAML | **采纳** | 见 A.1 / §6 D3 |
 | 三.3 | Scope 刚性约束成铁律 | **采纳** | §5.4 |
 | 三.4 | 明确退出/降级条件 | **采纳** | §4.2 |
 
@@ -1018,7 +1022,7 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 | 术语 | 定义 |
 |---|---|
 | **SSOT** | Single Source of Truth。模型世界的事实描述只有一份，存于 Core Config；Agent 配置只是投影结果 |
-| **Core Config** | `~/.acm/config.toml`：ACM 自有的 providers / models / profiles 三层声明式配置 |
+| **Core Config** | `~/.acm/config.yaml`：ACM 自有的 providers / models / profiles 三层声明式配置 |
 | **Profile** | 命名的模型角色组合（main/cheap 等槽位），是投影的最小单元 |
 | **Resolved Profile** | Profile 经 ENV 引用解析后的具体值集合 |
 | **Desired State** | 激活 Profile（Phase 2 起含 per-agent 绑定）经编译后的字段级期望状态 |

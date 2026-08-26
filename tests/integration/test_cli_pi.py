@@ -14,13 +14,13 @@ runner = CliRunner()
 
 
 def test_pi_cli_lifecycle_with_orphan_archive(
-    tmp_home: Path, make_config: Callable[[str], Path], sample_config_toml: str
+    tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
     """Test Pi adapter CLI lifecycle including new file creation and orphan archival on rollback."""
     clear_adapters()
     register_adapter(pi)
 
-    make_config(sample_config_toml)
+    make_config(sample_config_yaml)
 
     # Setup Pi agent dir with settings.json only (models.json absent)
     pi_dir = tmp_home / ".pi" / "agent"
@@ -67,27 +67,29 @@ def test_pi_pool_use_idempotent_and_drift(
     clear_adapters()
     register_adapter(pi)
 
-    toml = """version = 1
-[providers.vmr]
-protocol = "openai"
-base_url = "http://127.0.0.1:8800/v1"
-api_key = "sk-pool-key"
+    yaml_str = """version: 1
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: sk-pool-key
 
-[models.coding]
-provider = "vmr"
-id = "coding"
+models:
+  coding:
+    provider: vmr
+    id: coding
 
-[models.cheap]
-provider = "vmr"
-id = "cheap"
+  cheap:
+    provider: vmr
+    id: cheap
 
-[profiles.daily]
-main = "coding"
-
-[profiles.daily.pool]
-budget = "cheap"
+profiles:
+  daily:
+    main: coding
+    pool:
+      budget: cheap
 """
-    make_config(toml)
+    make_config(yaml_str)
 
     pi_dir = tmp_home / ".pi" / "agent"
     pi_dir.mkdir(parents=True, exist_ok=True)
@@ -126,20 +128,23 @@ def test_pi_dry_run_and_drift_masking(tmp_home: Path, make_config: Callable[[str
     clear_adapters()
     register_adapter(pi)
 
-    toml = """version = 1
-[providers.secret_p]
-protocol = "openai"
-base_url = "http://127.0.0.1:8800/v1"
-api_key = "sk-super-secret-key-1234567890"
+    yaml_str = """version: 1
+providers:
+  secret_p:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: sk-super-secret-key-1234567890
 
-[models.secret_m]
-provider = "secret_p"
-id = "secret-model"
+models:
+  secret_m:
+    provider: secret_p
+    id: secret-model
 
-[profiles.daily]
-main = "secret_m"
+profiles:
+  daily:
+    main: secret_m
 """
-    make_config(toml)
+    make_config(yaml_str)
 
     pi_dir = tmp_home / ".pi" / "agent"
     pi_dir.mkdir(parents=True, exist_ok=True)
