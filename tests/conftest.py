@@ -4,7 +4,7 @@
 import http.server
 import json
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -13,31 +13,96 @@ import pytest
 from acm.adapters import PlannedOp, ProjectionWarning
 from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 
+VMR_MODELS_PAYLOAD: dict[str, Any] = {
+    "object": "list",
+    "has_more": False,
+    "data": [
+        {
+            "id": "coding",
+            "object": "model",
+            "type": "model",
+            "owned_by": "vmr",
+            "vmr_protocol": "openai",
+        },
+        {
+            "id": "cheap",
+            "object": "model",
+            "type": "model",
+            "owned_by": "vmr",
+            "vmr_protocol": "openai",
+        },
+    ],
+}
 
-class MockVmrHandler(http.server.BaseHTTPRequestHandler):
-    """Mock HTTP handler simulating VMR endpoints."""
 
-    def do_GET(self) -> None:
-        if self.path == "/v1/models":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            payload = {
-                "data": [
-                    {"id": "coding", "vmr_protocol": "openai"},
-                    {"id": "cheap", "vmr_protocol": "openai"},
-                ]
-            }
-            self.wfile.write(json.dumps(payload).encode("utf-8"))
-        elif self.path == "/healthz":
-            self.send_response(200)
-            self.end_headers()
-        else:
-            self.send_response(404)
-            self.end_headers()
+def make_vmr_handler(
+    models_payload: dict[str, Any] | None = None,
+    api_keys: frozenset[str] = frozenset(),
+    received_auth_headers: list[str] | None = None,
+) -> type[http.server.BaseHTTPRequestHandler]:
+    """Build a mock HTTP handler simulating VMR's /v1/models + /health.
 
-    def log_message(self, format: str, *args: Any) -> None:
-        pass  # Quiet during tests
+    Mirrors real VMR auth semantics (server.go authenticate()): empty
+    api_keys = door open, else a matching Authorization: Bearer or
+    x-api-key header is required. /health is always unauthenticated,
+    matching the real /health route (VMR's /healthz successor).
+
+    received_auth_headers, if given, gets the raw Authorization header
+    value (possibly "") appended for every /v1/models request -- lets a
+    test positively assert what credential the probe actually sent, rather
+    than only asserting the credential's absence from the result object.
+    """
+    payload = VMR_MODELS_PAYLOAD if models_payload is None else models_payload
+    keys = api_keys
+    recorder = received_auth_headers
+
+    class MockVmrHandler(http.server.BaseHTTPRequestHandler):
+        def _authenticated(self) -> bool:
+            if not keys:
+                return True
+            auth = self.headers.get("Authorization", "")
+            got = auth[7:] if auth[:7].lower() == "bearer " else ""
+            if not got:
+                got = self.headers.get("x-api-key", "")
+            return got in keys
+
+        def do_GET(self) -> None:
+            if self.path == "/v1/models":
+                if recorder is not None:
+                    recorder.append(self.headers.get("Authorization", ""))
+                if not self._authenticated():
+                    self.send_response(401)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(
+                        json.dumps(
+                            {
+                                "error": {
+                                    "type": "authentication_error",
+                                    "message": "invalid or missing API key",
+                                }
+                            }
+                        ).encode("utf-8")
+                    )
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(payload).encode("utf-8"))
+            elif self.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                body = {"status": "ok", "time": "2026-08-26T00:00:00Z", "uptime_seconds": 1}
+                self.wfile.write(json.dumps(body).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass  # Quiet during tests
+
+    return MockVmrHandler
 
 
 @pytest.fixture(autouse=True)
@@ -59,13 +124,49 @@ def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def fake_vmr_server(monkeypatch: pytest.MonkeyPatch) -> str:
     """Fixture providing a mock live VMR server with standard models (coding, cheap)."""
-    server = http.server.HTTPServer(("127.0.0.1", 0), MockVmrHandler)
+    server = http.server.HTTPServer(("127.0.0.1", 0), make_vmr_handler())
     port = server.server_address[1]
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     url = f"http://127.0.0.1:{port}"
     monkeypatch.setenv("ACM_VMR_PROBE_URL", url)
     return url
+
+
+@pytest.fixture
+def fake_vmr_server_factory(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., str]]:
+    """Factory fixture: start a mock VMR server with custom models/api_keys.
+
+    Unlike fake_vmr_server (fixed no-auth, 2-model shape), this lets a test
+    configure api_keys to exercise the AUTH_REQUIRED probe path. Returns the
+    server's base URL and sets ACM_VMR_PROBE_URL to it. Every server started
+    via this factory is shut down when the test tears down.
+    """
+    servers: list[http.server.HTTPServer] = []
+
+    def _start(
+        models_payload: dict[str, Any] | None = None,
+        api_keys: frozenset[str] = frozenset(),
+        received_auth_headers: list[str] | None = None,
+    ) -> str:
+        handler = make_vmr_handler(
+            models_payload=models_payload,
+            api_keys=api_keys,
+            received_auth_headers=received_auth_headers,
+        )
+        server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+        servers.append(server)
+        port = server.server_address[1]
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        url = f"http://127.0.0.1:{port}"
+        monkeypatch.setenv("ACM_VMR_PROBE_URL", url)
+        return url
+
+    yield _start
+
+    for server in servers:
+        server.shutdown()
 
 
 @pytest.fixture

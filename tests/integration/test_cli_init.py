@@ -1,8 +1,10 @@
 # // Ver 2026-08-24 22:05, by gemini-3.7-flash
 """Integration tests for acm init command (WP5b)."""
 
+from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from acm.cli import cli_app
@@ -49,3 +51,40 @@ def test_init_writes_config_yaml_with_0600(tmp_home: Path) -> None:
     assert result.exit_code == 0
     config_path = tmp_home / ".acm" / "config.yaml"
     assert (config_path.stat().st_mode & 0o777) == 0o600
+
+
+def test_init_auth_required_warns_and_falls_back_to_template(
+    tmp_home: Path, fake_vmr_server_factory: Callable[..., str]
+) -> None:
+    """A VMR gated by api_keys must warn explicitly (never claim 'not running'),
+    still complete with a direct-connect template, exit 0, and never leak the key."""
+    fake_vmr_server_factory(api_keys=frozenset({"sk-real"}))
+    result = runner.invoke(cli_app, ["init", "--force"])
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0
+    assert "requires authentication" in combined
+    assert "not running" not in combined
+    assert "sk-real" not in combined
+
+    config_path = tmp_home / ".acm" / "config.yaml"
+    cfg = load_config(config_path)
+    assert "vmr" not in cfg.providers
+
+
+def test_init_ok_path_with_valid_vmr_key(
+    tmp_home: Path,
+    fake_vmr_server_factory: Callable[..., str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gated VMR with the correct VMR_KEY still produces a VMR proposal."""
+    fake_vmr_server_factory(api_keys=frozenset({"sk-real"}))
+    monkeypatch.setenv("VMR_KEY", "sk-real")
+    result = runner.invoke(cli_app, ["init", "--force"])
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0
+    assert "VMR detected" in result.stdout
+    assert "sk-real" not in combined
+
+    config_path = tmp_home / ".acm" / "config.yaml"
+    cfg = load_config(config_path)
+    assert "vmr" in cfg.providers

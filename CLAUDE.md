@@ -48,7 +48,7 @@ src/acm/
 ├── state.py      # ~/.acm/state: active, last_write.json, append-only snapshots
 ├── lock.py       # global non-blocking flock (~/.acm/state/.lock)
 ├── masking.py    # secret masking for all output
-├── vmr.py        # VMR probe (/v1/models → /healthz → ~/.vmr) + proposal gen
+├── vmr.py        # VMR probe (/v1/models w/ optional bearer cred → /health) + proposal gen
 ├── util.py errors.py output.py
 ├── adapters/     # __init__: Protocol + registry; claude_code.py codex.py pi.py (pure plan())
 └── writers/      # order-preserving JSON/TOML editors + AST tree-diff assertion

@@ -707,9 +707,12 @@ Manifest 内存视图的用途：
 **定位：VMR 是第一方集成，不是架构依赖。ACM 因 VMR 而诞生，但脱离 VMR 仍然是完整产品。**
 
 ```
-$ acm init                  # 扫描本机 Agent + 探测 VMR（127.0.0.1:8800：healthz 快速通道 →
-                            #   /v1/models 主证据+数据源 → ~/.vmr/ 配置 → 未命中；
-                            #   实测 healthz 404 而 /v1/models 200）
+$ acm init                  # 扫描本机 Agent + 探测 VMR（/v1/models 主证据+数据源，
+                            #   携凭据（若有）→ 401/403 立即上报 auth_required，
+                            #   绝不静默降级 → 其余失败转 /health 无鉴权 liveness
+                            #   区分"存活但 models 不可达" vs "未检出"；
+                            #   /healthz 已于 2026-08-26 从 VMR 路由表永久移除，
+                            #   /health 是其替代者）
                             #   -> 探测命中则将 providers.vmr + models.* 直接并入提案，
                             #   确认后才写入（绝不静默修改用户 SSOT）
 $ acm use daily             # 设为激活 profile 并投影到本机所有已检测到的 Agent

@@ -30,7 +30,7 @@ from acm.state import (
 )
 from acm.status import AgentState, compute_agent_status, is_noop
 from acm.util import get_acm_home, get_config_path
-from acm.vmr import generate_template_config, generate_vmr_proposal, probe_vmr
+from acm.vmr import VmrProbeOutcome, generate_template_config, generate_vmr_proposal, probe_vmr
 from acm.writers.json_editor import NOT_FOUND
 
 cli_app = typer.Typer(
@@ -81,6 +81,14 @@ def init_cmd(
             f"[green]✓ VMR detected at {probe.base_url} with {len(probe.models)} model(s).[/green]"
         )
         proposal_content = generate_vmr_proposal(probe)
+    elif probe and probe.outcome == VmrProbeOutcome.AUTH_REQUIRED:
+        stderr_c.print(
+            f"[yellow]VMR detected at {probe.base_url} but requires authentication "
+            "(/v1/models returned 401/403) -- models could not be enumerated. "
+            "Set VMR_KEY and re-run to include it in the proposal. "
+            "Generating standard multi-provider template instead.[/yellow]"
+        )
+        proposal_content = generate_template_config()
     else:
         stdout_c.print("[dim]VMR not running. Generating standard multi-provider template.[/dim]")
         proposal_content = generate_template_config()

@@ -837,15 +837,20 @@ VMR (Virtual Model Router) is a companion local router that exposes many upstrea
 
 ### 8.2 Probe sequence (`acm init`)
 
-1. `GET $ACM_VMR_PROBE_URL/v1/models` (default host `http://127.0.0.1:8800`) — primary source; discovered model IDs (and optional `vmr_protocol` hints) become entries under `models:`.
-2. `GET $ACM_VMR_PROBE_URL/healthz` — fallback liveness check (proposal generated with placeholder model).
-3. `~/.vmr/config.toml` existence — offline fallback.
+1. `GET $ACM_VMR_PROBE_URL/v1/models` (default host `http://127.0.0.1:8800`) — primary source and evidence; discovered model IDs (and optional `vmr_protocol` hints) become entries under `models:`. Sent with a bearer credential when one is available (see Authentication below). A `401`/`403` response is itself proof VMR is running and gated — reported immediately, never silently swallowed.
+2. `GET $ACM_VMR_PROBE_URL/health` (unauthenticated liveness — VMR's `/healthz` successor; `/healthz` was permanently removed from VMR's routing table) — only consulted when step 1 failed for a reason *other than* 401/403. A `200` there means VMR is up but `/v1/models` itself is unreachable; the proposal is generated with a placeholder model in that case.
 
-Probes are fault-tolerant and time out quickly; a machine without VMR proceeds straight to the direct-connect template.
+Probes are fault-tolerant and time out quickly; a machine without VMR (both steps fail) proceeds straight to the direct-connect template.
+
+#### Authentication
+
+If VMR is configured with `api_keys:`, `/v1/models` requires a credential. Set `VMR_KEY` — the same variable the generated proposal's `providers.vmr.api_key` references (`${VMR_KEY:-}`), so one variable covers both probing and later `acm use` projection.
+
+Without a valid credential, `acm init` prints an explicit stderr warning ("VMR detected ... but requires authentication") — never the misleading "VMR not running" — and falls back to the direct-connect template so the command still completes (`exit 0`). The credential is only ever sent in the request header; it never appears in any ACM output.
 
 ### 8.3 Generated proposal
 
-When VMR is detected, `acm init` produces: a `providers.vmr` entry pointing at `<host>/v1`, one entry under `models:` per discovered model (keyed by the model's own id, verbatim — no name sanitization), and a `profiles.daily` profile whose `main` is a model named `coding` if present, else the first discovered model.
+When VMR is detected, `acm init` produces: a `providers.vmr` entry pointing at `<host>/v1`, one entry under `models:` per discovered model (keyed by the model's own id, verbatim — no name sanitization), and a `profiles.daily` profile whose `main` is a model named `coding` if present, else the first discovered model. The `base_url` is built by appending `/v1` to the host ACM used to probe VMR — semantically equivalent to what VMR's own `/status.instance.base_urls` would echo back for that same host, just derived independently rather than round-tripped through that endpoint.
 
 ### 8.4 Keeping up with VMR changes
 

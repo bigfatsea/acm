@@ -837,15 +837,20 @@ VMR（Virtual Model Router）是配套的本地路由器，通过一个 OpenAI �
 
 ### 8.2 探测序列（`acm init`）
 
-1. `GET $ACM_VMR_PROBE_URL/v1/models`（默认主机 `http://127.0.0.1:8800`）——主数据源；发现的模型 ID（及可选 `vmr_protocol` 提示）变成 `models:` 下的条目。
-2. `GET $ACM_VMR_PROBE_URL/healthz` —— 兜底存活检查（生成占位模型的提案）。
-3. `~/.vmr/config.toml` 存在性 —— 离线兜底。
+1. `GET $ACM_VMR_PROBE_URL/v1/models`（默认主机 `http://127.0.0.1:8800`）——主证据+数据源；发现的模型 ID（及可选 `vmr_protocol` 提示）变成 `models:` 下的条目。若有凭据可用（见下方"鉴权"）会随请求携带。返回 `401`/`403` 本身就是"VMR 在线但要求鉴权"的证据，会被立即显式上报，绝不静默吞掉。
+2. `GET $ACM_VMR_PROBE_URL/health`（无鉴权存活检查——VMR `/healthz` 的替代者；`/healthz` 已从 VMR 路由表永久移除）——仅在步骤 1 因 401/403 *以外* 的原因失败时才会执行。返回 `200` 说明 VMR 存活但 `/v1/models` 本身不可达，此时会生成带占位模型的提案。
 
-探测容错且快速超时；没有 VMR 的机器直接进入直连模板流程。
+探测容错且快速超时；没有 VMR 的机器（两步都失败）直接进入直连模板流程。
+
+#### 鉴权
+
+若 VMR 配置了 `api_keys:`，`/v1/models` 需要凭据。设置 `VMR_KEY` 即可——生成提案的 `providers.vmr.api_key` 引用的正是 `${VMR_KEY:-}`，同一个变量同时覆盖探测和后续 `acm use` 投影。
+
+没有有效凭据时，`acm init` 会在 stderr 打印明确警告("VMR detected ... but requires authentication")——而不是误导性的"VMR not running"——并降级为直连模板以确保命令仍然完整跑完（`exit 0`）。凭据只会进入请求头，绝不出现在 ACM 的任何输出中。
 
 ### 8.3 生成的提案
 
-探测到 VMR 后，`acm init` 产出：一个指向 `<host>/v1` 的 `providers.vmr` 条目、每个发现模型在 `models:` 下一个条目（键名即模型自身 id，原样保留，不做任何净化改名），以及一个 `profiles.daily` profile——其 `main` 优先取名为 `coding` 的模型，否则取第一个发现的模型。
+探测到 VMR 后，`acm init` 产出：一个指向 `<host>/v1` 的 `providers.vmr` 条目、每个发现模型在 `models:` 下一个条目（键名即模型自身 id，原样保留，不做任何净化改名），以及一个 `profiles.daily` profile——其 `main` 优先取名为 `coding` 的模型，否则取第一个发现的模型。`base_url` 由 ACM 探测时使用的主机拼接 `/v1` 得到——与 VMR 自身 `/status.instance.base_urls` 对同一主机的回显语义等价，只是独立推导而非经该端点回传。
 
 ### 8.4 跟上 VMR 的变化
 
