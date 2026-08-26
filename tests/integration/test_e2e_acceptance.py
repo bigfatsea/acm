@@ -198,21 +198,20 @@ def test_acceptance_6_protection_unresolved_env_and_whitelist(
     config_path = tmp_home / ".acm" / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
-        """version: 1
+        """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: "${UNDEFINED_REQUIRED_ENV_VAR}"
-
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 
 profiles:
   daily:
-    main: m
+    default: main
+    models:
+      main: m
 """,
         encoding="utf-8",
     )

@@ -12,7 +12,7 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 
 **Three axioms:**
 
-1. **SSOT** — `~/.acm/config.yaml` (providers L1 → models L2 → profiles L3) is the only description of the model world; agents are projection targets.
+1. **SSOT** — `~/.acm/config.yaml` (providers L1, with embedded models L2 → profiles L3) is the only description of the model world; agents are projection targets.
 2. **Non-destructive** — ACM owns managed *fields*, never whole files. Unmanaged content (MCP servers, plugins, skills, prompts, hooks, permissions, session state) must be preserved losslessly (AST-level).
 3. **Precise reversibility** — rollback granularity is "inverse of ACM-managed fields"; physical snapshots are the disaster-recovery backstop.
 
@@ -26,12 +26,12 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 - Adapters are plain Python modules compiled in-source with golden-fixture gates. No DSL, no dynamic code loading/reflection.
 - Unknown/breaking upstream agent schema → set ERROR state and block; never blind-write.
 
-## Implementation Status (MVP v0.1.x)
+## Implementation Status (MVP v0.3.x, config schema v2)
 
 - Implemented commands: `init`, `status`, `use`, `rollback` (+ global `--dry-run --force --verbose --show-secrets --no-color`).
 - `apply / diff / doctor / history / release / import vmr` are **not implemented** — they are trigger-based upgrades (Spec v2.1 §12). Do not implement them without checking the trigger table and getting explicit direction.
 - Built-in adapters: `claude_code`, `codex`, `pi` only. A new adapter = new module + golden fixtures, merged in-source.
-- The model pool (optional `pool:` map under a profile; label → model alias) is **implemented**, per Spec v2.1 §7.3.3. A profile with a non-empty `pool` may omit `main` entirely (registration-only profile): default-model fields on the target agent stay untouched and user-owned. Pi registers the whole pool into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`); Claude Code/Codex have no pool channel — with a `main`, they only project `main` (aggregate `pool` projection-loss warning for skipped members); without one, they project nothing and warn explicitly. `acm init` does not yet auto-generate a pool proposal (not implemented).
+- Profile member registration + opt-in default is **implemented**, per Spec v2.1 §7.3.3. A profile is a flat member set (`models: {label: ref}`, ≥ 1 entry) with an optional `default: <label>` — the only thing that drives ACM to write an agent's default-model field. No `default` is a normal, non-degraded declaration (registration-only) for every agent — but only Pi treats it as silent: Pi registers every member unconditionally into `models.json` (label → `name`, a secondary-detail field — Pi's `/model` picker itself displays by upstream `id`, not `name`) and touches nothing else, with zero warnings. Claude Code/Codex have no registry channel — with a `default`, they only project that member (aggregate `models.unreachable` projection-loss warning for skipped members); without one, they project nothing and emit one explicit warning that there's nothing to project. `acm init`'s generated VMR proposal auto-sets `default` to the primary detected model so a fresh install works out of the box.
 
 ## Architecture
 
@@ -62,8 +62,8 @@ src/acm/
 
 ## Config Schema Essentials
 
-- `version: 1` required; ≥ 1 entry under `profiles:`; cross-references enforced (profile→model→provider); unknown keys rejected.
-- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); profiles: `main` and/or non-empty `pool` (at least one required — a pool-only profile is registration-only), optional `cheap`, extra keys = custom roles.
+- `version: 2` required; ≥ 1 entry under `providers:` (each embedding its own `models:`) and `profiles:`; cross-references enforced via R3 reference resolution (bare id, globally unique, or `<provider>.<id>`); unknown keys rejected (v1's top-level `models:` and profile `main:`/`cheap:`/`pool:` are gone).
+- `protocol` ∈ `openai | anthropic | openai-responses`; `base_url` must be http(s); a profile is `models: {label: ref}` (≥ 1 entry, required) + optional `default: <label>` (the only opt-in for writing an agent's default-model field — no `default` is a normal, non-warning registration-only state).
 - Projection mapping per agent (which fields land where, dialect conversion, what warns) → USER_GUIDE §7 / adapters' `plan()`.
 
 ## States & Exit Codes

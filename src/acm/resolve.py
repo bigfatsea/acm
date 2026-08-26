@@ -1,5 +1,5 @@
-# // Ver 2026-08-24 22:05, by gemini-3.7-flash
-"""Environment reference resolution and ResolvedProfile computation."""
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
+"""Environment reference resolution and ResolvedProfile computation (schema v2)."""
 
 import re
 from collections.abc import Mapping
@@ -75,12 +75,15 @@ class ResolvedProvider(BaseModel):
 
 
 class ResolvedModel(BaseModel):
-    """Fully resolved Model specification."""
+    """Fully resolved Model specification.
+
+    `model_id` is the upstream model id verbatim (the provider's `models.<id>` key) —
+    v1's alias layer (a separate `model_id`/`upstream_id` pair) no longer exists in v2.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     model_id: str
-    upstream_id: str
     provider: ResolvedProvider
     context_window: int | None = None
     max_output_tokens: int | None = None
@@ -95,10 +98,15 @@ class ResolvedProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile_name: str
-    main: ResolvedModel | None = None
-    cheap: ResolvedModel | None = None
-    extra_roles: dict[str, ResolvedModel] = Field(default_factory=dict)
-    pool: dict[str, ResolvedModel] = Field(default_factory=dict)
+    models: dict[str, ResolvedModel]
+    default_label: str | None = None
+
+    @property
+    def default_model(self) -> ResolvedModel | None:
+        """The opted-in default member, or None if the profile declares no `default`."""
+        if self.default_label is None:
+            return None
+        return self.models[self.default_label]
 
 
 def resolve_profile(
@@ -121,42 +129,31 @@ def resolve_profile(
     env_map = get_env_map(env)
     missing_vars: set[str] = set()
 
-    # Collect models and providers reachable from this specific profile
-    reachable_model_keys: set[str] = set()
-    if profile_cfg.main is not None:
-        reachable_model_keys.add(profile_cfg.main)
-    if profile_cfg.cheap:
-        reachable_model_keys.add(profile_cfg.cheap)
-    if profile_cfg.__pydantic_extra__:
-        for role_val in profile_cfg.__pydantic_extra__.values():
-            if isinstance(role_val, str) and role_val in core_config.models:
-                reachable_model_keys.add(role_val)
-    if profile_cfg.pool:
-        reachable_model_keys.update(
-            alias for alias in profile_cfg.pool.values() if alias in core_config.models
-        )
-
-    reachable_provider_keys = {
-        core_config.models[m].provider for m in reachable_model_keys if m in core_config.models
+    # Resolve every member's (provider, model_key) reference. Config-level validation
+    # (V3) already guarantees these succeed for any CoreConfig built via parse_config_yaml;
+    # this is defense-in-depth against a hand-constructed CoreConfig.
+    member_refs: dict[str, tuple[str, str]] = {
+        label: core_config._resolve_ref(profile_name, label, ref)
+        for label, ref in profile_cfg.models.items()
     }
 
-    # Resolve only reachable providers
+    reachable_provider_keys = {prov_name for prov_name, _ in member_refs.values()}
+
     resolved_providers: dict[str, ResolvedProvider] = {}
     for prov_name in reachable_provider_keys:
-        if prov_name in core_config.providers:
-            prov_cfg = core_config.providers[prov_name]
-            val, missing = evaluate_credential(prov_cfg.api_key, env_map)
-            if missing:
-                missing_vars.add(missing)
-            resolved_providers[prov_name] = ResolvedProvider(
-                name=prov_name,
-                protocol=prov_cfg.protocol,
-                base_url=prov_cfg.base_url,
-                api_key=val,
-                raw_api_key_ref=prov_cfg.api_key,
-                headers=prov_cfg.headers,
-                proxy=prov_cfg.proxy,
-            )
+        prov_cfg = core_config.providers[prov_name]
+        val, missing = evaluate_credential(prov_cfg.api_key, env_map)
+        if missing:
+            missing_vars.add(missing)
+        resolved_providers[prov_name] = ResolvedProvider(
+            name=prov_name,
+            protocol=prov_cfg.protocol,
+            base_url=prov_cfg.base_url,
+            api_key=val,
+            raw_api_key_ref=prov_cfg.api_key,
+            headers=prov_cfg.headers,
+            proxy=prov_cfg.proxy,
+        )
 
     if missing_vars:
         missing_list = ", ".join(f"${{{v}}}" for v in sorted(missing_vars))
@@ -165,13 +162,12 @@ def resolve_profile(
             "Please export them in your shell or define fallback defaults like '${VAR:-default}'."
         )
 
-    def _resolve_model(model_key: str) -> ResolvedModel:
-        model_cfg = core_config.models[model_key]
-        provider = resolved_providers[model_cfg.provider]
+    def _resolve_model(label: str) -> ResolvedModel:
+        prov_name, model_key = member_refs[label]
+        model_cfg = core_config.providers[prov_name].models[model_key]
         return ResolvedModel(
             model_id=model_key,
-            upstream_id=model_cfg.id,
-            provider=provider,
+            provider=resolved_providers[prov_name],
             context_window=model_cfg.context_window,
             max_output_tokens=model_cfg.max_output_tokens,
             temperature=model_cfg.temperature,
@@ -179,51 +175,19 @@ def resolve_profile(
             reasoning=model_cfg.reasoning,
         )
 
-    main_model = _resolve_model(profile_cfg.main) if profile_cfg.main is not None else None
-    cheap_model = _resolve_model(profile_cfg.cheap) if profile_cfg.cheap else None
-
-    extra_roles: dict[str, ResolvedModel] = {}
-    if profile_cfg.__pydantic_extra__:
-        for role_name, model_key in profile_cfg.__pydantic_extra__.items():
-            if isinstance(model_key, str) and model_key in core_config.models:
-                extra_roles[role_name] = _resolve_model(model_key)
-
-    # Model pool: label -> ResolvedModel, in declared order; when the profile has a
-    # main model it is implicitly ensured a member (prepended under label "main" if
-    # not already referenced). A registration-only profile (no main) skips
-    # that implicit insertion.
-    pool: dict[str, ResolvedModel] = {}
-    if profile_cfg.pool:
-        declared_pool = {label: _resolve_model(alias) for label, alias in profile_cfg.pool.items()}
-        if (
-            profile_cfg.main is not None
-            and not any(m.model_id == profile_cfg.main for m in declared_pool.values())
-        ):
-            assert main_model is not None  # guaranteed by profile_cfg.main check above
-            pool = {"main": main_model, **declared_pool}
-        else:
-            pool = declared_pool
-
-        # config.py's cross-reference check only sees explicitly declared pool
-        # entries; the implicitly-inserted main member (R2, above) can still
-        # collide on upstream id with a distinct explicit alias, so re-check
-        # the fully assembled pool here (defense-in-depth, not redundant).
-        seen_upstream: dict[tuple[str, str], str] = {}
-        for label, m in pool.items():
-            key = (m.provider.name, m.upstream_id)
-            if key in seen_upstream:
-                raise ConfigError(
-                    f"Profile '{profile_name}' pool labels '{seen_upstream[key]}' and '{label}' "
-                    f"both resolve to upstream model id '{m.upstream_id}' on provider "
-                    f"'{m.provider.name}'; each pool member must resolve to a distinct upstream "
-                    "model to avoid ambiguous entries in agent model selectors."
-                )
-            seen_upstream[key] = label
+    # Declared order preserved (profile_cfg.models is an ordered dict from YAML).
+    # No V5 re-check here: unlike v1 (whose implicit main-into-pool insertion could
+    # create a collision invisible to config-time validation), v2 has no member
+    # insertion mechanism at all — every member is explicit in `models:`, resolved
+    # here via the *same* _resolve_ref() config.py's validator already ran. Any
+    # CoreConfig that passed parse_config_yaml is therefore guaranteed collision-free
+    # already; a second check here would just be dead code re-deriving the same result.
+    models: dict[str, ResolvedModel] = {
+        label: _resolve_model(label) for label in profile_cfg.models
+    }
 
     return ResolvedProfile(
         profile_name=profile_name,
-        main=main_model,
-        cheap=cheap_model,
-        extra_roles=extra_roles,
-        pool=pool,
+        models=models,
+        default_label=profile_cfg.default,
     )

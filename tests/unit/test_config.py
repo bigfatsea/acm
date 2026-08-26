@@ -1,5 +1,5 @@
-# // Ver 2026-08-24 22:05, by gemini-3.7-flash
-"""Unit tests for Core Config parsing and schema validation (WP1)."""
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
+"""Unit tests for Core Config parsing and schema validation (schema v2)."""
 
 from pathlib import Path
 
@@ -12,53 +12,51 @@ from acm.errors import ConfigError
 def test_valid_config_parsing(sample_config_yaml: str) -> None:
     """Test parsing a valid complete config.yaml."""
     cfg = parse_config_yaml(sample_config_yaml)
-    assert cfg.version == 1
+    assert cfg.version == 2
     assert "vmr" in cfg.providers
     assert cfg.providers["vmr"].protocol == "openai"
     assert cfg.providers["vmr"].base_url == "http://127.0.0.1:8800/v1"
-    assert "coding" in cfg.models
-    assert cfg.models["coding"].provider == "vmr"
-    assert cfg.models["coding"].context_window == 131072
-    assert cfg.models["coding"].reasoning is not None
-    assert cfg.models["coding"].reasoning.effort == "high"
+    assert "coding" in cfg.providers["vmr"].models
+    assert cfg.providers["vmr"].models["coding"].context_window == 131072
+    assert cfg.providers["vmr"].models["coding"].reasoning is not None
+    assert cfg.providers["vmr"].models["coding"].reasoning.effort == "high"
     assert "daily" in cfg.profiles
-    assert cfg.profiles["daily"].main == "coding"
+    assert cfg.profiles["daily"].default == "coder"
+    assert cfg.profiles["daily"].models == {"coder": "coding"}
 
 
 def test_invalid_version() -> None:
-    """Test config with invalid schema version."""
-    yaml_str = """version: 2
+    """Test config with a v1-shaped (now unsupported) schema version."""
+    yaml_str = """version: 1
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
   d:
-    main: m
+    models:
+      m: m
 """
-    with pytest.raises(ConfigError, match="Unsupported config schema version: 2"):
+    with pytest.raises(ConfigError, match="Unsupported config schema version: 1"):
         parse_config_yaml(yaml_str)
 
 
 def test_missing_protocol() -> None:
     """Test provider missing protocol."""
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   p:
     base_url: http://localhost
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
   d:
-    main: m
+    models:
+      m: m
 """
     with pytest.raises(ConfigError):
         parse_config_yaml(yaml_str)
@@ -66,19 +64,18 @@ profiles:
 
 def test_invalid_protocol() -> None:
     """Test provider with unsupported protocol dialect."""
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   p:
     protocol: unsupported-protocol
     base_url: http://localhost
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
   d:
-    main: m
+    models:
+      m: m
 """
     with pytest.raises(ConfigError):
         parse_config_yaml(yaml_str)
@@ -86,97 +83,33 @@ profiles:
 
 def test_invalid_base_url() -> None:
     """Test provider with invalid base_url (no http/https)."""
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
     base_url: ftp://invalid-url
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
   d:
-    main: m
+    models:
+      m: m
 """
     with pytest.raises(ConfigError, match="base_url must start with http:// or https://"):
         parse_config_yaml(yaml_str)
 
 
-def test_model_missing_provider() -> None:
-    """Test model referencing non-existent provider."""
-    yaml_str = """version: 1
-providers:
-  p1:
-    protocol: openai
-    base_url: http://localhost
-    api_key: k
-models:
-  m:
-    provider: non_existent_provider
-    id: m
-profiles:
-  d:
-    main: m
-"""
-    with pytest.raises(ConfigError, match="references non-existent provider"):
-        parse_config_yaml(yaml_str)
-
-
-def test_profile_missing_main_model() -> None:
-    """Test profile referencing non-existent main model."""
-    yaml_str = """version: 1
-providers:
-  p:
-    protocol: openai
-    base_url: http://localhost
-    api_key: k
-models:
-  m:
-    provider: p
-    id: m
-profiles:
-  d:
-    main: non_existent_model
-"""
-    with pytest.raises(ConfigError, match="main model 'non_existent_model' is not defined"):
-        parse_config_yaml(yaml_str)
-
-
-def test_profile_missing_cheap_model() -> None:
-    """Test profile referencing non-existent cheap model."""
-    yaml_str = """version: 1
-providers:
-  p:
-    protocol: openai
-    base_url: http://localhost
-    api_key: k
-models:
-  m:
-    provider: p
-    id: m
-profiles:
-  d:
-    main: m
-    cheap: unknown_cheap
-"""
-    with pytest.raises(ConfigError, match="cheap model 'unknown_cheap' is not defined"):
-        parse_config_yaml(yaml_str)
-
-
 def test_empty_profiles() -> None:
     """Test config without any profiles."""
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 """
     with pytest.raises(ConfigError, match="must define at least one profile"):
         parse_config_yaml(yaml_str)
@@ -194,255 +127,418 @@ def test_load_config_file_success(tmp_path: Path, sample_config_yaml: str) -> No
     p.write_text(sample_config_yaml, encoding="utf-8")
     cfg = load_config(p)
     assert isinstance(cfg, CoreConfig)
-    assert cfg.version == 1
+    assert cfg.version == 2
 
 
-# ── Model pool ──────────────────────────────────────────────────────────
+# ── V1: provider name / model id charset ─────────────────────────────────────
 
 
-def _pool_base_yaml(daily_body: str) -> str:
-    return f"""version: 1
+def test_v1_provider_name_with_dot_rejected() -> None:
+    """Provider names must not contain '.' — it is the qualified-reference separator."""
+    yaml_str = """version: 2
+providers:
+  vmr.prod:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {}
+profiles:
+  d:
+    models:
+      x: m
+"""
+    with pytest.raises(ConfigError, match="must not contain '.'"):
+        parse_config_yaml(yaml_str)
+
+
+def test_v1_empty_provider_models_allowed() -> None:
+    """A provider with zero models is legal (just unreachable via any reference)."""
+    yaml_str = """version: 2
+providers:
+  empty:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {}
+profiles:
+  d:
+    models:
+      x: m
+"""
+    cfg = parse_config_yaml(yaml_str)
+    assert cfg.providers["empty"].models == {}
+
+
+# ── V2: profile 'models' must be non-empty ───────────────────────────────────
+
+
+def test_v2_profile_without_models_rejected() -> None:
+    """A profile declaring no members at all is rejected."""
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {}
+profiles:
+  d: {}
+"""
+    with pytest.raises(ConfigError, match="must define at least one entry under 'models'"):
+        parse_config_yaml(yaml_str)
+
+
+def test_v2_profile_with_empty_models_map_rejected() -> None:
+    """An explicit but empty 'models: {}' is also rejected."""
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {}
+profiles:
+  d:
+    models: {}
+"""
+    with pytest.raises(ConfigError, match="must define at least one entry under 'models'"):
+        parse_config_yaml(yaml_str)
+
+
+# ── V3: R3 reference resolution ───────────────────────────────────────────────
+
+
+def _two_provider_yaml(daily_models_block: str) -> str:
+    return f"""version: 2
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: k
+    models:
+      coding: {{}}
+      cheap: {{}}
 
-models:
-  coding:
-    provider: vmr
-    id: coding
-
-  cheap:
-    provider: vmr
-    id: cheap
-
-  agent:
-    provider: vmr
-    id: agent
+  anthropic-direct:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: k2
+    models:
+      claude-sonnet: {{}}
 
 profiles:
   daily:
-{daily_body}
+{daily_models_block}
 """
 
 
-def test_pool_valid_parses() -> None:
-    """A well-formed pool map parses and is exposed on ProfileConfig."""
+def test_v3_qualified_ref_ok() -> None:
+    """A qualified <provider>.<id> reference resolves."""
     cfg = parse_config_yaml(
-        _pool_base_yaml(
-            """    main: coding
-    pool:
-      budget: cheap
-      longctx: agent
-"""
-        )
+        _two_provider_yaml("    models:\n      reviewer: anthropic-direct.claude-sonnet\n")
     )
-    assert cfg.profiles["daily"].pool == {"budget": "cheap", "longctx": "agent"}
+    assert cfg.profiles["daily"].models == {"reviewer": "anthropic-direct.claude-sonnet"}
 
 
-def test_pool_empty_map_is_valid() -> None:
-    """R7: pool = {} is valid and treated as if unset."""
-    cfg = parse_config_yaml(_pool_base_yaml("    main: coding\n    pool: {}\n"))
-    assert cfg.profiles["daily"].pool == {}
-
-
-def test_pool_and_cheap_coexist() -> None:
-    """D4: pool and cheap role are independent and may both be declared."""
-    cfg = parse_config_yaml(
-        _pool_base_yaml(
-            """    main: coding
-    cheap: cheap
-    pool:
-      budget: cheap
-"""
-        )
-    )
-    assert cfg.profiles["daily"].cheap == "cheap"
-    assert cfg.profiles["daily"].pool == {"budget": "cheap"}
-
-
-def test_pool_e1_unknown_model_alias() -> None:
-    """E1: pool value referencing a non-existent model alias is rejected."""
-    with pytest.raises(ConfigError, match="references non-existent model 'nonexistent'"):
+def test_v3_qualified_ref_unknown_provider() -> None:
+    """A qualified reference to a non-existent provider is rejected."""
+    with pytest.raises(ConfigError, match="provider 'ghost'.*is not defined"):
         parse_config_yaml(
-            _pool_base_yaml(
-                """    main: coding
-    pool:
-      budget: nonexistent
-"""
-            )
+            _two_provider_yaml("    models:\n      reviewer: ghost.claude-sonnet\n")
         )
 
 
-def test_pool_e2_duplicate_alias() -> None:
-    """E2: two labels pointing at the same model alias is rejected."""
-    with pytest.raises(ConfigError, match="Duplicate model alias 'cheap' in pool"):
-        parse_config_yaml(
-            _pool_base_yaml(
-                """    main: coding
-    pool:
-      budget: cheap
-      thrifty: cheap
-"""
-            )
-        )
+def test_v3_qualified_ref_unknown_model() -> None:
+    """A qualified reference to a non-existent model id under a real provider is rejected."""
+    with pytest.raises(ConfigError, match="model id 'ghost' is not defined under provider 'vmr'"):
+        parse_config_yaml(_two_provider_yaml("    models:\n      x: vmr.ghost\n"))
 
 
-def test_pool_e3_empty_label() -> None:
-    """E3: an empty-string label is rejected."""
-    with pytest.raises(ConfigError, match="Pool label must be non-empty"):
-        parse_config_yaml(
-            _pool_base_yaml(
-                """    main: coding
-    pool:
-      "": cheap
-"""
-            )
-        )
+def test_v3_bare_ref_unique_ok() -> None:
+    """A bare id that is globally unique resolves without qualification."""
+    cfg = parse_config_yaml(_two_provider_yaml("    models:\n      coder: coding\n"))
+    assert cfg.profiles["daily"].models == {"coder": "coding"}
 
 
-def test_pool_e4_non_string_value_rejected() -> None:
-    """E4: a nested mapping as a pool value is rejected by the dict[str, str] type."""
-    with pytest.raises(ConfigError):
-        parse_config_yaml(
-            _pool_base_yaml(
-                """    main: coding
-    pool:
-      budget:
-        nested: not-a-string
-"""
-            )
-        )
+def test_v3_bare_ref_unknown() -> None:
+    """A bare id matching nothing anywhere is rejected."""
+    with pytest.raises(ConfigError, match="unknown model id 'ghost'"):
+        parse_config_yaml(_two_provider_yaml("    models:\n      x: ghost\n"))
 
 
-def test_pool_e5_duplicate_upstream_id_rejected() -> None:
-    """Two distinct aliases resolving to the same (provider, id) pair are rejected —
-    same-alias dedup alone doesn't catch this, and it would produce ambiguous
-    duplicate-id entries in Pi's models[] array."""
-    yaml_str = """version: 1
+def test_v3_bare_ref_ambiguous() -> None:
+    """A bare id defined under two providers is rejected with all candidates listed."""
+    yaml_str = """version: 2
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: k
+    models:
+      sonnet: {}
 
-models:
-  coding:
-    provider: vmr
-    id: coding
-
-  cheap:
-    provider: vmr
-    id: cheap
-
-  agent:
-    provider: vmr
-    id: agent
-
-  cheap-alias:
-    provider: vmr
-    id: cheap
+  anthropic-direct:
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: k2
+    models:
+      sonnet: {}
 
 profiles:
   daily:
-    main: coding
-    pool:
-      budget: cheap
-      thrifty: cheap-alias
+    models:
+      coder: sonnet
 """
     with pytest.raises(
-        ConfigError, match="both resolve to upstream model id 'cheap' on provider 'vmr'"
+        ConfigError,
+        match=r"model id 'sonnet' is ambiguous.*\['anthropic-direct', 'vmr'\].*"
+        r"qualified reference like 'anthropic-direct.sonnet'",
     ):
         parse_config_yaml(yaml_str)
 
 
-def test_pool_distinct_upstream_ids_across_providers_allowed() -> None:
-    """Same upstream id string on *different* providers is not ambiguous — allowed."""
-    yaml_str = """version: 1
+def test_v3_ref_with_dot_in_id_qualified() -> None:
+    """A qualified ref whose id itself contains dots splits only on the first dot."""
+    yaml_str = """version: 2
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: k
+    models:
+      "gpt-4o.2": {}
+profiles:
+  daily:
+    models:
+      x: vmr.gpt-4o.2
+"""
+    cfg = parse_config_yaml(yaml_str)
+    assert cfg.profiles["daily"].models == {"x": "vmr.gpt-4o.2"}
+
+
+# ── V4: default must name an existing member label ───────────────────────────
+
+
+def test_v4_default_matches_member_ok() -> None:
+    cfg = parse_config_yaml(_two_provider_yaml("    default: coder\n    models:\n      coder: coding\n"))
+    assert cfg.profiles["daily"].default == "coder"
+
+
+def test_v4_default_unknown_label_rejected() -> None:
+    with pytest.raises(ConfigError, match="default 'ghost' is not a member defined under 'models'"):
+        parse_config_yaml(
+            _two_provider_yaml("    default: ghost\n    models:\n      coder: coding\n")
+        )
+
+
+def test_v4_no_default_is_valid() -> None:
+    """Omitting 'default' entirely is a normal, valid registration-only declaration."""
+    cfg = parse_config_yaml(_two_provider_yaml("    models:\n      coder: coding\n"))
+    assert cfg.profiles["daily"].default is None
+
+
+# ── V5: same-profile members must not collapse onto the same upstream model ──
+
+
+def test_v5_duplicate_upstream_within_profile_rejected() -> None:
+    """Two labels resolving to the same (provider, id) pair are rejected."""
+    with pytest.raises(
+        ConfigError, match="both resolve to upstream model id 'coding' on provider 'vmr'"
+    ):
+        parse_config_yaml(
+            _two_provider_yaml(
+                "    models:\n      a: coding\n      b: vmr.coding\n"
+            )
+        )
+
+
+def test_v5_same_id_different_providers_allowed() -> None:
+    """Same upstream id string on *different* providers is not ambiguous when qualified."""
+    yaml_str = """version: 2
+providers:
+  vmr:
+    protocol: openai
+    base_url: http://127.0.0.1:8800/v1
+    api_key: k
+    models:
+      cheap: {}
 
   direct:
     protocol: openai
     base_url: https://api.example.com/v1
     api_key: k2
-
-models:
-  coding:
-    provider: vmr
-    id: coding
-
-  cheap:
-    provider: vmr
-    id: cheap
-
-  agent:
-    provider: vmr
-    id: agent
-
-  direct-cheap:
-    provider: direct
-    id: cheap
+    models:
+      cheap: {}
 
 profiles:
   daily:
-    main: coding
-    pool:
-      budget: cheap
-      alt: direct-cheap
+    models:
+      budget: vmr.cheap
+      alt: direct.cheap
 """
     cfg = parse_config_yaml(yaml_str)
-    assert cfg.profiles["daily"].pool == {"budget": "cheap", "alt": "direct-cheap"}
+    assert cfg.profiles["daily"].models == {"budget": "vmr.cheap", "alt": "direct.cheap"}
 
 
-# ── Pool-only profiles (registration-only) ───────────────────────────────────
+# ── V6: version ────────────────────────────────────────────────────────────
 
-POOL_ONLY_YAML = """version: 1
+
+def test_v6_wrong_version_rejected() -> None:
+    yaml_str = """version: 3
 providers:
   p:
     protocol: openai
-    base_url: http://localhost:8800/v1
+    base_url: http://localhost
     api_key: k
-models:
-  a:
-    provider: p
-    id: a
-  b:
-    provider: p
-    id: b
+    models:
+      m: {}
 profiles:
-  reg:
-    pool:
-      fast: a
-      coder: b
+  d:
+    models:
+      x: m
 """
+    with pytest.raises(ConfigError, match="Unsupported config schema version: 3"):
+        parse_config_yaml(yaml_str)
 
 
-def test_pool_only_profile_valid() -> None:
-    """A profile with no main but a non-empty pool is valid (registration-only)."""
-    cfg = parse_config_yaml(POOL_ONLY_YAML)
-    assert cfg.profiles["reg"].main is None
-    assert cfg.profiles["reg"].pool == {"fast": "a", "coder": "b"}
+# ── V8: extra=forbid rejects v1-shaped keys ───────────────────────────────────
 
 
-def test_profile_without_main_and_pool_rejected() -> None:
-    """Schema rule: main and pool must not both be absent."""
-    yaml_str = """version: 1
+def test_v8_top_level_models_key_rejected() -> None:
+    """v1's top-level 'models:' table is gone; extra=forbid rejects it."""
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
-    base_url: http://localhost:8800/v1
+    base_url: http://localhost
     api_key: k
+    models:
+      m: {}
 models:
   m:
     provider: p
     id: m
 profiles:
-  d: {}
+  d:
+    models:
+      x: m
 """
-    with pytest.raises(ConfigError, match="must define either 'main' or a non-empty"):
+    with pytest.raises(ConfigError):
+        parse_config_yaml(yaml_str)
+
+
+@pytest.mark.parametrize("old_key", ["main", "cheap", "pool"])
+def test_v8_profile_old_channel_keys_rejected(old_key: str) -> None:
+    """v1's main:/cheap:/pool: profile keys are gone; extra=forbid rejects them."""
+    yaml_str = f"""version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {{}}
+profiles:
+  d:
+    models:
+      x: m
+    {old_key}: m
+"""
+    with pytest.raises(ConfigError):
+        parse_config_yaml(yaml_str)
+
+
+def test_v8_model_provider_id_fields_rejected() -> None:
+    """v1's per-model provider:/id: fields are gone; extra=forbid rejects them."""
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m:
+        provider: p
+        id: m
+profiles:
+  d:
+    models:
+      x: m
+"""
+    with pytest.raises(ConfigError):
+        parse_config_yaml(yaml_str)
+
+
+# ── capabilities.thinking (D-5) ────────────────────────────────────────────
+
+
+def test_capabilities_thinking_defaults_false() -> None:
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m: {}
+profiles:
+  d:
+    models:
+      x: m
+"""
+    cfg = parse_config_yaml(yaml_str)
+    caps = cfg.providers["p"].models["m"].capabilities
+    assert caps is None
+
+
+def test_capabilities_thinking_settable_true() -> None:
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m:
+        capabilities:
+          thinking: true
+profiles:
+  d:
+    models:
+      x: m
+"""
+    cfg = parse_config_yaml(yaml_str)
+    caps = cfg.providers["p"].models["m"].capabilities
+    assert caps is not None
+    assert caps.thinking is True
+
+
+# ── Non-string model-id keys: pydantic rejects, does NOT coerce ─────────────
+
+
+def test_non_string_model_key_rejected() -> None:
+    """An unquoted numeric YAML key is parsed as int by ruamel and pydantic then
+    rejects it outright (ValidationError) rather than silently coercing to str."""
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      4: {}
+profiles:
+  d:
+    models:
+      x: coding
+"""
+    with pytest.raises(ConfigError):
         parse_config_yaml(yaml_str)

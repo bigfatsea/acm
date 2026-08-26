@@ -1,5 +1,5 @@
-# // Ver 2026-08-24 22:05, by gemini-3.7-flash
-"""Core configuration data models and parser for ~/.acm/config.yaml."""
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
+"""Core configuration data models and parser for ~/.acm/config.yaml (schema v2)."""
 
 from pathlib import Path
 from typing import Literal
@@ -15,27 +15,6 @@ SupportedEffort = Literal["low", "medium", "high"]
 SupportedTools = Literal["native", "xml", "markdown"]
 
 
-class ProviderConfig(BaseModel):
-    """Configuration for an upstream LLM provider or router (L1)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    protocol: SupportedProtocol
-    base_url: str
-    api_key: str
-    headers: dict[str, str] = Field(default_factory=dict)
-    proxy: str | None = None
-
-    @field_validator("base_url")
-    @classmethod
-    def validate_base_url(cls, v: str) -> str:
-        """Ensure base_url has a valid HTTP/HTTPS scheme."""
-        v_stripped = v.strip()
-        if not v_stripped.startswith(("http://", "https://")):
-            raise ValueError(f"base_url must start with http:// or https:// (got: {v!r})")
-        return v_stripped
-
-
 class ModelCapabilities(BaseModel):
     """Model feature capabilities."""
 
@@ -44,6 +23,7 @@ class ModelCapabilities(BaseModel):
     vision: bool = False
     tools: SupportedTools = "native"
     json_mode: bool = False
+    thinking: bool = False
 
 
 class ModelReasoning(BaseModel):
@@ -55,13 +35,15 @@ class ModelReasoning(BaseModel):
     budget_tokens: int | None = Field(default=None, gt=0)
 
 
-class ModelConfig(BaseModel):
-    """Configuration for a specific model specification (L2)."""
+class ModelSpecConfig(BaseModel):
+    """Configuration for a specific model specification (L2), embedded under a provider.
+
+    Unlike v1's ModelConfig, this carries no `provider`/`id` fields: the provider is
+    the enclosing `providers.<name>` mapping and the id is this entry's own key.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: str
-    id: str
     context_window: int | None = Field(default=None, gt=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
@@ -69,109 +51,156 @@ class ModelConfig(BaseModel):
     reasoning: ModelReasoning | None = None
 
 
-class ProfileConfig(BaseModel):
-    """Profile specification binding roles to models (L3)."""
-
-    model_config = ConfigDict(extra="allow")
-
-    main: str | None = None
-    cheap: str | None = None
-    pool: dict[str, str] | None = None
-
-
-class CoreConfig(BaseModel):
-    """Top-level Core Config representation for ~/.acm/config.yaml."""
+class ProviderConfig(BaseModel):
+    """Configuration for an upstream LLM provider or router (L1), with embedded models (L2)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 1
+    protocol: SupportedProtocol
+    base_url: str
+    api_key: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    proxy: str | None = None
+    models: dict[str, ModelSpecConfig] = Field(default_factory=dict)
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        """Ensure base_url has a valid HTTP/HTTPS scheme."""
+        v_stripped = v.strip()
+        if not v_stripped.startswith(("http://", "https://")):
+            raise ValueError(f"base_url must start with http:// or https:// (got: {v!r})")
+        return v_stripped
+
+
+class ProfileConfig(BaseModel):
+    """Profile specification (L3): a reserved `models` member map + optional `default` opt-in.
+
+    `models` replaces v1's main/cheap/pool/extra-role channels with a single flat set of
+    label -> model-reference entries. `default`, when present, is the only signal that
+    drives ACM to write an agent's default-model field; it must name an existing label.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    models: dict[str, str] = Field(default_factory=dict)
+    default: str | None = None
+
+
+class CoreConfig(BaseModel):
+    """Top-level Core Config representation for ~/.acm/config.yaml (schema v2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = 2
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
-    models: dict[str, ModelConfig] = Field(default_factory=dict)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
 
     @field_validator("version")
     @classmethod
     def validate_version(cls, v: int) -> int:
-        """Validate configuration schema version."""
-        if v != 1:
+        """Validate configuration schema version (V6)."""
+        if v != 2:
             raise ValueError(
-                f"Unsupported config schema version: {v}. Expected version = 1. "
-                "Please upgrade ACM or adjust version in ~/.acm/config.yaml."
+                f"Unsupported config schema version: {v}. Expected version = 2. "
+                "Please re-run 'acm init' or rewrite the file to version: 2."
             )
         return v
 
     @model_validator(mode="after")
     def validate_cross_references(self) -> "CoreConfig":
-        """Validate referential integrity between profiles, models, and providers."""
+        """Validate referential integrity and reference resolution (V1-V5)."""
         if not self.profiles:
             raise ValueError("Configuration must define at least one profile under 'profiles'.")
 
-        # Validate that each model references a defined provider
-        for model_name, model_cfg in self.models.items():
-            if model_cfg.provider not in self.providers:
+        # V1: provider name / model id charset.
+        for prov_name, prov_cfg in self.providers.items():
+            if not prov_name.strip():
+                raise ValueError("Provider name must be non-empty.")
+            if prov_name != prov_name.strip():
                 raise ValueError(
-                    f"Model '{model_name}' references non-existent provider '{model_cfg.provider}'."
+                    f"Provider name '{prov_name}' must not have leading/trailing whitespace."
                 )
+            if "." in prov_name:
+                raise ValueError(
+                    f"Provider name '{prov_name}' must not contain '.' "
+                    "(reserved as the qualified-reference separator, e.g. 'provider.model-id')."
+                )
+            for model_key in prov_cfg.models:
+                if not model_key.strip():
+                    raise ValueError(f"Model id must be non-empty (in provider '{prov_name}').")
 
-        # Validate that each profile references defined models
         for profile_name, profile_cfg in self.profiles.items():
-            # A profile must declare at least one of `main` or a non-empty
-            # `pool` (Spec v2.1 §7.3.3). A pool-only profile is
-            # registration-only: models are surfaced to pool-capable agents but
-            # default-model fields stay user-owned.
-            if profile_cfg.main is None and not profile_cfg.pool:
+            # V2: 'models' must declare at least one member.
+            if not profile_cfg.models:
                 raise ValueError(
-                    f"Profile '{profile_name}' must define either 'main' or a non-empty "
-                    "'pool'."
+                    f"Profile '{profile_name}' must define at least one entry under 'models'."
                 )
-            if profile_cfg.main is not None and profile_cfg.main not in self.models:
-                raise ValueError(
-                    f"Profile '{profile_name}' main model '{profile_cfg.main}' is not defined under 'models'."
-                )
-            if profile_cfg.cheap and profile_cfg.cheap not in self.models:
-                raise ValueError(
-                    f"Profile '{profile_name}' cheap model '{profile_cfg.cheap}' is not defined under 'models'."
-                )
-            # Check any extra model role fields
-            for extra_key, extra_val in (
-                profile_cfg.__pydantic_extra__.items() if profile_cfg.__pydantic_extra__ else []
-            ):
-                if isinstance(extra_val, str) and extra_val not in self.models:
-                    raise ValueError(
-                        f"Profile '{profile_name}' role '{extra_key}' model '{extra_val}' is not defined under 'models'."
-                    )
 
-            # Validate model pool (label -> model alias map)
-            if profile_cfg.pool:
-                seen_aliases: set[str] = set()
-                seen_upstream: dict[tuple[str, str], str] = {}
-                for label, alias in profile_cfg.pool.items():
-                    if not label.strip():
-                        raise ValueError(f"Pool label must be non-empty in profile '{profile_name}'.")
-                    if alias not in self.models:
-                        raise ValueError(
-                            f"Profile '{profile_name}' pool label '{label}' references "
-                            f"non-existent model '{alias}'."
-                        )
-                    if alias in seen_aliases:
-                        raise ValueError(
-                            f"Duplicate model alias '{alias}' in pool of profile '{profile_name}' "
-                            f"(each pool member must be unique)."
-                        )
-                    seen_aliases.add(alias)
-                    model_cfg = self.models[alias]
-                    upstream_key = (model_cfg.provider, model_cfg.id)
-                    if upstream_key in seen_upstream:
-                        raise ValueError(
-                            f"Profile '{profile_name}' pool labels '{seen_upstream[upstream_key]}' "
-                            f"and '{label}' both resolve to upstream model id '{model_cfg.id}' on "
-                            f"provider '{model_cfg.provider}'; each pool member must resolve to a "
-                            "distinct upstream model to avoid ambiguous entries in agent model "
-                            "selectors."
-                        )
-                    seen_upstream[upstream_key] = label
+            # V3 + V5: every member reference resolves (existence + non-ambiguity), and no
+            # two members within the same profile collapse onto the same upstream model.
+            seen_upstream: dict[tuple[str, str], str] = {}
+            for label, ref in profile_cfg.models.items():
+                if not label.strip():
+                    raise ValueError(f"Profile '{profile_name}' member label must be non-empty.")
+                prov_name, model_key = self._resolve_ref(profile_name, label, ref)
+
+                upstream_key = (prov_name, model_key)
+                if upstream_key in seen_upstream:
+                    raise ValueError(
+                        f"Profile '{profile_name}' members '{seen_upstream[upstream_key]}' and "
+                        f"'{label}' both resolve to upstream model id '{model_key}' on provider "
+                        f"'{prov_name}'; each member must resolve to a distinct upstream model "
+                        "to avoid ambiguous entries in agent model selectors."
+                    )
+                seen_upstream[upstream_key] = label
+
+            # V4: default must name an existing member label.
+            if profile_cfg.default is not None and profile_cfg.default not in profile_cfg.models:
+                raise ValueError(
+                    f"Profile '{profile_name}' default '{profile_cfg.default}' is not a member "
+                    "defined under 'models'."
+                )
 
         return self
+
+    def _resolve_ref(self, profile_name: str, label: str, ref: str) -> tuple[str, str]:
+        """Resolve a member's R3 model reference to (provider_name, model_key). See §2.4.
+
+        `<provider>.<id>` splits on the *first* dot (provider names may never contain a
+        dot, so the split point is unambiguous even when the id itself contains dots).
+        A bare `<id>` is looked up across every provider's models; zero matches is an
+        unknown-model error, two or more is an ambiguity error listing all candidates.
+        """
+        if "." in ref:
+            prov_name, model_key = ref.split(".", 1)
+            if prov_name not in self.providers:
+                raise ValueError(
+                    f"Profile '{profile_name}' member '{label}': provider '{prov_name}' "
+                    f"(from qualified reference '{ref}') is not defined under 'providers'."
+                )
+            if model_key not in self.providers[prov_name].models:
+                raise ValueError(
+                    f"Profile '{profile_name}' member '{label}': model id '{model_key}' is not "
+                    f"defined under provider '{prov_name}'."
+                )
+            return prov_name, model_key
+
+        candidates = sorted(
+            prov_name for prov_name, prov_cfg in self.providers.items() if ref in prov_cfg.models
+        )
+        if not candidates:
+            raise ValueError(
+                f"Profile '{profile_name}' member '{label}': unknown model id '{ref}'. "
+                "It is not defined under any provider."
+            )
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Profile '{profile_name}' member '{label}': model id '{ref}' is ambiguous — "
+                f"defined in providers: {candidates}. "
+                f"Use a qualified reference like '{candidates[0]}.{ref}'."
+            )
+        return candidates[0], ref
 
 
 def parse_config_yaml(content: str) -> CoreConfig:

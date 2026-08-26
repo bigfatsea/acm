@@ -1,4 +1,4 @@
-# // Ver 2026-08-24 22:05, by gemini-3.7-flash
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
 """Built-in adapter for Pi Agent (~/.pi/agent/models.json and settings.json)."""
 
 import shutil
@@ -79,7 +79,7 @@ def _resolve_pi_api_key(
 
 def _pi_model_entry(label: str, m: Any) -> dict[str, Any]:
     """Build a single Pi models.json model entry; label lands in 'name' (secondary detail text, not the primary /model picker label, which is driven by 'id')."""
-    entry: dict[str, Any] = {"id": m.upstream_id, "name": label}
+    entry: dict[str, Any] = {"id": m.model_id, "name": label}
     if m.context_window:
         entry["contextWindow"] = m.context_window
     if m.max_output_tokens:
@@ -100,7 +100,7 @@ def _pi_member_unsupported_warnings(
     is deliberately "ACM does not project" rather than "Pi does not support".
     capabilities.vision: projected into the model entry's `input` field
     (models.md) by _pi_model_entry — no warning.
-    capabilities.tools (non-native dialect) / json_mode: no Pi channel at all.
+    capabilities.tools (non-native dialect) / json_mode / thinking: no Pi channel at all.
     """
     warnings: list[ProjectionWarning] = []
 
@@ -136,13 +136,27 @@ def _pi_member_unsupported_warnings(
                     "capabilities.json_mode is not projected.",
                 )
             )
+        if m.capabilities.thinking:
+            warnings.append(
+                ProjectionWarning(
+                    field=_field("capabilities.thinking"),
+                    agent_id=AGENT_ID,
+                    reason="Pi models.json has no thinking-capability channel; "
+                    "capabilities.thinking is not projected.",
+                )
+            )
     return warnings
 
 
 def plan(
     profile: ResolvedProfile, env: Mapping[str, str] | None = None
 ) -> tuple[list[PlannedOp], list[ProjectionWarning]]:
-    """Compile ResolvedProfile into PlannedOps for Pi models.json and settings.json."""
+    """Compile ResolvedProfile into PlannedOps for Pi models.json and settings.json.
+
+    Registration and selection are independent: every member is registered into
+    models.json unconditionally; settings.json is only touched when the profile
+    declares a `default` (Spec §2.3 — no default is a normal, non-warning state).
+    """
     env_map = get_env_map(env)
     paths = config_paths(env_map)
     models_file, settings_file = paths[0], paths[1]
@@ -150,134 +164,97 @@ def plan(
     ops: list[PlannedOp] = []
     warnings: list[ProjectionWarning] = []
 
-    pool_covered_model_ids: set[str] = {m.model_id for m in profile.pool.values()}
+    default_label = profile.default_label
+    default_model = profile.models[default_label] if default_label is not None else None
+    default_provider_name = default_model.provider.name if default_model is not None else None
 
-    if profile.pool:
-        # Group pool members by their provider (declared order preserved); each
-        # provider gets one 'providers.<name>' op carrying its full models[] array.
-        # Registration-only profiles (no main, Spec v2.1 §7.3.3) take this
-        # path too, but skip the settings.json ops below.
-        groups: dict[str, list[tuple[str, Any]]] = {}
-        for label, m in profile.pool.items():
-            groups.setdefault(m.provider.name, []).append((label, m))
+    # Group all members by provider (declared order preserved); each provider gets
+    # one 'providers.<name>' op carrying its full models[] array.
+    groups: dict[str, list[tuple[str, Any]]] = {}
+    for label, m in profile.models.items():
+        groups.setdefault(m.provider.name, []).append((label, m))
 
-        for prov_name, members in groups.items():
-            group_prov = members[0][1].provider
-            api_key_val, key_warnings = _resolve_pi_api_key(group_prov, env_map)
-            warnings.extend(key_warnings)
-
-            models_arr = [_pi_model_entry(label, m) for label, m in members]
-            group_payload: dict[str, Any] = {
-                "baseUrl": group_prov.base_url,
-                "api": _pi_api_dialect(group_prov.protocol),
-                "apiKey": api_key_val,
-                "models": models_arr,
-            }
-            if group_prov.headers:
-                group_payload["headers"] = group_prov.headers
-            ops.append(
-                PlannedOp(
-                    file=models_file,
-                    path=f"providers.{prov_name}",
-                    new=group_payload,
-                )
-            )
-
-            # Pi's models.json has no 'proxy' concept (confirmed against the
-            # official Provider Configuration field table — routing goes through
-            # baseUrl instead), so a non-main pool provider's proxy setting is a
-            # genuine, unavoidable projection loss and must stay explicit.
-            # headers *is* supported (projected above); no warning needed for it.
-            if (
-                profile.main is None or prov_name != profile.main.provider.name
-            ) and group_prov.proxy:
-                warnings.append(
-                    ProjectionWarning(
-                        field=f"pool.provider.{prov_name}.proxy",
-                        agent_id=AGENT_ID,
-                        reason=f"Pi models.json has no provider-level proxy field; pool "
-                        f"provider '{prov_name}' proxy setting is not projected.",
-                    )
-                )
-
-            for label, m in members:
-                if profile.main is not None and m.model_id == profile.main.model_id:
-                    continue
-                if m.reasoning and (m.reasoning.effort or m.reasoning.budget_tokens):
-                    warnings.append(
-                        ProjectionWarning(
-                            field=f"pool.{label}.reasoning",
-                            agent_id=AGENT_ID,
-                            reason="Pi does not support a per-model reasoning override in the "
-                            "model pool; only main's defaultThinkingLevel is projected.",
-                        )
-                    )
-                warnings.extend(_pi_member_unsupported_warnings(m, f"pool.{label}"))
-    else:
-        # 1. Map provider into models.json (single-model path, unchanged from pre-pool behavior)
-        # The schema (Spec v2.1 §7.3.3) guarantees main is declared when pool is absent.
-        if profile.main is None:  # pragma: no cover - defensive, unreachable under schema
-            return ops, warnings
-        prov = profile.main.provider
-        api_key_val, key_warnings = _resolve_pi_api_key(prov, env_map)
+    for prov_name, members in groups.items():
+        group_prov = members[0][1].provider
+        api_key_val, key_warnings = _resolve_pi_api_key(group_prov, env_map)
         warnings.extend(key_warnings)
 
-        model_entry: dict[str, Any] = {"id": profile.main.upstream_id}
-        if profile.main.context_window:
-            model_entry["contextWindow"] = profile.main.context_window
-        if profile.main.max_output_tokens:
-            model_entry["maxTokens"] = profile.main.max_output_tokens
-        if profile.main.capabilities and profile.main.capabilities.vision:
-            model_entry["input"] = ["text", "image"]
-
-        provider_payload: dict[str, Any] = {
-            "baseUrl": prov.base_url,
-            "api": _pi_api_dialect(prov.protocol),
+        models_arr = [_pi_model_entry(label, m) for label, m in members]
+        group_payload: dict[str, Any] = {
+            "baseUrl": group_prov.base_url,
+            "api": _pi_api_dialect(group_prov.protocol),
             "apiKey": api_key_val,
-            "models": [model_entry],
+            "models": models_arr,
         }
-        if prov.headers:
-            provider_payload["headers"] = prov.headers
-
+        if group_prov.headers:
+            group_payload["headers"] = group_prov.headers
         ops.append(
             PlannedOp(
                 file=models_file,
-                path=f"providers.{prov.name}",
-                new=provider_payload,
+                path=f"providers.{prov_name}",
+                new=group_payload,
             )
         )
 
-    # 2. Map default settings into settings.json (always driven by main, regardless of pool)
-    if profile.main is None:
-        # Registration-only profile (Spec v2.1 §7.3.3): default-model fields stay
-        # user-owned; surface that decision explicitly instead of silently
-        # leaving settings.json untouched.
-        warnings.append(
-            ProjectionWarning(
-                field="profile.main",
-                agent_id=AGENT_ID,
-                reason="Profile declares no 'main' (registration-only): ACM will not change "
-                "defaultProvider/defaultModel/defaultThinkingLevel; the current defaults "
-                "remain user-managed.",
+        # Pi's models.json has no 'proxy' concept (confirmed against the official
+        # Provider Configuration field table — routing goes through baseUrl instead),
+        # so a non-default provider's proxy setting is a genuine, unavoidable
+        # projection loss and must stay explicit. The default's own provider proxy
+        # (if any) is instead surfaced via the shared check_unsupported_profile_specs
+        # call below, to avoid a duplicate warning. headers *is* supported (projected
+        # above); no warning needed for it.
+        if prov_name != default_provider_name and group_prov.proxy:
+            warnings.append(
+                ProjectionWarning(
+                    field=f"models.provider.{prov_name}.proxy",
+                    agent_id=AGENT_ID,
+                    reason=f"Pi models.json has no provider-level proxy field; provider "
+                    f"'{prov_name}' proxy setting is not projected.",
+                )
             )
-        )
+
+        for label, m in members:
+            if label == default_label:
+                continue
+            if m.reasoning and (m.reasoning.effort or m.reasoning.budget_tokens):
+                reason = (
+                    "Pi does not support a per-model reasoning override in the "
+                    "model registry; only the default's defaultThinkingLevel is "
+                    "projected."
+                    if default_label is not None
+                    else "Pi does not support a per-model reasoning override in the "
+                    "model registry; this profile has no default, so no "
+                    "defaultThinkingLevel is projected for any member."
+                )
+                warnings.append(
+                    ProjectionWarning(
+                        field=f"models.{label}.reasoning",
+                        agent_id=AGENT_ID,
+                        reason=reason,
+                    )
+                )
+            warnings.extend(_pi_member_unsupported_warnings(m, f"models.{label}"))
+
+    # settings.json is driven exclusively by the opted-in default. No default means
+    # ACM never touches this file — a normal, non-warning state.
+    if default_model is None:
         return ops, warnings
 
     ops.append(
-        PlannedOp(file=settings_file, path="defaultProvider", new=profile.main.provider.name)
+        PlannedOp(file=settings_file, path="defaultProvider", new=default_model.provider.name)
     )
-    ops.append(PlannedOp(file=settings_file, path="defaultModel", new=profile.main.upstream_id))
+    ops.append(PlannedOp(file=settings_file, path="defaultModel", new=default_model.model_id))
 
-    if profile.main.reasoning and profile.main.reasoning.effort:
+    if default_model.reasoning and default_model.reasoning.effort:
         ops.append(
             PlannedOp(
                 file=settings_file,
                 path="defaultThinkingLevel",
-                new=profile.main.reasoning.effort,
+                new=default_model.reasoning.effort,
             )
         )
 
-    if profile.main.reasoning and profile.main.reasoning.budget_tokens:
+    if default_model.reasoning and default_model.reasoning.budget_tokens:
         warnings.append(
             ProjectionWarning(
                 field="reasoning.budget_tokens",
@@ -286,18 +263,16 @@ def plan(
             )
         )
 
-    # Main member's temperature/capabilities: surfaced here with honest wording
-    # (see _pi_member_unsupported_warnings); the shared check below is told
-    # these fields are "supported" so its blanket, factually-wrong-for-Pi text
-    # never fires.
-    warnings.extend(_pi_member_unsupported_warnings(profile.main, ""))
+    # Default member's temperature/capabilities: surfaced here with honest wording
+    # (see _pi_member_unsupported_warnings); the shared check below is told these
+    # fields are "supported" so its blanket, factually-wrong-for-Pi text never fires.
+    warnings.extend(_pi_member_unsupported_warnings(default_model, ""))
 
     warnings.extend(
         check_unsupported_profile_specs(
-            profile,
+            default_model,
             AGENT_ID,
             supported_fields={
-                "main",
                 "defaultThinkingLevel",
                 "context_window",
                 "max_output_tokens",
@@ -305,7 +280,6 @@ def plan(
                 "temperature",
                 "capabilities",
             },
-            pool_covered_model_ids=pool_covered_model_ids,
         )
     )
 

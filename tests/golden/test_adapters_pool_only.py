@@ -1,5 +1,5 @@
-# // Ver 2026-08-25, pool-only (registration-only) profiles
-"""Golden tests for registration-only profiles (no main, pool only)."""
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
+"""Golden tests for registration-only profiles (no `default`, schema v2)."""
 
 import json
 from pathlib import Path
@@ -9,8 +9,8 @@ from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 from acm.safety import write_changeset
 
 
-def make_pool_only_profile() -> ResolvedProfile:
-    """Build a registration-only profile: main=None, two pool members on one provider."""
+def make_registration_only_profile() -> ResolvedProfile:
+    """Build a registration-only profile: no default, two members on one provider."""
     provider = ResolvedProvider(
         name="mock_p",
         protocol="openai",
@@ -18,17 +18,18 @@ def make_pool_only_profile() -> ResolvedProfile:
         api_key="mock_key",
         raw_api_key_ref="${KEY}",
     )
-    m_a = ResolvedModel(model_id="alpha", upstream_id="a-upstream", provider=provider)
-    m_b = ResolvedModel(model_id="beta", upstream_id="b-upstream", provider=provider)
+    m_a = ResolvedModel(model_id="a-upstream", provider=provider)
+    m_b = ResolvedModel(model_id="b-upstream", provider=provider)
     return ResolvedProfile(
         profile_name="reg",
-        main=None,
-        pool={"fast": m_a, "coder": m_b},
+        models={"fast": m_a, "coder": m_b},
+        default_label=None,
     )
 
 
-def test_pi_pool_only_projects_models_but_not_settings(tmp_home: Path) -> None:
-    """Pi registers the pool; settings.json default fields stay untouched."""
+def test_pi_registration_only_projects_models_but_not_settings(tmp_home: Path) -> None:
+    """Pi registers every member; settings.json default fields stay untouched, and
+    no `default` is a normal declaration state — no warning at all."""
     pi_dir = tmp_home / ".pi" / "agent"
     pi_dir.mkdir(parents=True, exist_ok=True)
     models_file = pi_dir / "models.json"
@@ -36,16 +37,17 @@ def test_pi_pool_only_projects_models_but_not_settings(tmp_home: Path) -> None:
     settings_before = '{"defaultProvider": "user_own", "defaultModel": "user-model"}'
     settings_file.write_text(settings_before, encoding="utf-8")
 
-    profile = make_pool_only_profile()
+    profile = make_registration_only_profile()
     ops, warnings = pi.plan(profile)
 
     # Only models.json providers ops — no settings.json ops at all.
-    assert ops, "pool-only must still produce providers ops"
+    assert ops, "registration-only must still produce providers ops"
     assert all(op.file == models_file for op in ops)
     assert all(op.path.startswith("providers.") for op in ops)
 
-    # Explicit exposure: registration-only decision is surfaced, never silent.
-    assert any("registration-only" in w.reason for w in warnings)
+    # No `default` is a normal state — zero warnings, never silent-but-unremarked
+    # (there's simply nothing unexpressed to surface: registration succeeded fully).
+    assert warnings == []
 
     res = write_changeset(
         agent_id=pi.AGENT_ID,
@@ -67,13 +69,13 @@ def test_pi_pool_only_projects_models_but_not_settings(tmp_home: Path) -> None:
     assert settings_file.read_text(encoding="utf-8") == settings_before
 
 
-def test_pi_pool_only_idempotent(tmp_home: Path) -> None:
-    """Re-planning after apply yields identical ops (idempotency holds for R7)."""
+def test_pi_registration_only_idempotent(tmp_home: Path) -> None:
+    """Re-planning after apply yields identical ops (idempotency holds)."""
     pi_dir = tmp_home / ".pi" / "agent"
     pi_dir.mkdir(parents=True, exist_ok=True)
     (pi_dir / "settings.json").write_text("{}", encoding="utf-8")
 
-    profile = make_pool_only_profile()
+    profile = make_registration_only_profile()
     ops, _ = pi.plan(profile)
     write_changeset(
         agent_id=pi.AGENT_ID,
@@ -88,31 +90,31 @@ def test_pi_pool_only_idempotent(tmp_home: Path) -> None:
     ]
 
 
-def test_claude_code_pool_only_nothing_to_project() -> None:
-    """No pool channel + no main → empty ops with explicit warning."""
-    ops, warnings = claude_code.plan(make_pool_only_profile())
+def test_claude_code_registration_only_nothing_to_project() -> None:
+    """No registry channel + no default → empty ops with one explicit warning."""
+    ops, warnings = claude_code.plan(make_registration_only_profile())
     assert ops == []
     assert any(
-        "no model-pool channel" in w.reason and "nothing to project" in w.reason
+        "no model-registry channel" in w.reason and "nothing to project" in w.reason
         for w in warnings
     )
 
 
-def test_codex_pool_only_nothing_to_project() -> None:
-    """No pool channel + no main → empty ops with explicit warning."""
-    ops, warnings = codex.plan(make_pool_only_profile())
+def test_codex_registration_only_nothing_to_project() -> None:
+    """No registry channel + no default → empty ops with one explicit warning."""
+    ops, warnings = codex.plan(make_registration_only_profile())
     assert ops == []
     assert any(
-        "no model-pool channel" in w.reason and "nothing to project" in w.reason
+        "no model-registry channel" in w.reason and "nothing to project" in w.reason
         for w in warnings
     )
 
 
-def test_pi_pool_only_settings_absent_ok(tmp_home: Path) -> None:
+def test_pi_registration_only_settings_absent_ok(tmp_home: Path) -> None:
     """settings.json need not exist for a registration-only projection."""
     (tmp_home / ".pi" / "agent").mkdir(parents=True, exist_ok=True)
 
-    profile = make_pool_only_profile()
+    profile = make_registration_only_profile()
     ops, _ = pi.plan(profile)
     res = write_changeset(
         agent_id=pi.AGENT_ID,

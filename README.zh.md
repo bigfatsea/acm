@@ -115,37 +115,36 @@ acm release
 ## ⚙️ 核心配置示例 (`~/.acm/config.yaml`)
 
 ```yaml
-version: 1
+version: 2
 
-# ── L1 供应商：端点与凭据引用 ──────────────────────────
+# ── L1 供应商：端点、凭据引用与内嵌 L2 模型 ──────────────
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: "${VMR_KEY}"           # 整字段引用环境变量，零密钥明文入库
+    models:
+      coding:
+        context_window: 131072
+        max_output_tokens: 16384
+        temperature: 0.2
+        capabilities: { vision: false, tools: native, json_mode: true }
+        reasoning:
+          effort: high               # 适配器自动转译为目标 Agent 专属字段
+          budget_tokens: 16000       # 目标 Agent 无法表达时自动产生投影损失告警
 
   anthropic-official:
     protocol: anthropic
     base_url: https://api.anthropic.com
     api_key: "${ANTHROPIC_API_KEY}"
 
-# ── L2 模型：规格、行为与能力 ──────────────────────────
-models:
-  coding:
-    provider: vmr
-    id: coding
-    context_window: 131072
-    max_output_tokens: 16384
-    temperature: 0.2
-    capabilities: { vision: false, tools: native, json_mode: true }
-    reasoning:
-      effort: high                  # 适配器自动转译为目标 Agent 专属字段
-      budget_tokens: 16000          # 目标 Agent 无法表达时自动产生投影损失告警
-
-# ── L3 Profile：命名的角色组合 ─────────────────────────
+# ── L3 Profile：命名的成员集合 + opt-in 默认项 ────────────
 profiles:
   daily:
-    main: coding                    # 单模型 Agent 消费 main；多角色 Agent 消费对应槽位
+    default: coding                  # 唯一驱动 Agent 默认模型字段的开关
+    models:
+      coding: vmr.coding              # label -> 模型引用；无论是否设置 default，
+                                      # 都会注册进具备注册通道的每个 Agent
 ```
 
 ---

@@ -141,84 +141,83 @@ def generate_vmr_proposal(probe: VmrProbeResult) -> str:
     """Generate a clean, valid config.yaml tailored to detected VMR models."""
     proto = probe.models[0].vmr_protocol if probe.models else "openai"
     lines = [
-        "version: 1\n",
-        "# ── L1 供应商：端点与凭据引用 ──────────────────────────",
+        "version: 2\n",
+        "# ── L1 供应商：端点、凭据引用与内嵌模型 ──────────────────",
         "providers:",
         "  vmr:",
         f"    protocol: {_q(proto)}",
         f"    base_url: {_q(probe.base_url)}",
-        f"    api_key: {_q('${VMR_KEY:-}')}   # 本地 VMR 无鉴权可留空，如需鉴权可 export VMR_KEY\n",
-        "# ── L2 模型：规格、行为与能力 ──────────────────────────",
-        "models:",
+        f"    api_key: {_q('${VMR_KEY:-}')}   # 本地 VMR 无鉴权可留空，如需鉴权可 export VMR_KEY",
+        "    models:",
     ]
 
     model_names: list[str] = []
     if probe.models:
         for m in probe.models:
             # YAML mapping keys are plain strings: dots and slashes stay as-is.
-            lines.append(f"  {_q(m.id)}:")
-            lines.append("    provider: vmr")
-            lines.append(f"    id: {_q(m.id)}")
-            lines.append("")
+            lines.append(f"      {_q(m.id)}: {{}}")
             model_names.append(m.id)
+        lines.append("")
     else:
-        lines.append("  # NOTE: VMR is running but models endpoint could not be enumerated.")
-        lines.append("  # Please replace 'coding' with your actual target model ID if different.")
-        lines.append(f"  {_q('coding')}:")
-        lines.append("    provider: vmr")
-        lines.append(f"    id: {_q('coding')}")
+        lines.append("      # NOTE: VMR is running but models endpoint could not be enumerated.")
+        lines.append("      # Please replace 'coding' with your actual target model ID if different.")
+        lines.append(f"      {_q('coding')}: {{}}")
         lines.append("")
         model_names.append("coding")
 
-    main_model = "coding" if "coding" in model_names else model_names[0]
-    cheap_model = "cheap" if "cheap" in model_names else None
+    default_model = "coding" if "coding" in model_names else model_names[0]
 
-    lines.append("# ── L3 Profile：命名的角色组合 ─────────────────────────")
+    lines.append("# ── L3 Profile：命名的成员集合 ─────────────────────────")
     lines.append("profiles:")
     lines.append("  daily:")
-    lines.append(f"    main: {_q(main_model)}")
-    if cheap_model and cheap_model != main_model:
-        lines.append(f"    cheap: {_q(cheap_model)}")
+    # An active default ships out of the box: a fresh `acm init && acm use daily`
+    # should actually point every agent at the detected VMR, not merely register
+    # models without ever selecting one. Users who want registration-only can
+    # delete this line themselves — comment it out is not the safer default here.
+    lines.append(f"    default: {_q(default_model)}")
+    lines.append("    models:")
+    for name in model_names:
+        # Always qualify with the provider prefix: a bare id containing a dot would
+        # otherwise be misparsed as a qualified reference by R3 (first-dot split).
+        lines.append(f"      {_q(name)}: {_q('vmr.' + name)}")
 
     return "\n".join(lines) + "\n"
 
 
 def generate_template_config() -> str:
     """Generate a comprehensive commented template config.yaml when no VMR is detected."""
-    return '''version: 1
+    return '''version: 2
 
-# ── L1 供应商：端点与凭据引用 ──────────────────────────
+# ── L1 供应商：端点、凭据引用与内嵌模型 ──────────────────
 providers:
   anthropic-direct:
     protocol: anthropic          # openai | anthropic | openai-responses
     base_url: https://api.anthropic.com
     api_key: "${ANTHROPIC_API_KEY}"   # 整字段引用环境变量，零密钥明文入库
+    models:
+      claude-3-7-sonnet-20250219:
+        context_window: 200000
+        max_output_tokens: 8192
+        temperature: 0.2             # 缺省 = 不写入，用 Agent 默认
+        capabilities:
+          thinking: true             # 该模型是否支持扩展思考
+        reasoning:
+          effort: high               # low | medium | high
 
   openai-direct:
     protocol: openai
     base_url: https://api.openai.com/v1
     api_key: "${OPENAI_API_KEY}"
+    models:
+      gpt-4o:
+        context_window: 128000
+        max_output_tokens: 4096
 
-# ── L2 模型：规格、行为与能力 ──────────────────────────
-models:
-  claude-sonnet:
-    provider: anthropic-direct
-    id: claude-3-7-sonnet-20250219
-    context_window: 200000
-    max_output_tokens: 8192
-    temperature: 0.2             # 缺省 = 不写入，用 Agent 默认
-    reasoning:
-      effort: high               # low | medium | high
-
-  gpt-4o:
-    provider: openai-direct
-    id: gpt-4o
-    context_window: 128000
-    max_output_tokens: 4096
-
-# ── L3 Profile：命名的角色组合 ─────────────────────────
+# ── L3 Profile：命名的成员集合 ─────────────────────────
 profiles:
   daily:
-    main: claude-sonnet
-    cheap: gpt-4o
+    default: claude-sonnet   # 唯一驱动 Agent 默认模型字段的开关；省略此行 = 仅注册，不改默认值
+    models:
+      claude-sonnet: claude-3-7-sonnet-20250219
+      gpt-4o: gpt-4o
 '''

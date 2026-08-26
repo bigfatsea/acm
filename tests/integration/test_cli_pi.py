@@ -67,26 +67,21 @@ def test_pi_pool_use_idempotent_and_drift(
     clear_adapters()
     register_adapter(pi)
 
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: sk-pool-key
-
-models:
-  coding:
-    provider: vmr
-    id: coding
-
-  cheap:
-    provider: vmr
-    id: cheap
+    models:
+      coding: {}
+      cheap: {}
 
 profiles:
   daily:
-    main: coding
-    pool:
+    default: main
+    models:
+      main: coding
       budget: cheap
 """
     make_config(yaml_str)
@@ -128,21 +123,20 @@ def test_pi_dry_run_and_drift_masking(tmp_home: Path, make_config: Callable[[str
     clear_adapters()
     register_adapter(pi)
 
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   secret_p:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: sk-super-secret-key-1234567890
-
-models:
-  secret_m:
-    provider: secret_p
-    id: secret-model
+    models:
+      secret-model: {}
 
 profiles:
   daily:
-    main: secret_m
+    default: main
+    models:
+      main: secret-model
 """
     make_config(yaml_str)
 

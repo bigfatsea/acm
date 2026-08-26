@@ -22,7 +22,7 @@ def test_init_command_creates_config(tmp_home: Path) -> None:
     config_path = tmp_home / ".acm" / "config.yaml"
     assert config_path.exists()
     cfg = load_config(config_path)
-    assert cfg.version == 1
+    assert cfg.version == 2
 
     # Check .gitignore
     gitignore = tmp_home / ".acm" / ".gitignore"

@@ -144,30 +144,24 @@ def test_use_drift_matching_desired_state_is_noop_exit_0(
 def test_use_pool_only_profile_leaves_settings_untouched(
     tmp_home: Path, make_config: Callable[[str], Path], sample_config_yaml: str
 ) -> None:
-    """Registration-only profile (no main): Pi gets pool registered, defaults untouched.
+    """Registration-only profile (no default): Pi gets members registered, defaults untouched.
 
     Uses the real pi adapter via the full write pipeline.
     """
-    pool_only_yaml = """version: 1
+    pool_only_yaml = """version: 2
 
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: "${VMR_KEY:-sk-test-mock-key}"
-
-models:
-  coding:
-    provider: vmr
-    id: coding
-
-  cheap:
-    provider: vmr
-    id: cheap
+    models:
+      coding: {}
+      cheap: {}
 
 profiles:
   reg:
-    pool:
+    models:
       coder: coding
       fast: cheap
 """

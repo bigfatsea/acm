@@ -1,5 +1,5 @@
-# // Ver 2026-08-24 22:05, by gemini-3.7-flash
-"""Unit tests pinning the YAML loader contract for ACM's Core Config.
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
+"""Unit tests pinning the YAML loader contract for ACM's Core Config (schema v2).
 
 Each test corresponds to a row of the loader-behavior table in
 docs/ACM_PROJECT_SPEC_v2.1.md §6 D3:
@@ -18,16 +18,14 @@ from acm.errors import ConfigError
 def _base(profiles_block: str) -> str:
     """Minimal valid config with the given profiles block."""
     return (
-        """version: 1
+        """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
 """
         + profiles_block
@@ -36,52 +34,74 @@ profiles:
 
 def test_duplicate_keys_rejected() -> None:
     """Duplicate mapping keys fail loudly instead of silently keeping the last one."""
-    content = _base("  d:\n    main: m\n") + "extra:\n  a: 1\n  a: 2\n"
+    content = _base("  d:\n    models:\n      x: m\n") + "extra:\n  a: 1\n  a: 2\n"
     with pytest.raises(ConfigError, match="Failed to parse YAML"):
         parse_config_yaml(content)
 
 
-def test_on_off_yes_no_are_plain_strings() -> None:
-    """YAML 1.2: on/off/yes/no stay strings — no boolean coercion anywhere."""
-    yaml_str = """version: 1
-providers:
-  on:
-    protocol: openai
-    base_url: http://localhost
-    api_key: k
-models:
-  m:
-    provider: on
-    id: yes
-profiles:
-  d:
-    main: m
-"""
-    cfg = parse_config_yaml(yaml_str)
-    assert cfg.models["m"].id == "yes"
-    assert cfg.providers[cfg.models["m"].provider].protocol == "openai"
-
-
-def test_true_false_still_boolean() -> None:
-    """true/false resolve to real booleans for pydantic bool fields."""
-    yaml_str = """version: 1
+def test_duplicate_model_key_within_provider_rejected() -> None:
+    """A duplicate model id key within the same provider's models: mapping is a hard
+    error at the YAML layer — D-3's claim, verified: ruamel's safe loader raises
+    DuplicateKeyError, caught by the existing YAMLError handler."""
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: k
-models:
-  m:
-    provider: p
-    id: m
-    capabilities:
-      vision: true
-      json_mode: false
+    models:
+      m:
+        context_window: 1000
+      m:
+        context_window: 2000
 profiles:
   d:
-    main: m
+    models:
+      x: m
 """
-    caps = parse_config_yaml(yaml_str).models["m"].capabilities
+    with pytest.raises(ConfigError, match="Failed to parse YAML"):
+        parse_config_yaml(yaml_str)
+
+
+def test_on_off_yes_no_are_plain_strings() -> None:
+    """YAML 1.2: on/off/yes/no stay strings — no boolean coercion anywhere."""
+    yaml_str = """version: 2
+providers:
+  on:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      "yes": {}
+profiles:
+  d:
+    models:
+      x: "on.yes"
+"""
+    cfg = parse_config_yaml(yaml_str)
+    assert "yes" in cfg.providers["on"].models
+    assert cfg.providers["on"].protocol == "openai"
+
+
+def test_true_false_still_boolean() -> None:
+    """true/false resolve to real booleans for pydantic bool fields."""
+    yaml_str = """version: 2
+providers:
+  p:
+    protocol: openai
+    base_url: http://localhost
+    api_key: k
+    models:
+      m:
+        capabilities:
+          vision: true
+          json_mode: false
+profiles:
+  d:
+    models:
+      x: m
+"""
+    caps = parse_config_yaml(yaml_str).providers["p"].models["m"].capabilities
     assert caps is not None
     assert caps.vision is True
     assert caps.json_mode is False
@@ -89,45 +109,43 @@ profiles:
 
 def test_credential_ref_unquoted_parses() -> None:
     """${VAR} values survive parsing verbatim even unquoted."""
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: ${MY_KEY}
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
   d:
-    main: m
+    models:
+      x: m
 """
     assert parse_config_yaml(yaml_str).providers["p"].api_key == "${MY_KEY}"
 
 
 def test_credential_ref_default_syntax() -> None:
     """${VAR:-default} survives parsing verbatim."""
-    yaml_str = """version: 1
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: ${MY_KEY:-sk-fallback}
-models:
-  m:
-    provider: p
-    id: m
+    models:
+      m: {}
 profiles:
   d:
-    main: m
+    models:
+      x: m
 """
     assert parse_config_yaml(yaml_str).providers["p"].api_key == "${MY_KEY:-sk-fallback}"
 
 
 def test_multi_document_rejected() -> None:
     """A stream of multiple YAML documents is rejected, not silently truncated."""
-    content = _base("  d:\n    main: m\n") + "---\nversion: 9\n"
+    content = _base("  d:\n    models:\n      x: m\n") + "---\nversion: 9\n"
     with pytest.raises(ConfigError, match="Failed to parse YAML"):
         parse_config_yaml(content)
 
@@ -152,29 +170,28 @@ def test_non_mapping_root_rejected() -> None:
 
 def test_tab_indentation_reports_syntax_error() -> None:
     """Tab indentation surfaces as a YAML syntax error (fail-fast)."""
-    content = "version: 1\nproviders:\n\tp:\n\t\tprotocol: openai\n"
+    content = "version: 2\nproviders:\n\tp:\n\t\tprotocol: openai\n"
     with pytest.raises(ConfigError, match="Failed to parse YAML"):
         parse_config_yaml(content)
 
 
 def test_merge_keys_allowed_and_resolved() -> None:
     """Anchors + merge keys are standard YAML and resolve safely (allowed, discouraged in docs)."""
-    content = """version: 1
+    content = """version: 2
 providers:
   p1: &base
     protocol: openai
     base_url: http://localhost
     api_key: k
+    models:
+      m: {}
   p2:
     <<: *base
     base_url: http://other:8080
-models:
-  m:
-    provider: p2
-    id: m
 profiles:
   d2:
-    main: m
+    models:
+      x: p2.m
 """
     cfg = parse_config_yaml(content)
     assert cfg.providers["p1"].base_url == "http://localhost"
@@ -182,26 +199,22 @@ profiles:
 
 
 def test_dotted_and_slashed_model_keys_preserved() -> None:
-    """Model alias keys keep dots/slashes verbatim — they are plain string keys."""
-    yaml_str = """version: 1
+    """Model id keys keep dots/slashes verbatim — they are plain string keys."""
+    yaml_str = """version: 2
 providers:
   p:
     protocol: openai
     base_url: http://localhost
     api_key: k
-models:
-  gpt-4o.2:
-    provider: p
-    id: real-id
-  anthropic/claude-3.5:
-    provider: p
-    id: real-id-2
+    models:
+      "gpt-4o.2": {}
+      "anthropic/claude-3.5": {}
 profiles:
   d:
-    pool:
-      fast: gpt-4o.2
-      sonnet: anthropic/claude-3.5
+    models:
+      fast: p.gpt-4o.2
+      sonnet: "p.anthropic/claude-3.5"
 """
     cfg = parse_config_yaml(yaml_str)
-    assert "gpt-4o.2" in cfg.models
-    assert "anthropic/claude-3.5" in cfg.models
+    assert "gpt-4o.2" in cfg.providers["p"].models
+    assert "anthropic/claude-3.5" in cfg.providers["p"].models

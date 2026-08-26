@@ -191,41 +191,46 @@ def make_config(tmp_home: Path) -> Callable[[str], Path]:
 
 @pytest.fixture
 def sample_config_yaml() -> str:
-    """Return a standard valid config.yaml string."""
-    return """version: 1
+    """Return a standard valid config.yaml string (schema v2).
+
+    Both profiles declare a `default`, matching the v1 fixture's main-driven
+    behavior — most consumers of this fixture exercise `acm use <profile>` and
+    expect real ops to be produced. No-default (registration-only) scenarios get
+    their own dedicated inline YAML in the tests that specifically cover them.
+    """
+    return """version: 2
 
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: "${VMR_KEY:-sk-test-mock-key}"
+    models:
+      coding:
+        context_window: 131072
+        max_output_tokens: 16384
+        temperature: 0.2
+        reasoning:
+          effort: high
+          budget_tokens: 16000
 
   anthropic-direct:
     protocol: anthropic
     base_url: https://api.anthropic.com
     api_key: "${ANTHROPIC_API_KEY:-sk-ant-test-key}"
-
-models:
-  coding:
-    provider: vmr
-    id: coding
-    context_window: 131072
-    max_output_tokens: 16384
-    temperature: 0.2
-    reasoning:
-      effort: high
-      budget_tokens: 16000
-
-  claude-sonnet:
-    provider: anthropic-direct
-    id: claude-3-7-sonnet-20250219
+    models:
+      claude-3-7-sonnet-20250219: {}
 
 profiles:
   daily:
-    main: coding
+    default: coder
+    models:
+      coder: coding
 
   direct:
-    main: claude-sonnet
+    default: sonnet
+    models:
+      sonnet: claude-3-7-sonnet-20250219
 """
 
 
@@ -262,14 +267,16 @@ class MockAdapter:
     def plan(
         self, profile: ResolvedProfile, env: Mapping[str, str] | None = None
     ) -> tuple[list[PlannedOp], list[ProjectionWarning]]:
+        if profile.default_model is None:
+            return [], []
         return (
-            [PlannedOp(file=self.target_file, path="model", new=profile.main.upstream_id)],
+            [PlannedOp(file=self.target_file, path="model", new=profile.default_model.model_id)],
             [],
         )
 
 
 def make_mock_profile(model_id: str = "coding") -> ResolvedProfile:
-    """Helper to create a minimal ResolvedProfile."""
+    """Helper to create a minimal ResolvedProfile with a single opted-in default member."""
     provider = ResolvedProvider(
         name="mock_p",
         protocol="openai",
@@ -277,9 +284,5 @@ def make_mock_profile(model_id: str = "coding") -> ResolvedProfile:
         api_key="mock_key",
         raw_api_key_ref="${KEY}",
     )
-    model = ResolvedModel(
-        model_id="coding",
-        upstream_id=model_id,
-        provider=provider,
-    )
-    return ResolvedProfile(profile_name="daily", main=model)
+    model = ResolvedModel(model_id=model_id, provider=provider)
+    return ResolvedProfile(profile_name="daily", models={"coding": model}, default_label="coding")

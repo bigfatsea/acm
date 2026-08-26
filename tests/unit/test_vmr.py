@@ -179,9 +179,9 @@ def test_generate_vmr_proposal_from_real_fixture_shape() -> None:
     )
     proposal = generate_vmr_proposal(probe)
     cfg = parse_config_yaml(proposal)
-    assert {"agent", "cheap", "coding"} <= set(cfg.models)
-    assert cfg.profiles["daily"].main == "coding"
-    assert cfg.profiles["daily"].cheap == "cheap"
+    assert {"agent", "cheap", "coding"} <= set(cfg.providers["vmr"].models)
+    assert cfg.profiles["daily"].default == "coding"
+    assert set(cfg.profiles["daily"].models) == {"agent", "cheap", "coding"}
 
 
 def test_generate_vmr_proposal_is_valid_yaml() -> None:
@@ -196,22 +196,23 @@ def test_generate_vmr_proposal_is_valid_yaml() -> None:
     )
     proposal = generate_vmr_proposal(probe)
     cfg = parse_config_yaml(proposal)
-    assert cfg.version == 1
+    assert cfg.version == 2
     assert "vmr" in cfg.providers
-    assert "coding" in cfg.models
-    assert "cheap" in cfg.models
+    assert "coding" in cfg.providers["vmr"].models
+    assert "cheap" in cfg.providers["vmr"].models
     assert "daily" in cfg.profiles
-    assert cfg.profiles["daily"].main == "coding"
-    assert cfg.profiles["daily"].cheap == "cheap"
+    assert cfg.profiles["daily"].default == "coding"
+    assert set(cfg.profiles["daily"].models) == {"coding", "cheap"}
 
 
 def test_generate_template_config_is_valid_yaml() -> None:
     """Test default template configuration parses cleanly into CoreConfig."""
     template = generate_template_config()
     cfg = parse_config_yaml(template)
-    assert cfg.version == 1
+    assert cfg.version == 2
     assert "anthropic-direct" in cfg.providers
     assert "daily" in cfg.profiles
+    assert cfg.profiles["daily"].default == "claude-sonnet"
 
 
 def test_generate_vmr_proposal_with_dotted_and_namespaced_model_ids() -> None:
@@ -226,7 +227,7 @@ def test_generate_vmr_proposal_with_dotted_and_namespaced_model_ids() -> None:
     )
     proposal = generate_vmr_proposal(probe)
     cfg = parse_config_yaml(proposal)
-    assert cfg.version == 1
+    assert cfg.version == 2
     # YAML mapping keys are plain strings: ids stay verbatim (no sanitization).
-    assert "gpt-4.1-mini" in cfg.models
-    assert "anthropic/claude-3.7-sonnet:thinking" in cfg.models
+    assert "gpt-4.1-mini" in cfg.providers["vmr"].models
+    assert "anthropic/claude-3.7-sonnet:thinking" in cfg.providers["vmr"].models

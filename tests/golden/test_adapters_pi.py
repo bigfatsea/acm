@@ -1,5 +1,5 @@
-# // Ver 2026-08-24 22:05, by gemini-3.7-flash
-"""Golden tests for Pi adapter (WP8): Apply, Non-destructive, Brand-new file creation & Rollback."""
+# // Ver 2026-08-26 00:00, by claude-sonnet-5
+"""Golden tests for Pi adapter (schema v2): Apply, Non-destructive, Brand-new file creation & Rollback."""
 
 import json
 from pathlib import Path
@@ -105,8 +105,8 @@ def test_pi_fallback_key_when_env_missing(tmp_home: Path) -> None:
     assert op.new["apiKey"] == "mock_key"
 
 
-def test_pi_pool_multi_provider_registers_all_members(tmp_home: Path) -> None:
-    """Model pool: members grouped by provider, label lands in 'name', main stays default."""
+def test_pi_multi_provider_registers_all_members(tmp_home: Path) -> None:
+    """All members grouped by provider, label lands in 'name', default stays default."""
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 
     vmr = ResolvedProvider(
@@ -123,19 +123,17 @@ def test_pi_pool_multi_provider_registers_all_members(tmp_home: Path) -> None:
         api_key="oai-key",
         raw_api_key_ref="${OPENAI_KEY}",
     )
-    coding = ResolvedModel(
-        model_id="coding", upstream_id="coding", provider=vmr, context_window=512000
-    )
-    cheap = ResolvedModel(model_id="cheap", upstream_id="cheap", provider=vmr)
-    o3 = ResolvedModel(model_id="o3", upstream_id="o3", provider=openai_direct)
+    coding = ResolvedModel(model_id="coding", provider=vmr, context_window=512000)
+    cheap = ResolvedModel(model_id="cheap", provider=vmr)
+    o3 = ResolvedModel(model_id="o3", provider=openai_direct)
 
     profile = ResolvedProfile(
         profile_name="daily",
-        main=coding,
-        pool={"main": coding, "budget": cheap, "review": o3},
+        models={"main": coding, "budget": cheap, "review": o3},
+        default_label="main",
     )
 
-    ops, warnings = pi.plan(profile, env={"VMR_KEY": "vmr-key", "OPENAI_KEY": "oai-key"})
+    ops, _warnings = pi.plan(profile, env={"VMR_KEY": "vmr-key", "OPENAI_KEY": "oai-key"})
 
     vmr_op = next(o for o in ops if o.path == "providers.vmr")
     assert vmr_op.new["models"] == [
@@ -147,17 +145,14 @@ def test_pi_pool_multi_provider_registers_all_members(tmp_home: Path) -> None:
     assert review_op.new["models"] == [{"id": "o3", "name": "review"}]
     assert review_op.new["baseUrl"] == "https://api.openai.com/v1"
 
-    # defaultProvider/defaultModel still driven by main, unaffected by pool
+    # defaultProvider/defaultModel driven by the default member, unaffected by others
     settings_ops = {o.path: o.new for o in ops if o.path.startswith("default")}
     assert settings_ops["defaultProvider"] == "vmr"
     assert settings_ops["defaultModel"] == "coding"
 
-    # No aggregate "unsupported role" noise for a clean pool-only profile
-    assert not any(w.field.startswith("roles.") for w in warnings)
 
-
-def test_pi_pool_non_main_member_temperature_warns_vision_projected() -> None:
-    """A non-main pool member's temperature is an explicit, honestly-worded
+def test_pi_non_default_member_temperature_warns_vision_projected() -> None:
+    """A non-default member's temperature is an explicit, honestly-worded
     projection warning; capabilities.vision is *projected* into the model's
     `input` field (Pi's native channel), so it must not warn."""
     from acm.config import ModelCapabilities
@@ -167,21 +162,20 @@ def test_pi_pool_non_main_member_temperature_warns_vision_projected() -> None:
         name="vmr", protocol="openai", base_url="http://127.0.0.1:8800/v1", api_key="k",
         raw_api_key_ref="${VMR_KEY}",
     )
-    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=vmr)
+    coding = ResolvedModel(model_id="coding", provider=vmr)
     cheap = ResolvedModel(
         model_id="cheap",
-        upstream_id="cheap",
         provider=vmr,
         temperature=0.3,
         capabilities=ModelCapabilities(vision=True),
     )
     profile = ResolvedProfile(
-        profile_name="daily", main=coding, pool={"main": coding, "budget": cheap}
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
     )
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
-    temp_warns = [w for w in warnings if w.field == "pool.budget.temperature"]
+    temp_warns = [w for w in warnings if w.field == "models.budget.temperature"]
     assert len(temp_warns) == 1
     # Honest wording: Pi *can* express temperature via samplingParams on
     # OpenAI-compatible dialects; ACM simply does not project it yet — never a
@@ -190,15 +184,40 @@ def test_pi_pool_non_main_member_temperature_warns_vision_projected() -> None:
     assert "does not configure per-model temperature" not in temp_warns[0].reason
 
     # vision is projected into `input`, not warned about
-    assert not any(w.field.startswith("pool.budget.capabilities") for w in warnings)
+    assert not any(w.field.startswith("models.budget.capabilities") for w in warnings)
     op = next(o for o in ops if o.path == "providers.vmr")
     budget_entry = next(m for m in op.new["models"] if m["name"] == "budget")
     assert budget_entry["input"] == ["text", "image"]
 
 
-def test_pi_pool_non_main_member_unexpressible_capabilities_warn() -> None:
+def test_pi_no_default_reasoning_warning_does_not_mention_default() -> None:
+    """With no `default` at all, a member's reasoning warning must not claim
+    "only the default's defaultThinkingLevel is projected" — there is no
+    default, so nothing is projected for any member (R.3-G)."""
+    from acm.config import ModelReasoning
+    from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
+
+    vmr = ResolvedProvider(
+        name="vmr", protocol="openai", base_url="http://127.0.0.1:8800/v1", api_key="k",
+        raw_api_key_ref="${VMR_KEY}",
+    )
+    coding = ResolvedModel(
+        model_id="coding", provider=vmr, reasoning=ModelReasoning(effort="high")
+    )
+    profile = ResolvedProfile(profile_name="reg", models={"main": coding}, default_label=None)
+
+    ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
+
+    reasoning_warns = [w for w in warnings if w.field == "models.main.reasoning"]
+    assert len(reasoning_warns) == 1
+    assert "default's defaultThinkingLevel" not in reasoning_warns[0].reason
+    assert "no default" in reasoning_warns[0].reason
+    assert not any(o.path in ("defaultProvider", "defaultModel") for o in ops)
+
+
+def test_pi_non_default_member_unexpressible_capabilities_warn() -> None:
     """Only genuinely unexpressible capability sub-fields warn — a
-    non-native tool-calling dialect and json_mode have no Pi channel at all."""
+    non-native tool-calling dialect, json_mode and thinking have no Pi channel."""
     from acm.config import ModelCapabilities
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 
@@ -206,27 +225,27 @@ def test_pi_pool_non_main_member_unexpressible_capabilities_warn() -> None:
         name="vmr", protocol="openai", base_url="http://127.0.0.1:8800/v1", api_key="k",
         raw_api_key_ref="${VMR_KEY}",
     )
-    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=vmr)
+    coding = ResolvedModel(model_id="coding", provider=vmr)
     cheap = ResolvedModel(
         model_id="cheap",
-        upstream_id="cheap",
         provider=vmr,
-        capabilities=ModelCapabilities(tools="xml", json_mode=True),
+        capabilities=ModelCapabilities(tools="xml", json_mode=True, thinking=True),
     )
     profile = ResolvedProfile(
-        profile_name="daily", main=coding, pool={"main": coding, "budget": cheap}
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
     )
 
     _, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
-    assert any(w.field == "pool.budget.capabilities.tools" for w in warnings)
-    assert any(w.field == "pool.budget.capabilities.json_mode" for w in warnings)
+    assert any(w.field == "models.budget.capabilities.tools" for w in warnings)
+    assert any(w.field == "models.budget.capabilities.json_mode" for w in warnings)
+    assert any(w.field == "models.budget.capabilities.thinking" for w in warnings)
 
 
-def test_pi_main_temperature_honest_warning_and_vision_projected() -> None:
-    """Main's temperature warning is honestly worded (ACM does not
-    project; Pi can via samplingParams), and main's vision is projected into the
-    model entry's `input` field — single-model path included."""
+def test_pi_default_temperature_honest_warning_and_vision_projected() -> None:
+    """Default member's temperature warning is honestly worded (ACM does not
+    project; Pi can via samplingParams), and its vision is projected into the
+    model entry's `input` field — single-member path included."""
     from acm.config import ModelCapabilities
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 
@@ -236,12 +255,11 @@ def test_pi_main_temperature_honest_warning_and_vision_projected() -> None:
     )
     coding = ResolvedModel(
         model_id="coding",
-        upstream_id="coding",
         provider=prov,
         temperature=0.7,
         capabilities=ModelCapabilities(vision=True),
     )
-    profile = ResolvedProfile(profile_name="daily", main=coding)
+    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_label="main")
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
@@ -254,9 +272,9 @@ def test_pi_main_temperature_honest_warning_and_vision_projected() -> None:
     assert not any(w.field == "capabilities" for w in warnings)
 
 
-def test_pi_pool_non_main_provider_headers_projected_proxy_warns() -> None:
+def test_pi_non_default_provider_headers_projected_proxy_warns() -> None:
     """Pi natively supports provider-level headers (confirmed against
-    models.md's Provider Configuration table), so a non-main pool provider's
+    models.md's Provider Configuration table), so a non-default provider's
     headers must be *projected*, not warned about. Pi has no 'proxy' field at
     all, so proxy remains a genuine, explicitly-warned projection loss."""
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
@@ -274,10 +292,10 @@ def test_pi_pool_non_main_provider_headers_projected_proxy_warns() -> None:
         headers={"X-Custom": "1"},
         proxy="http://proxy.local:8080",
     )
-    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=vmr)
-    o3 = ResolvedModel(model_id="o3", upstream_id="o3", provider=review_prov)
+    coding = ResolvedModel(model_id="coding", provider=vmr)
+    o3 = ResolvedModel(model_id="o3", provider=review_prov)
     profile = ResolvedProfile(
-        profile_name="daily", main=coding, pool={"main": coding, "review": o3}
+        profile_name="daily", models={"main": coding, "review": o3}, default_label="main"
     )
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v", "OPENAI_KEY": "o"})
@@ -285,19 +303,19 @@ def test_pi_pool_non_main_provider_headers_projected_proxy_warns() -> None:
     review_op = next(o for o in ops if o.path == "providers.openai-direct")
     assert review_op.new["headers"] == {"X-Custom": "1"}
 
-    assert not any(w.field == "pool.provider.openai-direct.headers" for w in warnings)
-    assert any(w.field == "pool.provider.openai-direct.proxy" for w in warnings)
-    # main's own provider (vmr) has no headers/proxy set here, so it must not warn,
-    # and must not gain a spurious empty 'headers' key in its payload either.
-    assert not any(w.field == "pool.provider.vmr.proxy" for w in warnings)
+    assert not any(w.field == "models.provider.openai-direct.headers" for w in warnings)
+    assert any(w.field == "models.provider.openai-direct.proxy" for w in warnings)
+    # default's own provider (vmr) has no headers/proxy set here, so it must not
+    # warn, and must not gain a spurious empty 'headers' key in its payload either.
+    assert not any(w.field == "models.provider.vmr.proxy" for w in warnings)
     vmr_op = next(o for o in ops if o.path == "providers.vmr")
     assert "headers" not in vmr_op.new
 
 
-def test_pi_main_provider_headers_projected(tmp_home: Path) -> None:
-    """Main's own provider headers are now projected (previously
-    silently dropped while the shared warning falsely claimed Pi doesn't
-    support headers at all — Pi's docs confirm it does)."""
+def test_pi_default_provider_headers_projected(tmp_home: Path) -> None:
+    """Default's own provider headers are projected (the shared warning would
+    otherwise falsely claim Pi doesn't support headers at all — Pi's docs
+    confirm it does)."""
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
 
     prov = ResolvedProvider(
@@ -308,8 +326,8 @@ def test_pi_main_provider_headers_projected(tmp_home: Path) -> None:
         raw_api_key_ref="${VMR_KEY}",
         headers={"X-Org-Id": "acme"},
     )
-    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=prov)
-    profile = ResolvedProfile(profile_name="daily", main=coding)
+    coding = ResolvedModel(model_id="coding", provider=prov)
+    profile = ResolvedProfile(profile_name="daily", models={"main": coding}, default_label="main")
 
     ops, warnings = pi.plan(profile, env={"VMR_KEY": "v"})
 
@@ -318,9 +336,9 @@ def test_pi_main_provider_headers_projected(tmp_home: Path) -> None:
     assert not any(w.field == "provider.headers" for w in warnings)
 
 
-def test_pi_pool_apply_golden_non_destructive(tmp_home: Path) -> None:
-    """Pool projection through the full Safety Engine pipeline: Apply / Non-destructive /
-    Rollback-survives three-step golden assertion (pool variant)."""
+def test_pi_apply_golden_non_destructive(tmp_home: Path) -> None:
+    """Multi-member projection through the full Safety Engine pipeline: Apply /
+    Non-destructive / Rollback-survives three-step golden assertion."""
     import hashlib
 
     from acm.resolve import ResolvedModel, ResolvedProfile, ResolvedProvider
@@ -338,10 +356,10 @@ def test_pi_pool_apply_golden_non_destructive(tmp_home: Path) -> None:
         name="vmr", protocol="openai", base_url="http://127.0.0.1:8800/v1", api_key="k",
         raw_api_key_ref="${VMR_KEY}",
     )
-    coding = ResolvedModel(model_id="coding", upstream_id="coding", provider=vmr)
-    cheap = ResolvedModel(model_id="cheap", upstream_id="cheap", provider=vmr)
+    coding = ResolvedModel(model_id="coding", provider=vmr)
+    cheap = ResolvedModel(model_id="cheap", provider=vmr)
     profile = ResolvedProfile(
-        profile_name="daily", main=coding, pool={"main": coding, "budget": cheap}
+        profile_name="daily", models={"main": coding, "budget": cheap}, default_label="main"
     )
 
     ops, _ = pi.plan(profile, env={"VMR_KEY": "v"})
@@ -372,7 +390,7 @@ def test_pi_pool_apply_golden_non_destructive(tmp_home: Path) -> None:
     diffs = tree_diff(json.loads(models_fixture), json.loads(updated_content), pi.managed_namespaces())
     assert diffs == []
 
-    # ── Step c: Rollback survives (physical snapshot restores pre-pool state) ──
+    # ── Step c: Rollback survives (physical snapshot restores pre-projection state) ──
     lw = load_last_write(pi.AGENT_ID)
     assert lw is not None
     snap_file = get_snapshots_dir(pi.AGENT_ID) / lw.backup_id / "models.json"
@@ -394,8 +412,8 @@ def test_pi_keyless_uses_dummy_api_key(tmp_home: Path) -> None:
         api_key="",
         raw_api_key_ref="",
     )
-    model = ResolvedModel(model_id="coding", upstream_id="coding", provider=keyless_p)
-    profile = ResolvedProfile(profile_name="daily", main=model)
+    model = ResolvedModel(model_id="coding", provider=keyless_p)
+    profile = ResolvedProfile(profile_name="daily", models={"main": model}, default_label="main")
 
     ops, warnings = pi.plan(profile)
     op = next(o for o in ops if o.path == "providers.vmr")

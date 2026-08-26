@@ -122,38 +122,36 @@ acm release
 ## ⚙️ Core Configuration Example (`~/.acm/config.yaml`)
 
 ```yaml
-version: 1
+version: 2
 
-# ── L1 providers: endpoints & credential references ──────────────
+# ── L1 providers: endpoints, credential references & embedded L2 models ──
 providers:
   vmr:
     protocol: openai
     base_url: http://127.0.0.1:8800/v1
     api_key: "${VMR_KEY}"          # env-var reference; no plaintext secrets on disk
+    models:
+      coding:
+        context_window: 131072
+        max_output_tokens: 16384
+        temperature: 0.2
+        capabilities: { vision: false, tools: native, json_mode: true }
+        reasoning:
+          effort: high              # adapters translate this into agent-specific fields
+          budget_tokens: 16000      # projection-loss warning if the target can't express it
 
   anthropic-official:
     protocol: anthropic
     base_url: https://api.anthropic.com
     api_key: "${ANTHROPIC_API_KEY}"
 
-# ── L2 models: spec, behavior & capabilities ─────────────────────
-models:
-  coding:
-    provider: vmr
-    id: coding
-    context_window: 131072
-    max_output_tokens: 16384
-    temperature: 0.2
-    capabilities: { vision: false, tools: native, json_mode: true }
-    reasoning:
-      effort: high                 # adapters translate this into agent-specific fields
-      budget_tokens: 16000         # projection-loss warning if the target can't express it
-
-# ── L3 profiles: named role bundles ──────────────────────────────
+# ── L3 profiles: named member sets + opt-in default ───────────────
 profiles:
   daily:
-    main: coding                   # single-model agents consume main;
-                                   # multi-role agents consume matching slots
+    default: coding                 # the only thing that drives an agent's default-model field
+    models:
+      coding: vmr.coding             # label -> model reference; registered into every agent
+                                     # with a registry channel regardless of `default`
 ```
 
 ---

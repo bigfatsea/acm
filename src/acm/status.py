@@ -57,8 +57,17 @@ class AgentStatusResult(BaseModel):
 def detect_agent_drift(
     adapter: Any,
     env: Mapping[str, str] | None = None,
+    managed_paths: set[str] | None = None,
 ) -> list[DriftEntry]:
-    """Detect external drift between disk reality and last_write record."""
+    """Detect external drift between disk reality and last_write record.
+
+    managed_paths, when given, scopes the comparison to last_write fields that are
+    also produced by the current plan() — fields a profile no longer manages (e.g.
+    after switching to a no-default profile) are excluded from drift, matching axiom
+    3 (rollback granularity = the inverse of *currently* managed fields). When None
+    (e.g. no resolved profile to plan against), the comparison is unscoped — the
+    pre-v2 behavior.
+    """
     env_map = get_env_map(env)
     last_write = load_last_write(adapter.AGENT_ID, env_map)
     if not last_write:
@@ -68,6 +77,8 @@ def detect_agent_drift(
     drifts: list[DriftEntry] = []
 
     for raw_path, expected_val in last_write.fields.items():
+        if managed_paths is not None and raw_path not in managed_paths:
+            continue
         if "::" in raw_path:
             cf_name, dot_path = raw_path.split("::", 1)
             target_cfs = [cf for cf in config_files if cf.name == cf_name]
@@ -169,8 +180,16 @@ def compute_agent_status(
             state=AgentState.UNMANAGED,
         )
 
-    # 4. Drift check
-    drifts = detect_agent_drift(adapter, env_map)
+    # 4. Drift check — pre-compute this profile's planned ops (if any) once, both to
+    # scope the drift comparison (§3.5) and to reuse for step 5 without re-planning.
+    ops: list[Any] = []
+    warnings: list[Any] = []
+    managed_paths: set[str] | None = None
+    if resolved_profile is not None:
+        ops, warnings = adapter.plan(resolved_profile, env_map)
+        managed_paths = {f"{op.file.name}::{op.path}" for op in ops}
+
+    drifts = detect_agent_drift(adapter, env_map, managed_paths=managed_paths)
     if drifts:
         return AgentStatusResult(
             agent_id=agent_id,
@@ -192,8 +211,6 @@ def compute_agent_status(
             last_timestamp=last_write.timestamp,
         )
 
-    # Compile desired state
-    ops, warnings = adapter.plan(resolved_profile, env_map)
     for op in ops:
         disk_val = read_file_dotpath(op.file, op.path)
         if disk_val != op.new:

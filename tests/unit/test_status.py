@@ -60,7 +60,7 @@ def test_state_drifted(tmp_home: Path) -> None:
         profile="daily",
         timestamp="20260824000000",
         backup_id="20260824000000",
-        fields={"model": "original_acm_model"},
+        fields={"settings.json::model": "original_acm_model"},
     )
     save_last_write(adapter.AGENT_ID, lw)
 
@@ -82,7 +82,7 @@ def test_state_out_of_sync(tmp_home: Path) -> None:
         profile="daily",
         timestamp="20260824000000",
         backup_id="20260824000000",
-        fields={"model": "coding"},
+        fields={"settings.json::model": "coding"},
     )
     save_last_write(adapter.AGENT_ID, lw)
 
@@ -102,13 +102,62 @@ def test_state_synced(tmp_home: Path) -> None:
         profile="daily",
         timestamp="20260824000000",
         backup_id="20260824000000",
-        fields={"model": "coding"},
+        fields={"settings.json::model": "coding"},
     )
     save_last_write(adapter.AGENT_ID, lw)
 
     desired_profile = make_mock_profile(model_id="coding")
     res = compute_agent_status(adapter, desired_profile)
     assert res.state == AgentState.SYNCED
+
+
+def test_managed_paths_excludes_stale_field_no_longer_planned(tmp_home: Path) -> None:
+    """§3.5: a stale last_write field the current plan() no longer produces (e.g.
+    after switching to a no-default profile, or the user changed the model by
+    hand) must not be compared for drift — only the intersection of last_write
+    and the current plan's op paths is in scope."""
+    target = tmp_home / "settings.json"
+    target.write_text('{"model": "user_picked_this"}', encoding="utf-8")
+    adapter = MockAdapter(target, detected=True)
+
+    lw = LastWrite(
+        profile="daily",
+        timestamp="20260824000000",
+        backup_id="20260824000000",
+        fields={"settings.json::model": "old_acm_model"},
+    )
+    save_last_write(adapter.AGENT_ID, lw)
+
+    # Current profile has no default -> MockAdapter.plan() produces zero ops ->
+    # managed_paths is empty -> the stale 'model' field is out of scope -> no DRIFTED.
+    from acm.resolve import ResolvedProfile
+
+    no_default_profile = ResolvedProfile(
+        profile_name="daily", models=make_mock_profile("x").models, default_label=None
+    )
+    res = compute_agent_status(adapter, no_default_profile)
+    assert res.state != AgentState.DRIFTED
+    # Zero planned ops -> the (empty) ops-vs-disk comparison loop vacuously passes.
+    assert res.state == AgentState.SYNCED
+
+
+def test_drift_check_runs_with_no_resolved_profile(tmp_home: Path) -> None:
+    """resolved_profile=None (e.g. no active profile) falls back to the pre-v2,
+    unscoped drift comparison rather than crashing on a None dereference."""
+    target = tmp_home / "settings.json"
+    target.write_text('{"model": "tampered"}', encoding="utf-8")
+    adapter = MockAdapter(target, detected=True)
+
+    lw = LastWrite(
+        profile="daily",
+        timestamp="20260824000000",
+        backup_id="20260824000000",
+        fields={"model": "original"},
+    )
+    save_last_write(adapter.AGENT_ID, lw)
+
+    res = compute_agent_status(adapter, None)
+    assert res.state == AgentState.DRIFTED
 
 
 def test_is_noop_idempotency(tmp_home: Path) -> None:
