@@ -4,7 +4,7 @@
 
 > 🌐 本文档另有 [English / 英文版](USER_GUIDE.md)。
 >
-> 覆盖 ACM `0.3.x`（配置 schema v3）。配套文档：[README](../README.zh.md) · [项目指导原则与核心规格 v2.1](ACM_PROJECT_PRINCIPLE_v2.1.md) · [实现参考规格 v2.1](ACM_PROJECT_SPEC_v2.1.md)
+> 覆盖 ACM `0.3.x`（配置 schema v3）。配套文档：[README](../README.zh.md) · [项目指导原则与核心规格 v2.2](ACM_PROJECT_PRINCIPLE_v2.2.md) · [实现参考规格 v2.2](ACM_PROJECT_SPEC_v2.2.md)
 
 ---
 

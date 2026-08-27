@@ -40,7 +40,7 @@ ACM manages **fields**, not files. There is exactly one description of your mode
 
 | Document | Description |
 |---|---|
-| 🏛️ [**ACM Project Principles & Core Spec v2.1**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_PROJECT_PRINCIPLE_v2.1.md) *(Chinese)* | **Governing charter**: axioms, non-destructive boundaries, six-step safe write pipeline, adapter contract & design philosophy |
+| 🏛️ [**ACM Project Principles & Core Spec v2.2**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_PROJECT_PRINCIPLE_v2.2.md) *(Chinese)* | **Governing charter**: axioms, non-destructive boundaries, six-step safe write pipeline, adapter contract & design philosophy |
 | 📋 [**ACM MVP Action Plan & Delivery Spec v1.0**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_MVP_ACTION_PLAN_v1.0.md) *(Chinese)* | **Execution plan**: WP0–WP9 task breakdown, 8 hard acceptance criteria, state-machine definitions, testing & validation specs |
 | 🔬 [**Config Management Deep Dive & Best Practices**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) *(Chinese)* | 40 years of configuration-management evolution, dual-ownership essence, field-ownership mechanics |
 

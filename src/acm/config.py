@@ -173,7 +173,7 @@ class CoreConfig(BaseModel):
         `subject` labels the referring context in error messages (e.g. "member 'coder'"
         for a `models:` value, "default" for the `default:` value).
 
-        Full rules: docs/ACM_PROJECT_SPEC_v2.1.md §7.3.4.
+        Full rules: docs/ACM_PROJECT_SPEC_v2.2.md §7.3.4.
 
         `<provider>.<id>` splits on the *first* dot (provider names may never contain a
         dot, so the split point is unambiguous even when the id itself contains dots).

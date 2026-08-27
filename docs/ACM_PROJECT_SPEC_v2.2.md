@@ -1,32 +1,16 @@
-# ACM（Agent Config Manager）项目规格 v2.1（实现参考）
+# ACM（Agent Config Manager）项目规格 v2.2（实现参考）
 
-<!-- Version: 2.1.0 | Status: Implementation Reference（治理地位归 PRINCIPLE v2.1）| Date: 2026-08-26 -->
-<!-- ⚠️ 角色变更（2026-08-18）：本文档已降级为**实现参考**（implementation reference）。
-     治理性规格（原则、边界、数据模型、命令语义）见 docs/ACM_PROJECT_PRINCIPLE_v2.1.md。
-     实现可偏离本文档的实现层细节（事务步骤、数据结构字段、状态机枚举、文案、目录布局等），
-     前提是不违反 v2.0 的原则；偏离积累后回写更新本文档。两者冲突时以 v2.0 为准。
-     v1.1.1 变更：根据 v2.0.1 治理规格与 Deep Dive 架构原则全面对齐——
-     将 Manifest 调整为内存派生视图（消除磁盘双写）、快照改为 Append-only 永久追加、
-     Adapter Protocol 简化为 3 个纯函数职责（verify 下沉至金样测试门禁）、
-     事务提交精简为写前快照与原子写回（去除重量级 WAL 状态机）、统一快照命名为 <txid>、
-     状态枚举保持 6 种配置主状态。
-     v1.1.2 变更：按一致性评审与 v2.0 规格全面对齐裁决--
-     移除进程守护机制与适配器动态热加载（v2.0 已否决）；release 语义定为"恢复 pre-ACM 状态"，
-     明确 config.yaml 永不自动删除，迁移其他工具时直接卸载即可；崩溃恢复从简，
-     靠"写前快照 + 原子替换无损坏中间态 + 漂移阻断与 force 收敛"兜底；
-     use 保持全局 Profile 切换收敛语义，单 Agent 收敛统一由 apply <agent> 承载；init 移除 --yes。
-     v2.1 变更（自 ACM_PROJECT_SPEC_FINAL_v1.1.md 更名升版；依据四份 MVP 范围提案的逐项裁决，
-     过程文档已清理，结论固化于 §12 与附录 D）：§12 实施路线图重写为
-     "Phase 1 分片交付 + 触发式升级"，MVP 范围定义与验收标准并入本文档，
-     不再单独创建 MVP 范围文档；§10 命令总表逐项标注 MVP 子集与后置触发条件；
-     §9 改为 VMR 探测并入 init，import vmr 后置；§7.3 新增 last_write 记录说明，
-     §7.5.1 增补 MVP 简化提交流水线（无 Journal 阶段以 last_write 代 journal），
-     §7.5.6/§7.7/§11 措辞同步并标注 MVP 期测试集；附录 B 补 Pi 路径更正，
-     新增附录 D（MVP 反馈裁决摘要）；交叉引用治理规格文件名一并更正。 -->
+<!-- Version: 2.2.0 | Status: Implementation Reference（治理地位归 PRINCIPLE v2.2）| Date: 2026-08-27 -->
+<!-- 本文档是 ACM 的**实现参考**（implementation reference）：事务协议、数据结构、适配矩阵、
+     测试与验收标准、路线图。治理性规格（原则、边界、数据模型、命令语义）见
+     docs/ACM_PROJECT_PRINCIPLE_v2.2.md；两者冲突时以 PRINCIPLE 为准，并回写修订本文档。
+     实现可偏离本文档的实现层细节（数据结构字段名、状态机内部实现、文案、目录布局等），
+     偏离积累后回写更新本文档——v2.2 即一次这样的全面回写：核对当前实现与本文档全部条目，
+     已实现的标注【已实现】，实现已演进并优于原描述的按现状改写，尚未触发的升级项归入 §12。 -->
 
-> **文档性质**：ACM 项目的实现参考（事务协议、数据结构、适配矩阵、历史裁决与核查记录）。
-> **治理规格**：docs/ACM_PROJECT_PRINCIPLE_v2.1.md（原则、边界、数据模型、命令语义）。
-> **生成方法**：以 GLM 版为骨架，对建议文档逐项裁决（附录 A），对历史三轮反馈逐项评估吸收（见 Git 历史提交 feedback-for-v1.0.md），关键事实性 claim 全部溯源核实（附录 B），矛盾点按第一性原理独立裁决（§6）。
+> **文档性质**：ACM 项目的实现参考（事务协议、数据结构、适配矩阵、测试与质量保障、路线图）。
+> **治理规格**：docs/ACM_PROJECT_PRINCIPLE_v2.2.md（原则、边界、数据模型、命令语义）。
+> **核查方法**：市场与竞品事实性 claim 的溯源核实记录见附录 A；核心术语见附录 B。
 
 ---
 
@@ -46,10 +30,8 @@
 12. [实施路线图与验收标准](#12-实施路线图与验收标准)
 13. [风险与对策](#13-风险与对策)
 14. [成功标准](#14-成功标准)
-- [附录 A：前置文档逐项裁决记录](#附录-a前置文档逐项裁决记录)
-- [附录 B：事实核查记录](#附录-b事实核查记录)
-- [附录 C：核心术语表](#附录-c核心术语表)
-- [附录 D：MVP 范围反馈裁决摘要](#附录-dmvp-范围反馈裁决摘要)
+- [附录 A：事实核查记录](#附录-a事实核查记录)
+- [附录 B：核心术语表](#附录-b核心术语表)
 
 ---
 
@@ -94,7 +76,7 @@
 
 ## 3. 市场现状与竞品分析（已核实）
 
-> 关键事实已于 2026-08-17 溯源核实（GitHub 仓库页与官方 README/FAQ 抓取、本机环境实证），核查记录见附录 B。不可考的具体 issue 编号一律不引用。
+> 关键事实已于 2026-08-17 溯源核实（GitHub 仓库页与官方 README/FAQ 抓取、本机环境实证），核查记录见附录 A。不可考的具体 issue 编号一律不引用。
 
 ### 3.1 竞品事实卡
 
@@ -165,7 +147,7 @@
 1. **绝不触碰** MCP、插件、Skills、系统提示词、权限配置、Agent 运行时状态文件。
 2. **绝不写入**闭源 IDE 的私有数据库（如 Cursor/Cline 的 `state.vscdb` SQLite）。没有公开、稳定、可安全修改的配置接口，就不支持该 Agent--不为数量突破原则。
 3. **任何新功能先过判定**：是否属于"模型配置层"（§5.2）？否则一律拒绝，无论需求来自谁。
-4. ACM 的写入只落在**适配器声明的管理路径**上，由安全引擎强制执行（白名单 + 黑名单双重校验，§7.5.1）。
+4. ACM 的写入只落在**适配器声明的管理路径**上，由安全引擎强制执行（白名单校验【已实现】，§7.5.1；黑名单 `protected_paths` 双重校验为触发式升级项，尚未实现，见 §12）。
 
 ---
 
@@ -201,7 +183,7 @@ Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致
 依赖预算与锁定（硬约束）：
 
 - MVP 运行时依赖 ≤ 4 个：`typer`+`rich`（计 1 组）、`tomlkit`（Codex 端 round-trip 写路径）、`ruamel.yaml`（Core Config 解析，未来 Agent 端 YAML round-trip 复用同一依赖），外加可选 `pydantic`。
-- P1 引入 OpenCode（JSONC 注释保留）时，可放宽引入 1 个依赖（此时运行时依赖上限 ≤ 5 个）。**注意（附录 B 实证）**：现有候选 `commentjson` / `jstyleson` 均只在解析时剥离注释、写回即丢失，无法满足 §7.5.4 的注释保留硬要求（`commentjson` 还拖带 `lark-parser` 依赖且实测存在解析缺陷）；注释保留 Writer 预计需自研轻量 JSONC 编辑器（与 D1"适配器即代码"一致），放宽的名额仅用于届时评估确有必要时。
+- P1 引入 OpenCode（JSONC 注释保留）时，可放宽引入 1 个依赖（此时运行时依赖上限 ≤ 5 个）。**注意（附录 A 实证）**：现有候选 `commentjson` / `jstyleson` 均只在解析时剥离注释、写回即丢失，无法满足 §7.5.4 的注释保留硬要求（`commentjson` 还拖带 `lark-parser` 依赖且实测存在解析缺陷）；注释保留 Writer 预计需自研轻量 JSONC 编辑器（与 D1"适配器即代码"一致），放宽的名额仅用于届时评估确有必要时。
 - `pydantic` 引入标准：当 Core Config 校验逻辑超过 ~200 行或校验规则开始互相组合时引入；否则用 dataclass + 显式校验函数。引入即计入依赖预算。
 - 依赖以 uv lock 锁定，CI 中检查 lock 漂移；文件锁用 `fcntl` 标准库实现（MVP 仅 macOS/Linux、无 Win 分支；`msvcrt` 属终局语义）。
 
@@ -227,7 +209,7 @@ Go 的单二进制优势与 D1"适配器即代码"根本冲突，对本项目致
 **结论：回滚数据模型三元分工，各司其职：**
 
 ```
-Journal（事务日志）       = state 区唯一的持久化事务 SSOT，记录每次 ChangeSet 完整历史与字段逆操作来源
+Journal（事务日志）       = state 区唯一的持久化事务 SSOT，记录每次写入的完整 ops 历史与字段逆操作来源
 Snapshot（物理快照）      = 物理原样字节备份（Append-only 单纯追加留存），用于 --hard 灾难恢复与只读审计
 Manifest（所有权视图）    = 内存派生视图（Derived View），从 Journal 与当前配置动态推导，磁盘不单独双写文件
 ```
@@ -252,7 +234,7 @@ Homebrew Tap 与 pyapp 打包各自需要持续 CI 维护成本，触发式后�
 
 裁决依据：
 
-1. **第一性原则：MVP 首先要服务真实用户（我们自己）**。本机实证（附录 B）：实际在用的 Agent 是 Claude Code、Codex、Pi、Gemini CLI、OpenCode；Aider 与 OpenClaw 并未实际使用。
+1. **第一性原则：MVP 首先要服务真实用户（我们自己）**。本机实证（附录 A）：实际在用的 Agent 是 Claude Code、Codex、Pi、Gemini CLI、OpenCode；Aider 与 OpenClaw 并未实际使用。
 2. **架构覆盖充分性以矩阵检验，而非以"选最复杂的 Agent"检验**：
 
    | 架构能力 | 由谁验证 |
@@ -281,11 +263,11 @@ Profile Resolution              # 解析出无环境引用的 ResolvedProfile
         ↓                       #（Phase 2 起：叠加 per-agent 绑定）
 Desired State                   # 该 Agent "应当处于"的字段级状态
         ↓
-Adapter（语义编译）              # 目标 Agent 怎么表达--产出 ChangeSet + 投影告警，不碰文件
+Adapter（语义编译）              # 目标 Agent 怎么表达--产出 PlannedOp 列表 + 投影告警，不碰文件
         ↓
-ChangeSet                       # 具体要改什么（文件、路径、旧值、新值）
+PlannedOp                       # 具体要改什么（文件、路径、新值；不含磁盘现实）
         ↓
-Ownership / Conflict Check      # ACM 有没有资格改（白/黑名单、漂移、写锁）
+Ownership / Conflict Check      # ACM 有没有资格改（白名单，§12 待补黑名单；漂移；写锁）
         ↓
 Pre-commit Fingerprint Check    # 磁盘自读取后未被外部改动（TOCTOU 防护）
         ↓
@@ -294,7 +276,7 @@ Format-specific Writer          # 怎么安全地改（声明保真能力的 rou
 Atomic Write（串行加锁）         # temp + os.replace
         ↓
 Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权推导
-                                #（MVP 无 Journal：以 last_write 记录代替，§12 Slice 1）
+                                #（MVP 无 Journal：以 last_write 记录代替，见 §7.5.1 MVP 变体）
 ```
 
 **两个正式状态概念（CLI 语义的地基）：**
@@ -302,26 +284,28 @@ Journal / Snapshot / Manifest   # 事件追加 + 快照留存 + 内存所有权�
 - **Desired State**：Active Profile（Phase 2 起含 per-agent 绑定）经 Adapter 编译后的字段级期望状态。
 - **Current State**：各 Agent 配置文件中管理字段的实际落盘值。
 
-由此，CLI 动作获得统一语义：`use` = 改变 Desired State（换激活 Profile）并立即收敛全部检测到的 Agent；`apply` = Current -> Desired 的幂等收敛（缺省全部，可指定单个 Agent）；跨 Agent 批量执行时按 Agent 独立运算收敛，单 Agent 阻断不中断其余 Agent，最终统一返回最高严重度退出码；`status` / `diff` = Current vs Desired（及 vs 上次 ACM 写入值）；**drift** = Current ≠ 上次 ACM 写入值（说明有外部改动）。
+由此，CLI 动作获得统一语义：`use` = 改变 Desired State（换激活 Profile）并立即收敛全部检测到的 Agent（可指定单个 Agent）；`apply` = Current -> Desired 的幂等收敛，待实现，见 §12；跨 Agent 批量执行时按 Agent 独立运算收敛，单 Agent 阻断不中断其余 Agent，最终统一返回最高严重度退出码；`status` = Current vs Desired（及 vs 上次 ACM 写入值）；`diff` 待实现，见 §12；**drift** = Current ≠ 上次 ACM 写入值（说明有外部改动）。
 
-**强制约束**：Adapter 只做"编译"（profile -> ChangeSet），**一切磁盘写入由 Safety Engine 统一执行**。适配器物理上无法绕过安全语义。
+**强制约束**：Adapter 只做"编译"（profile -> PlannedOp 列表），**一切磁盘写入由 Safety Engine 统一执行**。适配器物理上无法绕过安全语义。
 
 ### 7.2 组件图
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        acm CLI（typer + rich）                │
-│  init/use/apply/status/diff/history/rollback/release/        │
-│  doctor/import/bind(Phase 2)                                 │
+│  init/status/use/rollback【已实现】                           │
+│  apply/diff/history/release/doctor/import/bind(Phase 2)      │
+│  【待实现，见 §12】                                            │
 ├─────────────────────────────────────────────────────────────┤
 │                      Core（纯逻辑，无 I/O）                    │
 │  CoreConfig 加载校验 · Profile 解析 · Desired State ·         │
-│  ChangeSet 计算 · 幂等判断 · ENV 引用解析                      │
+│  PlannedOp 计算 · 幂等判断 · ENV 引用解析                      │
 ├──────────────────────────┬──────────────────────────────────┤
 │      Safety Engine       │          Adapter Layer           │
 │  原子写回 · 内存所有权推导   │   Adapter Protocol（detect/       │
-│  黑白名单 · 漂移检测        │   config_paths/plan）             │
-│  指纹校验 · 并发锁          ├──────────────────────────────────┤
+│  白名单（黑名单待实现）      │   config_paths/managed_namespaces │
+│  · 漂移检测 · 指纹校验      │   /plan）                        │
+│  · 并发锁                ├──────────────────────────────────┤
 │  快照留存 · 字段级回滚      │   内置适配器（每 Agent 一个模块）    │
 │  密钥掩码                │   claude_code·codex·pi·...        │
 ├──────────────────────────┴──────────────────────────────────┤
@@ -467,14 +451,16 @@ profiles:
 - **裸引用歧义检查是全局的**（不限本 profile 引用的 provider 集），确保同一配置在任何 profile 下的解析结果一致、错误可在加载时一次性穷尽。
 - **跨 profile 复用合法**：不同 profile 的成员解析到同一 `(provider, upstream_id)` 不报错；**同一 profile 内两个 label 解析到同一 `(provider, upstream_id)` 非法**（见 §7.3.3 语义规则），避免 Agent 模型选择器出现无法区分的重复项。
 
-### 7.4 Adapter 契约（Python Protocol）
+### 7.4 Adapter 契约（Python Protocol）【已实现】
+
+每个内置适配器是一个**普通 Python 模块**（不是类实例）：`AGENT_ID`/`DISPLAY_NAME` 为模块级字符串常量，其余四个职责为模块级函数，全部接受可选 `env` 参数（依赖注入，便于测试隔离真实环境变量/HOME）：
 
 ```python
-class Adapter(Protocol):
-    agent_id: str  # "claude_code"
-    display_name: str  # "Claude Code"
+class AdapterProtocol(Protocol):
+    AGENT_ID: str        # "claude_code"
+    DISPLAY_NAME: str    # "Claude Code"
 
-    def detect(self) -> bool:
+    def detect(self, env: Mapping[str, str] | None = None) -> bool:
         ...
         # 本机是否安装该 Agent。判定标准（统一约定）：
         # 可执行文件或配置目录存在 = 已安装（主判据，提升
@@ -482,31 +468,46 @@ class Adapter(Protocol):
         # 配置文件缺失且可执行存在 → 标记"可接管（将创建）"，use 时由 ACM 创建。
         # 探测失败的 Agent：跳过并在结果中汇总告警，不影响其他 Agent。
 
-    def config_paths(self) -> list[Path]:
+    def config_paths(self, env: Mapping[str, str] | None = None) -> list[Path]:
         ...
         # 声明本适配器管理的所有文件路径--Safety Engine 据此统一做快照与加锁。
         # 必须使用统一路径 Helper：环境变量覆盖 -> XDG -> 平台默认 -> 探测，
         # 禁止硬编码绝对路径。
 
-    def plan(self, profile: ResolvedProfile) -> ChangeSet:
+    def managed_namespaces(self) -> list[str]:
         ...
-        # 纯函数：产出字段级变更集 + 投影告警（§7.4.1）。值转换/方言适配/
+        # 声明本适配器合法写入的点路径命名空间（白名单）。Safety Engine 在
+        # write_changeset() 入口对每个 op.path 强制校验，见 §7.5.1。
+
+    def plan(
+        self, profile: ResolvedProfile, env: Mapping[str, str] | None = None
+    ) -> tuple[list[PlannedOp], list[ProjectionWarning]]:
+        ...
+        # 纯函数：产出期望字段值 + 投影告警（§7.4.1）。值转换/方言适配/
         # 多文件协同全部在这里，用普通代码写（100% 内存运算，运行时彻底零物理 I/O）。
+        # 不产出 old/created 等磁盘现实信息——那是 Safety Engine 的职责（见下）。
         # 校验职责 100% 下沉至开发期金样测试套件与 CI 门禁。
 ```
 
 新增一个官方 Agent = 新增约 100–300 行模块 + 一组金样 fixtures（§11）。适配器应用顺序 = 注册表固定顺序（确定性，文档化）。
 
-**ChangeSet 及核心数据结构**（Safety Engine 的输入契约）：
+**核心数据结构**（PlannedOp 是 Adapter → Safety Engine 的契约；FieldOp 是 Safety Engine 内部按磁盘现实扩充后的记录，Adapter 从不构造它）：
 
 ```python
 @dataclass
+class PlannedOp:
+    file: Path
+    path: str      # 格式专属点路径，如 "env.ANTHROPIC_BASE_URL"
+    new: object
+
+
+@dataclass
 class FieldOp:
     file: Path
-    path: str  # 格式专属点路径，如 "env.ANTHROPIC_BASE_URL"
-    old: object | None  # 探测到的当前值（含"不存在"哨兵）
+    path: str
+    old: object | None    # Safety Engine 读取磁盘现实后补齐（含"不存在"哨兵）
     new: object
-    created: bool  # 该路径是否为本次新建
+    created: bool          # 该路径是否为本次新建
 
 
 @dataclass
@@ -514,37 +515,26 @@ class ProjectionWarning:
     field: str
     agent_id: str
     reason: str
-
-
-@dataclass
-class VerifyReport:  # 仅用于开发期金样单测门禁断言，非运行时 Protocol
-    ok: bool
-    errors: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ChangeSet:
-    txid: str  # 事务 ID（journal 主键，rollback --to-tx 引用）
-    agent_id: str
-    profile: str  # 来源 profile
-    ops: list[FieldOp]
-    warnings: list[ProjectionWarning]  # 投影损失告警（§7.4.1），可为空
-    protected_paths: list[str]  # 适配器声明的禁止触碰路径（黑名单）
-    managed_namespaces: list[str]  # 适配器声明的合法写入命名空间（白名单）
 ```
 
-#### 7.4.1 投影损失告警（Projection Loss Warning）
+`managed_namespaces()`（白名单）与 `config_paths()`（文件边界）由适配器直接声明、Safety Engine 直接查询——不经由某个聚合对象中转。**黑名单 `protected_paths` 尚未实现**（触发式升级项，见 §12）；`txid`/事务归属等 Journal 相关字段同理，随 Journal 一并引入。
+
+#### 7.4.1 投影损失告警（Projection Loss Warning）【已实现】
 
 **原则：Desired State 中无法被目标 Agent 表达（或只能降级表达）的字段，必须显式告知用户，绝不静默丢弃。**这与"不静默覆盖外部修改"是同一哲学在两个方向上的体现。
 
-- 适配器在 `plan()` 中对每个无法表达/需要降级的字段产出 `ProjectionWarning(field, agent_id, reason)`，进入 ChangeSet。
-- CLI 在 use/apply/diff/status 输出中聚合展示，例如：
-  `⚠ 1 field cannot be represented by claude_code: models.coding.reasoning.budget_tokens (projection will omit it)`
-- 语义能力（Core Config 里模型是什么）与投影能力（Agent 配置能表达什么）是两个正交维度，均记录在适配矩阵（§8）中；`acm status --verbose` 展示每 Agent 的投影能力摘要。
+- 适配器在 `plan()` 中对每个无法表达/需要降级的字段产出 `ProjectionWarning(field, agent_id, reason)`，作为返回值的一部分（而非塞进某个聚合对象）。
+- CLI 在 `use`/`status` 输出中逐条打印到 stderr，实际文案：
+  `⚠️  Projection warning for [claude_code]: reasoning.budget_tokens - Claude Code settings.json does not support custom budget_tokens`
+  需要一次性说明多个字段时，适配器自行把它们合并进同一条 `ProjectionWarning.reason`（如 `models.unreachable` 聚合告警，见 §7.3.3），而不是由 CLI 层做二次聚合。
+- 语义能力（Core Config 里模型是什么）与投影能力（Agent 配置能表达什么）是两个正交维度，均记录在适配矩阵（§8）中；`acm status --verbose` 展示每 Agent 的投影告警摘要。
 
 ### 7.5 Safety Engine（核心安全机制汇总）
 
 #### 7.5.1 三阶段事务提交（所有写入的唯一通道，原子与 crash-safe）
+
+> 下方是 Journal 上线后的**终局形态**（尚未触发，见 §12）。MVP 期实际运行的是其后
+> 「MVP 简化变体」——已实现、且是当前唯一实现——差异仅在无 Journal/txid/黑名单。
 
 ```
 [入口] 获取全局写入锁 ~/.acm/state/.lock（flock，非阻塞；
@@ -569,17 +559,17 @@ class ChangeSet:
      不等 = 外部并发修改 -> 整体中止并报告 drift，退出码 2，绝不覆盖）
   2. 预备写入：在各目标文件同目录下写入临时文件 <target>.acm_tmp
   3. 逐文件原子替换：执行 os.replace(<target>.acm_tmp, <target>)（POSIX/Win 平台原子操作）
-  4. 提交完成：追加写入 journal（txid、时间、ChangeSet ops）；清理临时文件
+  4. 提交完成：追加写入 journal（txid、时间、本次全部 ops）；清理临时文件
   5. 异常回退：若原子替换前发生任何异常，清理临时文件，原文件与快照均未受损
 ```
 
-**MVP 简化变体（无 Journal 阶段，§12 Slice 1）**：流水线精简为六步（核心五步 + 状态收尾一步）——① 白名单校验 → ② 写前整文件快照（Safety 依磁盘 H0/当前值把适配器产出的纯期望值 ops 补全为含 old/created 的完整字段操作）→ ③ 内存修改与非管节点断言（语义级）→ ④ pre-commit 批处理指纹校验 → ⑤ `os.replace` 原子替换 → ⑥ 覆写 `last_write.json`。黑名单双重校验、txid 与 `--to-tx` 语义随黑名单与 Journal 按触发一并引入（PRINCIPLE v2.1 §7 触发式升级表）。
+**MVP 简化变体【已实现，即当前唯一实现】**：上面的完整三阶段流水线是 Journal 上线后的终局形态；Journal 尚未触发前，`write_changeset()` 实际执行的是精简六步（核心五步 + 状态收尾一步）——① 白名单校验 → ② 写前整文件快照（Safety 依磁盘 H0/当前值把适配器产出的纯期望值 `PlannedOp` 补全为含 old/created 的完整 `FieldOp`）→ ③ 内存修改与非管节点断言（语义级）→ ④ pre-commit 批处理指纹校验 → ⑤ `os.replace` 原子替换 → ⑥ 覆写 `last_write.json`。黑名单双重校验、`txid` 与 `--to-tx` 语义随 Journal 按触发一并引入（PRINCIPLE v2.2 §7 触发式升级表）。
 
-#### 7.5.2 管理字段所有权内存视图（Managed Manifest）与漂移检测
+#### 7.5.2 管理字段所有权与漂移检测
 
-Manifest 在 ACM 中作为**内存派生视图（Derived View）**存在，在运行时从 `journal.jsonl` 事务历史与当前磁盘文件 AST 动态推导，**磁盘不单独双写 `manifest.json` 文件**，彻底消除双写一致性风险。
+**当前实现【已实现】**：MVP 期没有 Journal，也没有独立的 Manifest/`FieldOwnership` 数据结构——每个 Agent 的所有权与上次写入值直接记录在 `~/.acm/state/<agent>/last_write.json`（`LastWrite.fields: dict[str, Any]`，键为 `"<file>::<path>"`，值为 ACM 最后一次写入的具体值；`created_files` 记录本次是否为全新建文件）。`detect_agent_drift()` 直接拿这份记录逐字段回读磁盘现值比对，语义已完整覆盖下方"漂移检测的统一语义"，不依赖任何 Journal 推导。
 
-内存视图核心维护每个管理字段项的：
+**目标形态（Journal 触发后）**：`last_write.json` 升级为运行时从 `journal.jsonl` 事务历史与当前磁盘文件 AST 动态推导的**内存派生视图（Derived View）**，磁盘不单独双写 `manifest.json` 文件，核心维护每个管理字段项的：
 
 ```python
 @dataclass
@@ -589,24 +579,24 @@ class FieldOwnership:
     last_tx: str  # 最后一次写入它的事务 ID
 ```
 
-**漂移检测的统一语义（适用于所有写入类命令）**：任何写入命令（use / apply / rollback / release）在执行前检查管理路径的当前磁盘值：
+**漂移检测的统一语义（适用于所有写入类命令，当前与目标形态均遵循）**：任何写入命令（use / apply / rollback / release）在执行前检查管理路径的当前磁盘值：
 
 - 磁盘值 == ACM 最后写入值：正常继续。
 - 磁盘值 ≠ ACM 最后写入值：**外部修改过，默认阻断**，要求 `--force` 或先 `acm diff` 确认。不存在任何"自动修复漂移"的路径--`apply` 的收敛也必须过这道闸门。
 - **比较范围 = last_write 记录 ∩ 当前 plan() 将产出的 op 路径**：切换到不再产生某字段 ops 的 profile（如无 `default` 的 registration-only profile，或用户已自行改掉默认模型）后，该字段的陈旧 last_write 记录不参与漂移判定——否则跨 profile 切换会被误判 DRIFTED 而阻断后续 use。这与回滚粒度公理一致：漂移判定对象始终是"当前管理字段"，而非历史管理过的全部字段。
 - 若命令解析为 no-op（受管字段全部 `Current == Desired`），则无写入即无覆盖风险——仅 `status`/提示展示漂移，不触发阻断（见 §7.5.8；漂移阻断定位为"写入前的覆盖保护"，非覆盖即无阻断必要）。
 
-Manifest 内存视图的用途：
+所有权信息的用途：
 
-1. **ownership 状态查询**：status / doctor / diff 判断"这个字段现在归不归我管、有没有被动过"。
-2. **`release` 的精确语义**：解除托管并**恢复 pre-ACM 状态**--受管字段按 Journal 回滚至接管前旧值（接管前不存在的字段移除），清理状态记录（指定 `<agent>` 时仅清理对应 `~/.acm/state/<agent>/`；未指定时清理 `~/.acm/state/` 全部 Agent 状态与 active，但 `~/.acm/config.yaml` 作为用户 SSOT 资产绝不自动删除）；若某文件为 ACM 全新创建（`created_by_acm=true`，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。适用于"短期试用后完全退出"。若只是迁移到其他配置管理工具，**无需执行 release**：ACM 非侵入，直接卸载 ACM（建议一并删除 `~/.acm/`，其中快照可能含明文密钥）即可，各 Agent 配置保持最后一次投影状态继续可用。
-3. **幂等判断**：期望值 == current 且磁盘无漂移 -> ChangeSet 为空 -> no-op。
+1. **ownership 状态查询**【已实现，经 last_write】：`status` 判断"这个字段现在归不归我管、有没有被动过"（`doctor`/`diff` 待实现，见 §12）。
+2. **`release` 的精确语义**【待实现，见 §12】：解除托管并**恢复 pre-ACM 状态**--受管字段按 Journal 回滚至接管前旧值（接管前不存在的字段移除），清理状态记录（指定 `<agent>` 时仅清理对应 `~/.acm/state/<agent>/`；未指定时清理 `~/.acm/state/` 全部 Agent 状态与 active，但 `~/.acm/config.yaml` 作为用户 SSOT 资产绝不自动删除）；若某文件为 ACM 全新创建（`created_files` 含其名，如 Pi 的 `models.json`）且不含任何用户手写字段，则执行整文件安全清理。适用于"短期试用后完全退出"。若只是迁移到其他配置管理工具，**无需执行 release**：ACM 非侵入，直接卸载 ACM（建议一并删除 `~/.acm/`，其中快照可能含明文密钥）即可，各 Agent 配置保持最后一次投影状态继续可用。
+3. **幂等判断**【已实现】：期望值 == current 且磁盘无漂移 -> ops 为空 -> no-op。
 
-#### 7.5.3 文件快照（Safety Net，只读审计与灾难恢复）
+#### 7.5.3 文件快照（Safety Net，只读审计与灾难恢复）【已实现，MVP 变体】
 
-- 位置：`~/.acm/state/<agent>/snapshots/<txid>/`。
+- 位置：`~/.acm/state/<agent>/snapshots/<ts>/`（`<ts>` 为写入时刻的可排序 UTC 时间戳；Journal 上线后随事务改为 `<txid>` 命名，语义不变）。
 - **保留策略：Append-only 单纯追加留存**。写路径零轮转计算负担，全量留存以永久对齐 Journal 历史，不设 FIFO 自动删除。若未来用户有强迫症清理诉求，仅通过显式命令（Phase 2+ 可选的 `acm clean`）主动触发，绝不在核心写路径中静默删文件。
-- 用途：`--hard` 灾难恢复、`acm diff --against-snapshot` 审计与取证。
+- 用途：`rollback`/`--hard` 灾难恢复【已实现】、`acm diff --against-snapshot` 审计与取证【待实现，见 §12】。
 
 #### 7.5.4 非破坏性保证等级（按格式与能力声明，诚实定义）
 
@@ -617,42 +607,42 @@ Manifest 内存视图的用途：
 
 **Format Writer 能力声明契约**（每种格式的 Writer 必须声明，实现可替换、契约不变形）：
 
-| Writer | 语义保留 | 注释保留 | 键序保留 | 空白/排版保留 |
-|---|---|---|---|---|
-| JSON | 保证 | n/a | 保证（保序解析） | 缩进风格自动探测匹配；末尾换行保留 |
-| JSONC | 保证 | **要求**（comment-preserving 解析；无法满足则该格式适配器不得交付） | 保证 | 同 JSON + 注释位置保留 |
-| YAML（ruamel rt） | 保证 | fixture 界定 | fixture 界定 | fixture 界定 |
-| TOML（tomlkit） | 保证 | fixture 界定 | fixture 界定 | fixture 界定 |
-| .env | 保证 | 行级（仅整行替换/追加，其余行字节不动） | 保证 | 保证 |
+| Writer | 状态 | 语义保留 | 注释保留 | 键序保留 | 空白/排版保留 |
+|---|---|---|---|---|---|
+| JSON | 【已实现】 | 保证 | n/a | 保证（保序解析） | 缩进风格自动探测匹配；末尾换行保留 |
+| TOML（tomlkit） | 【已实现】 | 保证 | fixture 界定 | fixture 界定 | fixture 界定 |
+| JSONC | 【待实现，P1 OpenCode 适配器验收载体】 | 保证 | **要求**（comment-preserving 解析；无法满足则该格式适配器不得交付） | 保证 | 同 JSON + 注释位置保留 |
+| YAML（ruamel rt） | 【待实现，P1 Aider 适配器验收载体】 | 保证 | fixture 界定 | fixture 界定 | fixture 界定 |
+| .env | 【待实现】 | 保证 | 行级（仅整行替换/追加，其余行字节不动） | 保证 | 保证 |
 
-明确否决的主张："RFC 6902 JSON Patch = 非破坏性"。JSON Patch 若经 `json.dumps` 重序列化落盘，照样摧毁排版与键序。正确路径是 **ChangeSet + 格式专属 round-trip 编辑器**；RFC 6902 至多作为 ChangeSet 的内部表示，不作为写入机制。
+明确否决的主张："RFC 6902 JSON Patch = 非破坏性"。JSON Patch 若经 `json.dumps` 重序列化落盘，照样摧毁排版与键序。正确路径是 **PlannedOp（Adapter 产出）+ 格式专属 round-trip 编辑器（Safety Engine 执行）**；RFC 6902 至多作为内部表示，不作为写入机制。
 
-#### 7.5.5 并发锁（ACM 自身的并发安全）
+#### 7.5.5 并发锁（ACM 自身的并发安全）【已实现】
 
-- 全局独占锁：`~/.acm/state/.lock`，`fcntl`（Unix）/ `msvcrt`（Windows）标准库实现，**非阻塞**。
-- 所有写入类命令（use/apply/rollback/release/import 的写路径）入口获取；占用中立即报错（退出码 2）：`⚠️ Another acm process is holding the write lock.` 不排队、不等待。
+- 全局独占锁：`~/.acm/state/.lock`，`fcntl`（Unix）标准库实现，**非阻塞**。MVP 明确仅 macOS/Linux（D2）：不存在 Windows 分支；`msvcrt` 实现留待真正支持 Windows 时的终局语义，当前不构成 MVP 承诺的一部分。
+- 所有写入类命令（`use`/`init`/`rollback`）入口获取；占用中立即报错（退出码 2）：`⚠️ Another acm process is holding the write lock. Operation aborted.` 不排队、不等待。
 - 目标：覆盖"脚本并行调用 / 双终端同时操作"导致的清单-磁盘竞态。
 
-#### 7.5.6 崩溃安全与恢复（Crash Safety）
+#### 7.5.6 崩溃安全与恢复（Crash Safety）【已实现，MVP 变体】
 
 单机配置写入极其轻量（5~20ms）。ACM 通过**“写前快照留存 + 原子重命名（os.replace）”**在底层消除中间损坏态，无需引入重量级 WAL/COMMITTING 状态机：
 
 - **写前 Snapshot 留存**：动刀前原样备份目标文件，永远拥有最后一份未篡改底板；
 - **原子重命名**：新内容先完整写入临时文件 `<target>.acm_tmp`，再通过 `os.replace` 瞬时替换，文件系统层面不存在“写入一半”的中间损坏态；
-- **启动检查**：启动时若发现残留 `.acm_tmp` 临时文件直接安全清理（静默内务，无需用户感知）。
-- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `last_write` 写入之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未记入 last_write（每个文件自身仍完整；Journal 上线后为未记入 journal）。下次运行时未记入的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm rollback` 从快照原样复原（apply/diff 上线后可用 `acm apply --force` 确认收敛）。
+- **启动检查**：每次写入前先静默清理 state 目录与所有适配器管理目录下残留的 `*.acm_tmp` 临时文件（无需用户感知）。
+- **多文件/多步骤提交间隙的极端中断**（如 `os.replace` 之后但 `last_write` 写入之前被 SIGKILL）：发生窗口仅毫秒级，不为此引入恢复状态机；最坏后果是部分文件已更新或未记入 last_write（每个文件自身仍完整；Journal 上线后为未记入 journal）。下次运行时未记入的磁盘新值会被漂移检测识别为 `DRIFTED` 安全阻断，用户通过 `acm rollback` 从快照原样复原（`apply`/`diff` 上线后可用 `acm apply --force` 确认收敛）。
 
-#### 7.5.7 密钥与敏感信息全链路防护
+#### 7.5.7 密钥与敏感信息全链路防护【已实现】
 
-- **文件权限**：`~/.acm/state/`（含 journal / snapshots，因其含原始配置与明文密钥）与日志目录强制 `0700`/文件 `0600`，创建即设置。
-- **输出掩码**：`diff` / `status --verbose` / `--json` 输出中，命中敏感路径规则（api_key / token / auth 类字段）的值默认掩码（仅显示首尾 3 位）；`--show-secrets` 显式 opt-in 才输出明文。
+- **文件权限**：`~/.acm/state/`（含 snapshots 与 last_write，因其含原始配置与明文密钥）与日志目录强制 `0700`/文件 `0600`，创建即设置。
+- **输出掩码**：`status --verbose`、`use --dry-run` 预览、以及漂移/安全阻断提示中，命中敏感路径规则（api_key / token / auth / secret / password / credential 类字段）的值默认掩码（保留首尾各 3 位，短值整体掩码为 `***`）；`--show-secrets` 显式 opt-in 才输出明文。未解析的 `${VAR}` 引用本身不掩码（不是密钥值）。`diff`/`--json` 上线后沿用同一掩码规则（见 §12）。
 - credential 引用模型见 §7.3.1--源头上减少明文落盘。
 
-#### 7.5.8 幂等性
+#### 7.5.8 幂等性【已实现】
 
-重复 `acm use <同一 profile>`：ChangeSet 与当前值比对后为空 -> no-op，退出码 0，不产生新快照。判定顺序：① 所有受管字段 `Current == Desired` → no-op（即使存在漂移也仅提示不阻断，exit 0）；② 存在 `Current != Desired` 且其中含漂移字段 → 阻断（exit 2）；③ 无漂移且 `Current != Desired` → 正常投影收敛。
+重复 `acm use <同一 profile>`：期望字段值与磁盘当前值比对后全部相同 -> no-op，退出码 0，不产生新快照。判定顺序：① 所有受管字段 `Current == Desired` → no-op（即使存在漂移也仅提示不阻断，exit 0）；② 存在 `Current != Desired` 且其中含漂移字段 → 阻断（exit 2）；③ 无漂移且 `Current != Desired` → 正常投影收敛。
 
-### 7.6 Agent 状态机（status 的正式模型）
+### 7.6 Agent 状态机（status 的正式模型）【已实现】
 
 每个 Agent 在任一时刻处于且仅处于一个状态，CLI、`--json`、doctor、CI 共用同一枚举：
 
@@ -670,7 +660,7 @@ Manifest 内存视图的用途：
 >
 > MVP 阶段全量实现六态判定逻辑（判定成本极低，且 DRIFTED 在写路径中本就必须区分——阻断与否取决于差异来自外部还是 ACM 侧），不做枚举缩减。
 
-### 7.7 目录布局
+### 7.7 目录布局【已实现，MVP 变体】
 
 ```
 ~/.acm/
@@ -693,21 +683,21 @@ Manifest 内存视图的用途：
 
 ## 8. Agent 适配矩阵
 
-> 标注 ✔ 的为已核实事实（本机实证或官方文档，附录 B）；其余以实现时金样校准为准。本矩阵是**活文档资产**，随适配器开发持续充实。每行记录两个维度：**投影能力**（能写什么）与**语义能力映射**（怎么转译、什么无法表达）。
+> 标注 ✔ 的为已核实事实（本机实证或官方文档，附录 A）；标注【已实现】的适配器已在 `src/acm/adapters/` 落地并有金样测试覆盖（§11.1）；其余以实现时金样校准为准。本矩阵是**活文档资产**，随适配器开发持续充实。每行记录两个维度：**投影能力**（能写什么）与**语义能力映射**（怎么转译、什么无法表达）。"保护字段"一栏是适配器**未纳入白名单**因而不会被触碰的字段（当前靠白名单遗漏天然保护；显式黑名单 `protected_paths` 双重校验尚未实现，见 §12）。
 
-### P0（Phase 1）
+### P0（Phase 1）【已实现，三者均已交付】
 
-| Agent | 目标文件 | 格式 | ACM 写入字段 | 保护字段（黑名单） | 架构验证点 / 投影能力 |
+| Agent | 目标文件 | 格式 | ACM 写入字段 | 保护字段（当前靠白名单遗漏保护） | 架构验证点 / 投影能力 |
 |---|---|---|---|---|---|
-| **Claude Code** | `~/.claude/settings.json` ✔ | JSON | `env.ANTHROPIC_BASE_URL`、`env.ANTHROPIC_AUTH_TOKEN`（或 `ANTHROPIC_API_KEY`）、`model`、reasoning -> `effortLevel` 类字段 ✔ | `permissions`、`hooks`、`enabledPlugins`、`statusLine`、`tui` 等一切非模型字段；**绝不碰 `~/.claude.json`** ✔ | env 块注入；高密度非管字段保护；热切换（WARN 级）✔；无法表达 reasoning budget_tokens -> 投影告警 |
-| **Codex** | `~/.codex/config.toml` ✔（auth.json 为**备选**：本机实证其为 Codex 运行态 OAuth 文件，默认 `env_key` 单文件方案） | TOML（+ JSON 备选） | 顶层 `model`、`model_reasoning_effort` ✔、`model_providers.<id>` 表（base_url/wire_api/**env_key=环境变量名**） | `mcp_servers`（本机实证含大量带注释条目 ✔）、`features`、`memories`、`tui`、`notify`、`sandbox` | tomlkit round-trip（注释密集 ✔）；env_key 单文件投影（待实证）；双文件事务降为备选机制（Safety Engine 多文件能力保留） |
-| **Pi** | `~/.pi/agent/models.json`（用户自定义文件，官方文档 ✔；不存在则创建）+ `~/.pi/agent/settings.json` ✔ | JSON | models.json：`providers.<name>`（baseUrl / api 方言 ✔ / apiKey / headers ✔ / models[]：id、contextWindow、maxTokens、compat、thinkingLevelMap ✔）；settings.json：`defaultProvider`、`defaultModel`、`defaultThinkingLevel` ✔ | **`models-store.json`（pi 内部注册表，绝不写入）** ✔、`trust.json`、`auth.json`、extensions/skills | 注册式投影；方言（`openai-completions`/`anthropic-messages` ✔）+ compat/thinking level 映射，与 Core Config 同构度最高；**模型池（§7.3.3）**按 provider 分组，一次性把全部池成员注册进 `models[]`，唯一原生支持类型 I 池投影的 P0 Agent |
+| **Claude Code** | `~/.claude/settings.json` ✔ | JSON | `env.ANTHROPIC_BASE_URL`、`env.ANTHROPIC_AUTH_TOKEN`、`model`、reasoning -> `effortLevel` 类字段 ✔ | `permissions`、`hooks`、`enabledPlugins`、`statusLine`、`tui` 等一切非模型字段；**绝不碰 `~/.claude.json`** ✔ | env 块注入；高密度非管字段保护；无法表达 reasoning budget_tokens/context_window -> 投影告警；无 `default` 或存在无法投影的其他成员 -> `profile.default`/`models.unreachable` 告警（§7.3.3） |
+| **Codex** | `~/.codex/config.toml` ✔（`auth.json` 未接入：本机实证其为 Codex 运行态 OAuth 文件，采用 `env_key` 单文件方案） | TOML | 顶层 `model`、`model_reasoning_effort` ✔、`model_providers.<id>` 表（`name`/`base_url`/`wire_api`/**`env_key`=环境变量名**） | `mcp_servers`（本机实证含大量带注释条目 ✔）、`features`、`memories`、`tui`、`notify`、`sandbox` | tomlkit round-trip（注释密集 ✔）；`env_key` 单文件投影；非 `${VAR}` 明文密钥告警并回退 `OPENAI_API_KEY` |
+| **Pi** | `~/.pi/agent/models.json`（用户自定义文件，官方文档 ✔；不存在则创建）+ `~/.pi/agent/settings.json` ✔ | JSON | models.json：`providers.<name>`（baseUrl / api 方言 ✔ / apiKey / headers ✔ / models[]：id、name、contextWindow、maxTokens、input）；settings.json：`defaultProvider`、`defaultModel`、`defaultThinkingLevel` ✔ | **`models-store.json`（pi 内部注册表，绝不写入）** ✔、`trust.json`、`auth.json`、extensions/skills | 注册式投影；方言（`openai-completions`/`anthropic-messages`/`openai-responses` ✔）；`models`/`default` 正交注册（§7.3.3）；**恒注册 default**（不在 `models:` 中也生成单条目组）从构造上消除 settings.json 悬空引用，唯一原生支持"扁平模型池"投影的 P0 Agent |
 
-### P1（Phase 2）
+### P1（Phase 2）【规划中，尚无适配器落地】
 
 | Agent | 目标文件 | 格式 | 要点 |
 |---|---|---|---|
-| **Aider**（架构压力测试） | `~/.aider.conf.yml` + `~/.aider.model.metadata.json` | YAML + JSON | 角色模型（main/weak/editor）；YAML 改动联动派生 JSON 元数据--ruamel round-trip + 跨文件派生逻辑的最难用例 |
+| **Aider**（架构压力测试） | `~/.aider.conf.yml` + `~/.aider.model.metadata.json` | YAML + JSON | 角色模型（main/weak/editor）；YAML 改动联动派生 JSON 元数据--ruamel round-trip + 跨文件派生逻辑的最难用例；验收 YAML Writer |
 | **Gemini CLI** | `~/.gemini/settings.json` 等 | JSON | env 块 + 模型选择；路径细节金样校准 |
 | **OpenCode** | `~/.config/opencode/opencode.json` ✔（本机存在） | JSONC | provider/model 配置；**JSONC 注释保留 Writer 的验收载体**（§7.5.4） |
 
@@ -722,6 +712,8 @@ Manifest 内存视图的用途：
 ---
 
 ## 9. VMR 协同
+
+> 探测与并入 `init` 提案【已实现】；`import vmr`/`use-vmr`/`vmr status` 待实现，见 §12。
 
 **定位：VMR 是第一方集成，不是架构依赖。ACM 因 VMR 而诞生，但脱离 VMR 仍然是完整产品。**
 
@@ -763,9 +755,9 @@ acm doctor                  # 【触发式后置：真实故障无法用 status 
                             # 明文密钥告警 + 修复建议
 
 # ── 核心操作（Desired State 收敛）─────────────────────────
-acm use <profile> [--dry-run] [--force]
-                            # 设为激活 profile 并投影到全部已检测 Agent（遇漂移默认阻断，--force 覆盖）；
-                            # 若只需收敛单个 Agent，请使用 acm apply <agent>
+acm use <profile> [<agent>] [--dry-run] [--force]
+                            # 【MVP】设为激活 profile 并投影；不指定 agent 则投影到全部已检测
+                            #   Agent（遇漂移默认阻断，--force 覆盖），指定则仅投影该 Agent
 acm apply [<agent>] [--dry-run] [--force]
                             # 【触发式后置：手改 config.yaml 成为常规动作或 bind 上线】
                             # 幂等收敛 Current -> Desired；漂移同样默认阻断
@@ -777,15 +769,14 @@ acm diff [<agent>] [--against desired|last-write|snapshot]
                             # 若目标 Agent 为 UNMANAGED，默认执行 Dry-run 虚拟比对（展示当前
                             #   磁盘原始配置 vs 接管后的预期变更，并标注 [DRY-RUN / UNMANAGED]）
 acm history [<agent>]       # 【触发式后置：随 Journal 一并引入】事务时间线：txid、时间、来源 profile、命令、状态
-acm rollback [<agent>] [--to-tx <txid>] [--hard [--snapshot <id>]] [--force]
-                            # 【MVP 仅交付整文件恢复：恢复目标 = 更新前 last_write.backup_id
-                            #   指向的快照（非"最新"；undo-undo 见 Action Plan §4.2）；字段级回滚与
-                            #   --to-tx/--snapshot 参数随 Journal 触发引入】
-                            # 默认字段级回滚：逆序回滚最后一个事务（--to-tx <txid> 则逆序回滚
-                            #   至该事务之后的状态）--基于 journal，粒度是字段
-                            # --hard 灾难恢复：整文件快照还原（--snapshot <id> 恢复指定快照，
-                            #   缺省为最新快照——终局 Journal 时代语义，与 MVP 的 backup_id 目标不同）
-                            # 参数名显式分离（--to-tx vs --snapshot），杜绝多态混淆
+acm rollback [<agent>] [--dry-run] [--force]
+                            # 【MVP，整文件恢复】恢复目标 = last_write.backup_id 指向的快照
+                            #   （非"最新"；若 backup_id 缺失回退到该 Agent 最新快照）。
+                            #   ACM 创建的文件按 sentinel 标记归档为 <file>.acm_orphaned.<id>
+                            #   而非直接删除；恢复前先对当前磁盘状态打一次快照（undo-undo
+                            #   链，已实现），故 rollback 本身也可再被 rollback 撤销一次。
+                            # --to-tx/--snapshot/--hard 等字段级回滚参数随 Journal 触发引入
+                            #   （见 §12），届时参数名与 --hard 分层语义仍按此前设计执行
 acm release [<agent>] [--force]
                             # 【触发式后置：试用后完全退出并恢复旧值的真实诉求】
                             # 解除托管并恢复 pre-ACM 状态（§7.5.2）：受管字段按 Journal 回滚至
@@ -807,7 +798,7 @@ acm profile create <name>               # Phase 2（交互式/模板）
 acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP 仅全局激活）
 
 # ── 全局选项 ───────────────────────────────────────────
---dry-run                   # 【MVP】只计算 ChangeSet 并展示，不写任何文件
+--dry-run                   # 【MVP】只计算期望 ops 并展示，不写任何文件
 --force                     # 【MVP】覆盖漂移阻断 / init 重生
 --verbose                   # DEBUG 级日志（stderr + ~/.acm/logs/）
 --no-color                  # 【MVP】输出管道友好
@@ -821,28 +812,33 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 |---|---|
 | `0` | 成功（含幂等 no-op） |
 | `1` | 配置错误：语法 / schema 校验失败 / ENV 引用未解析 |
-| `2` | 安全阻断：漂移阻断、写入锁被占、黑白名单拦截 |
+| `2` | 安全阻断：漂移阻断、写入锁被占、白名单拦截（黑名单 `protected_paths` 尚未实现，见 §12） |
 | `3` | I/O 失败：权限不足、写入失败、磁盘错误 |
-| `4` | 未找到：Agent / profile / txid / snapshot |
+| `4` | 未找到：Agent / profile / snapshot（`txid` 随 Journal 引入） |
 | `130` | 用户中断（SIGINT） |
 
 流约定：正常结果走 stdout；错误、警告、日志走 stderr。
 
-### 10.3 标准交互文案
+### 10.3 标准交互文案【已实现】
 
-- 漂移阻断：`⚠️ Drift detected on <agent>: managed field '<path>' was changed externally (expected '<x>', found '<y>'). Run 'acm diff <agent>' or use --force.`
-- 写入锁：`⚠️ Another acm process is holding the write lock.`
-- 投影损失：`⚠ N field(s) cannot be represented by <agent>: <path>… (projection will omit them)`
+- 写入锁：`⚠️ Another acm process is holding the write lock. Operation aborted.`
+- 漂移阻断（`use`，每个漂移字段各一行）：
+  ```
+  ⚠️  Safety Block: external drift detected in [<display_name>].
+     Field '<field>': expected '<expected>', found '<found>'
+     Use --force to overwrite external changes or acm diff to inspect.
+  ```
+  （最后一行提及的 `acm diff` 目前尚未实现，是已知的措辞超前，`doctor` 上线前只能靠上面列出的具体字段值人工核对）
+- 投影告警（逐条打印到 stderr，见 §7.4.1）：`⚠️  Projection warning for [<agent_id>]: <field> - <reason>`
 
 ---
 
 ## 11. 测试与质量保障
 
-> **MVP 期测试集**（对外 PyPI 发布前补齐至下方全量门禁）：每适配器一份真实感夹具（带注释、
-> 带 MCP 配置、带私有字段）+ 正向断言 a/b/c（受管字段等于 Desired / 夹具内未管键与注释存活 /
-> rollback 回到写前整文件）；两个最低限负面用例（白名单外路径拦截且文件零变更、ENV 引用缺失
-> 零写盘中止）；提交间隙 SIGKILL 与双进程抢锁各一例；JSON/TOML Writer round-trip 单测先于
-> 适配器交付。依赖 Journal 的断言（如"事务中途 Agent 写入仍存活"）随 Journal 一并引入。
+> 【已实现】本节全部要求当前均有对应测试。全量门禁已交付并在 `tests/` 落地：`tests/golden/`（每适配器一份金样 fixture + 正向断言 a/b/c）、
+> `tests/fault/`（SIGKILL、锁竞争等故障注入）、`tests/unit/`（Writer round-trip、schema 校验、
+> resolve 等纯逻辑）、`tests/integration/`（CLI 端到端）。依赖 Journal 的断言（如"事务中途
+> Agent 写入仍存活"）随 Journal 一并引入，届时补充。
 
 ### 11.1 金样回归测试（Golden File Suite)--适配器开发的基础设施
 
@@ -854,61 +850,59 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 2. **Non-destructive**：按 §7.5.4 的格式保证等级分别断言--未管理节点语义级不变（解析树 diff，硬承诺）；注释/键序/空白按 fixture 界定的词法承诺断言。
 3. **Rollback**：字段级回滚后管理字段恢复旧值（MVP 无 Journal，rollback 为整文件恢复）；apply 与 rollback 之间**模拟 Agent 写入状态**后该状态仍存活；回滚后文件 SHA-256 与写前字节一致。
 
-**负面与故障注入用例（安全机制的刚性验证）**：
+**负面与故障注入用例（安全机制的刚性验证，均已落地）**：
 
-- 故意让 op 触碰保护路径 -> 断言拦截（退出码 2）且文件零变更；
+- 故意让 op 触碰白名单外路径 -> 断言拦截（退出码 2）且文件零变更（黑名单 `protected_paths` 用例待其实现后补充）；
 - 多文件事务中途注入失败（原子替换前）-> 原文件零变更、临时文件清理无残留；
-- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，last_write 存在但字段不一致时触发漂移安全阻断（last_write 缺失属首次接管场景，不阻断、重投即可），由 `acm rollback` 从快照收敛（apply 上线后可用 `acm apply --force`）；
+- 提交间隙 SIGKILL -> 磁盘无写一半文件（任一文件要么旧要么新），残留 `.acm_tmp` 被下次启动清理，last_write 存在但字段不一致时触发漂移安全阻断（last_write 缺失属首次接管场景，不阻断、重投即可），由 `acm rollback` 从快照收敛；
 - 提交前外部篡改文件（指纹不匹配）-> 整体中止，无覆盖；
 - ENV 引用缺失 -> 任何写入发生前硬中止；
-- 双进程并发写 -> 锁竞争一方退出码 2，无交错写入；
-- 磁盘满 / 权限错误（可行环境下注入）-> 原子写失败且原文件完好。
+- 双进程并发写 -> 锁竞争一方退出码 2，无交错写入。
 
-### 11.2 Schema 漂移检测
+### 11.2 Schema 漂移检测【部分实现】
 
-- 金样 fixtures 同时充当上游 schema 哨兵：Agent 升级后 CI 全量回归即可发现字段布局变化。
-- `acm doctor` 在用户侧主动检测落盘异常（管理路径读不到期望结构 = 上游漂移信号，状态置 `ERROR`）。
+- 金样 fixtures 同时充当上游 schema 哨兵：Agent 升级后本地全量回归即可发现字段布局变化【已实现，人工触发】。
+- `acm doctor` 在用户侧主动检测落盘异常（管理路径读不到期望结构 = 上游漂移信号，状态置 `ERROR`）【待实现，见 §12】；目前 `status` 已能在配置文件语法损坏时给出 `ERROR` 状态（`compute_agent_status()` 的语法读取步骤），但没有更细粒度的上游字段布局漂移检测。
 
-### 11.3 CI 策略
+### 11.3 CI 策略【部分实现——本地全量门禁已具备，自动化 CI 流水线尚未搭建】
 
-- 每适配器独立测试目录（漂移不跨 Agent 传染）；
-- Format Writer round-trip 单测（JSON / JSONC / YAML / TOML / .env）先于任何适配器交付；
-- Safety Engine 事务测试（失败注入 / 崩溃恢复 / 锁）；
-- uv lock 漂移检查。
+- 每适配器独立测试目录（漂移不跨 Agent 传染）【已实现，`tests/golden/`/`tests/fixtures/` 按 Agent 分目录】；
+- Format Writer round-trip 单测（当前 JSON / TOML；JSONC / YAML / .env 随对应适配器一并交付）先于适配器交付【已实现，`tests/unit/test_writers_*.py`】；
+- Safety Engine 事务测试（失败注入 / 崩溃恢复 / 锁）【已实现，`tests/fault/`】；
+- uv lock 漂移检查【待实现】；**`.github/workflows/` 目前只有 `release.yml`（打 tag 时构建并发布 PyPI），尚无在每次 push/PR 上自动跑 `pytest`/`ruff`/`mypy` 的持续集成流水线**——三门禁目前依赖开发者本地手动执行（见 CLAUDE.md Development 一节），是本文档发现的一处真实缺口，已并入 §12 路线图。
 
 ---
 
 ## 12. 实施路线图与验收标准
 
-> 路线图采用"分片交付 + 触发式升级"（PRINCIPLE v2.1 §7 里程碑分级兑现原则）。本节兼作
-> **MVP 范围定义**，不再单独创建 MVP 范围文档；本轮裁决依据见附录 D。
+> 路线图采用"MVP 基线 + 触发式升级"（PRINCIPLE v2.2 §7 里程碑分级兑现原则）。本节兼作
+> **MVP 范围定义**，不再单独创建 MVP 范围文档。以下四条准入护栏对所有阶段的范围裁剪都生效，
+> 不因某项功能"看起来可以简化"而放行：**不砍漂移默认阻断**、**不把投影损失告警移出运行时路径
+> 改为纯文档说明**、**不允许适配器绕过 Safety Engine 自行读写磁盘**、**不缩减 §7.6 的六态状态机**——
+> 四者均属公理级语义，任何提案触碰其一直接拒绝，无论理由是什么。
 
-### Phase 1 · Slice 1（MVP 首批）
+### MVP 基线【已交付】
 
-**成功标准（唯一）**：VMR 或直连端点用户，从安装到 Claude Code + Codex 指向同一套模型，
-**≤ 3 条命令、零手改 Agent 配置文件**。
+**成功标准（唯一，已达成）**：VMR 或直连端点用户，从安装到 Claude Code + Codex + Pi 三个 Agent
+全部指向同一套模型，**≤ 3 条命令、零手改 Agent 配置文件**。
 
-| 维度 | 范围 |
-|---|---|
-| 命令 | `init`（含 VMR 探测与提案确认）/ `use <profile>` / `status` / `rollback`；全局旗标 `--dry-run` `--force` `--no-color` `--show-secrets` |
-| 数据 | `~/.acm/config.yaml`（providers 内嵌 models + profiles 两层）+ `state/active` + `state/<agent>/last_write.json`（存受管字段值而非哈希）+ `state/<agent>/snapshots/<ts>/`（Append-only） |
-| 安全底线（不可降级） | 白名单路径表封闭写入；写前整文件快照；tempfile + `os.replace` + 非阻塞 flock；pre-commit 指纹校验；`${ENV}` 硬失败零写盘；**受管字段漂移检测 + 默认阻断（退出码 2）+ --force 显式覆盖**（例外：no-op 且全部受管字段 Current==Desired 时仅提示不阻断，见 §7.5.8）；投影损失 stderr 单行告警并在 status 汇总；输出掩码；state 目录 0700 |
-| Writer | JSON = stdlib 保序解析（键序天然保持、语义无损）；TOML = tomlkit round-trip（注释免费保留）；YAML/JSONC 随对应适配器后置 |
-| 架构形态 | 适配器 = 数据驱动的映射表（路径表）+ 少量普通代码，产出纯数据 ops 与未映射告警；磁盘写入走唯一通道函数（白名单校验 → 快照 → 内存修改与非管节点断言 → 指纹校验 → 原子替换 → 记 last_write）。不做正式 Protocol 类层级、不设 ChangeSet 子系统命名，契约等价于 PRINCIPLE §3.4（适配器只编译，运行时零 I/O） |
-| 适配器 | **Claude Code -> Codex** 分片交付（Codex 承担"新建 TOML `model_providers` 表"的第二种形状） |
-| 质量条 | 见 §11 MVP 期测试集 |
+| 维度 | 范围 | 状态 |
+|---|---|---|
+| 命令 | `init`（含 VMR 探测与提案确认）/ `use <profile> [<agent>]` / `status [<agent>]` / `rollback [<agent>]`；全局旗标 `--dry-run` `--force` `--no-color` `--show-secrets` `--verbose` | 【已实现】 |
+| 数据 | `~/.acm/config.yaml`（providers 内嵌 models + profiles 两层，schema v3）+ `state/active` + `state/<agent>/last_write.json`（存受管字段值）+ `state/<agent>/snapshots/<ts>/`（Append-only） | 【已实现】 |
+| 安全底线（不可降级） | 白名单路径表封闭写入；写前整文件快照；tempfile + `os.replace` + 非阻塞 flock；pre-commit 指纹校验；`${ENV}` 硬失败零写盘；受管字段漂移检测 + 默认阻断（退出码 2）+ `--force` 显式覆盖（例外见 §7.5.8）；投影损失 stderr 逐条告警；输出掩码；state 目录 0700 | 【已实现】（黑名单 `protected_paths` 双重校验不在此列，见下方触发式升级） |
+| Writer | JSON = stdlib 保序解析；TOML = tomlkit round-trip | 【已实现】（YAML/JSONC/.env 随对应 P1 适配器交付） |
+| Adapter 契约 | 模块级 `AGENT_ID`/`DISPLAY_NAME` + 四个纯函数（`detect`/`config_paths`/`managed_namespaces`/`plan`），`plan()` 返回 `(list[PlannedOp], list[ProjectionWarning])`，磁盘写入唯一通道 `write_changeset()`（白名单校验 → 快照 → 内存修改与非管节点断言 → 指纹校验 → 原子替换 → 记 last_write，§7.5.1 MVP 变体） | 【已实现，见 §7.4】 |
+| 适配器 | **Claude Code + Codex + Pi** 三件套全部交付 | 【已实现】 |
+| 打包分发 | PyPI Trusted Publishing 机制已验证可用（`v0.1.1`/`v0.1.2` 已实际发布）；当前 `pyproject.toml` 版本 `0.3.0`（含 schema v3 等后续特性）**尚未打 tag 发布** | 【机制已实现；当前版本待发布】 |
+| 质量条 | 见 §11（本地全量门禁已具备；自动化 CI 流水线待补，见下） | 【已实现（本地）；CI 自动化待实现】 |
 
-### Phase 1 · Slice 2（MVP 收尾）
-
-- Pi 适配器（注册式投影形态 + 全新建文件场景验证），补齐 P0 三件套。
-- PyPI 发布（uvx / uv tool install / pipx 可用）。内部先行以 pip -e/uvx 跑通 Slice 1。
-
-**硬性 MVP 验收标准（全部可量化）**：
+**MVP 验收标准（全部可量化，均已达成）**：
 
 1. 全新机器 VMR 场景：`acm init`（交互确认）-> `acm use daily` 后，3 个 P0 Agent 全部正确指向 VMR 虚拟模型；全程 ≤ 3 条命令、零手工编辑。
-2. 非破坏性：对带注释/MCP 配置/私有字段的夹具，连续 10 次 use/rollback 循环，未管键与注释保持不变。
-3. 可逆性：任意写入后 `rollback` 整文件回到写前字节；金样 a/b/c 断言全绿。
-4. 可靠性：写入中途 SIGKILL -> 磁盘无写一半损坏文件，残留临时文件下次启动清理；双进程抢锁一方退出码 2。
+2. 非破坏性：对带注释/MCP 配置/私有字段的夹具，连续多次 use/rollback 循环，未管键与注释保持不变（`tests/golden/`）。
+3. 可逆性：任意写入后 `rollback` 恢复到写前字节；金样 a/b/c 断言全绿。
+4. 可靠性：写入中途 SIGKILL -> 磁盘无写一半损坏文件，残留临时文件下次启动清理；双进程抢锁一方退出码 2（`tests/fault/`）。
 5. 幂等性：连续两次相同 `acm use` 第二次为 no-op（退出码 0），且不产生新快照。
 6. 防护：op 触碰白名单外路径被拦截（退出码 2）且文件零变更；ENV 引用缺失在任何写盘前整体中止。
 7. 漂移：外部修改受管字段 -> `use` 阻断并给出 expected/found 具体值；`--force` 显式覆盖后才收敛。
@@ -916,19 +910,26 @@ acm bind <profile> <agent>             # Phase 2：Agent 级持久绑定（MVP �
 
 ### 触发式升级（自 MVP 基线迈向终局语义，不排期）
 
-按 PRINCIPLE v2.1 §7 触发式升级表执行；触发后按本文档既有规格引入对应能力：
-Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 分层）、`apply`、`diff`、
-`doctor`、`history`、`release`、`import vmr`、显式 protected_paths 黑名单与双重校验。
+按 PRINCIPLE v2.2 §7 触发式升级表执行；触发后按本文档既有规格引入对应能力：
 
-### Phase 2：生态扩展（目标 +1–2 周）
+- Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 分层、`<txid>` 快照命名，见 §7.5.1/§7.5.2/§7.5.3）
+- `apply`（单 Agent 幂等收敛，`手改 config.yaml 成为常规动作` 触发）
+- `diff`（`--dry-run` 与漂移消息不足以支撑排查工作流触发；§10.3 已有一处消息提前引用了它，是本轮核对发现的措辞超前）
+- `doctor`（真实故障无法用 `status` 与报错定位触发；§11.2 的上游 schema 漂移主动检测依赖它）
+- `history`（随 Journal 一并引入）
+- `release`（试用后完全退出并恢复旧值的真实诉求触发）
+- `import vmr` / `acm vmr status` / `acm use-vmr`（VMR 模型列表常变、反复增量合并成为痛点触发；MVP 阶段以 `init` 探测 + `init --force` 重生成解决）
+- 显式 `protected_paths` 黑名单与双重校验（适配器面扩大到白名单封闭集不足以表达时触发）
+- **CI 自动化流水线**（`.github/workflows/` 新增在 push/PR 上跑 `pytest`/`ruff`/`mypy`/`uv lock` 漂移检查的 workflow——本轮核对发现的真实缺口，测试与门禁本身已完备，只是没有自动触发）
 
-- 适配器：**Aider（架构压力测试）**、Gemini CLI、OpenCode（JSONC Writer 验收载体）
+### Phase 2：生态扩展（尚未开始）
+
+- 适配器：**Aider（架构压力测试，验收 YAML round-trip Writer）**、Gemini CLI、OpenCode（验收 JSONC Writer）
 - 角色模型映射（main/weak/editor；primary/cheap）
-- **`acm bind`：Agent 级持久绑定**（全局激活 + 每 Agent 覆盖的二级 Desired State；单 Agent 收敛由 `acm apply <agent>` 承载，两者概念正交不混淆）
-- `acm profile list/show`、`acm use-vmr`、`acm vmr status`、`acm config migrate`
+- **`acm bind`：Agent 级持久绑定**（全局激活 + 每 Agent 覆盖的二级 Desired State；单 Agent 收敛已由 `acm use <profile> <agent>` 承载，`bind` 解决的是"持久记住每个 Agent 该用哪个 profile"，两者概念正交不混淆）
+- `acm profile list/show/create`、`acm config migrate`
 - Adapter Protocol 贡献文档 + 适配器模板（社区适配器一律源码内置 + 金样门禁，不做运行时加载，D7）
 - `--json` 机器可读输出（状态机枚举直出）
-- CI 全量金样回归 + 适配矩阵活文档充实（投影能力 / 无法表达 / 需转换清单）
 
 ### Phase 3：分发与社区（持续，触发式）
 
@@ -950,9 +951,9 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 | Agent 运行中写文件覆盖 ACM 变更 | 低 | 中 | 漂移检测 + 指纹校验 + 快照兜底（三层防御） |
 | ACM 自身并发 / 崩溃导致中间状态 | 低 | 高 | 全局写入锁 + 写前快照 + 原子替换（无损坏中间态）+ 残留临时文件启动清理 + `apply` 幂等自愈（§7.5.5/7.5.6）+ 故障注入测试 |
 | VSCode 系扩展迁移到 SQLite 私有存储 | 中 | 高（仅 P2 Agent） | 铁律 2：没有干净通道就不支持，绝不写私有 DB |
-| 密钥泄露 | 中 | 中 | credential 引用模型（§7.3.1）+ state 目录 0700 / 文件 0600 + 输出默认掩码 + doctor 明文告警；keychain 为后续可选项 |
-| 多文件事务部分失败 | 低 | 中 | 指纹校验 + 跨文件按序提交 + `apply` 幂等自愈 + `rollback --hard` 兜底 + 金样事务测试 |
-| 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；治理规格（PRINCIPLE v2.1）+ 实现参考（本文档）分层持续演进 |
+| 密钥泄露 | 中 | 中 | credential 引用模型（§7.3.1）+ state 目录 0700 / 文件 0600 + 输出默认掩码（均已实现）；`doctor` 明文密钥主动告警待实现（见 §12）；keychain 为后续可选项 |
+| 多文件事务部分失败 | 低 | 中 | 指纹校验 + 跨文件按序提交 + `rollback` 兜底 + 金样事务测试（均已实现）；`apply` 幂等自愈待实现 |
+| 单人项目维护连续性 | 中 | 高 | 代码量与 scope 严格受控（宁可不做，不做大）；退出条件成文（§4.2）；治理规格（PRINCIPLE v2.2）+ 实现参考（本文档）分层持续演进 |
 
 ---
 
@@ -964,100 +965,12 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 
 **非成功样貌（反面界定，出现任一即已失败）**：变成第二个 cc-switch（GUI 全家桶 / MCP 管理 / 内置网关 / 用量统计）；开始写私有数据库；适配器数量成为 KPI；Core Config 开始堆状态或密钥保管职责。
 
-前者不达成则项目失去第一动因；后者不达成则项目退化为内部脚本。两条都成立，ACM 才值得作为独立开源仓库长期存在。**规格冻结声明：本文档之后停止继续扩充架构设计，进入工程验证阶段--下一步最有价值的信息来自把 Claude Code + Codex + Pi 三个真实适配器在 Safety Engine 上跑起来。**
+前者不达成则项目失去第一动因；后者不达成则项目退化为内部脚本。两条都成立，ACM 才值得作为独立开源仓库长期存在。**工程验证阶段已完成**：Claude Code + Codex + Pi 三个真实适配器已在 Safety Engine 上跑通并交付（§8/§12），本文档 v2.2 是这轮验证结束后与实现的一次全面回写核对。下一步最有价值的信息来自真实使用反馈与触发式升级表（§12）——继续扩充架构设计仍需先出现真实触发条件，不做预防性设计。
 
 ---
 ---
 
-## 附录 A：前置文档逐项裁决记录
-
-> 《基于GLM版的ACM方案完善建议》V1/V2/V3 存在内部矛盾，下表为逐项独立裁决。裁决依据：第一性原理 + 事实核查（附录 B）+ 本机实证。历史三轮反馈的处理记录见 Git 提交历史，本附录不重复。
-
-### A.1 建议文档内部四大矛盾的裁决
-
-| 矛盾点 | V1 立场 | V2/V3 立场 | 裁决 | 关键依据 |
-|---|---|---|---|---|
-| MVP 首批适配器 | Claude Code + OpenClaw + Aider | Claude Code + Codex + Pi | **P0 = Claude Code + Codex + Pi；Aider 升为 P1 首位（压力测试）** | 本机实证：Aider/OpenClaw 未实际使用，第一动因是服务真实场景；架构覆盖缺口（YAML/角色模型/跨文件派生）由 P1 首位 Aider + Helper 级前置单测补齐（§6 D6） |
-| Core Config 格式 | 扁平表头格式 | YAML | **YAML** | 三层嵌套（模型子块/pool 子键 [^a1-pool]）缩进可读性最优；ruamel.yaml 提供 1.2 语义与重复键 fail-fast；单一 YAML 依赖同时覆盖未来 Agent 端 round-trip 预算（§6 D3） |
-| 分发渠道 | 全通道矩阵 | 压缩为主路径 | **单一主路径（PyPI + uvx/uv tool），brew/pyapp 触发式后置 P3** | 为想象中的用户建设 CI 渠道是浪费（§6 D5） |
-| 动态适配器热加载 | 尽早交付 | 推迟出 MVP | **架构预留、Phase 2 落地（后经 v2.0 裁决彻底否决，见 D7）** | 先验证官方适配器质量；现社区适配器一律源码内置（§6 D7） |
-
-[^a1-pool]: 本行是裁决当时（config schema v1）的历史措辞，`pool` 子键已在 schema v2 中随 profile 收敛为统一的 `models:` 子映射而消亡（见 §7.3）；此处保留原文不做回填，仅作脚注说明。
-
-### A.2 V1 逐项裁决（新增补全类）
-
-| # | 建议 | 裁决 | 说明 |
-|---|---|---|---|
-| 一.1 | 动态适配器热加载 | **否决（v2.0 裁决）** | 拒绝运行时动态代码加载的安全隐患；社区适配器一律源码内置 + 金样门禁（D7） |
-| 一.2 | 全通道分发矩阵 | **拒绝进 MVP / 触发式后置** | 见 A.1 |
-| 一.3 | protected_paths 黑名单 | **采纳** | 与白名单构成双重防线，进 ChangeSet 结构与阶段 1 校验 |
-| 一.4 | 快照保留策略（20/Agent FIFO 可配置） | **采纳（v1.1.1 演进为 Append-only 留存）** | §7.5.3，吸收 Deep Dive 架构原则改为全量追加留存 |
-| 一.5 | 三阶段事务提交标准化 | **采纳（v1.1 升级为 crash-safe）** | §7.5.1，v1.1 增加事务状态机与启动恢复 |
-| 一.6 | `acm doctor` | **采纳（纳入 Phase 1 / MVP）** | §10/§12，扩展明文密钥/ENV 缺失检测与残留临时文件清理（"未完结事务"概念已随简化崩溃模型移除） |
-| 一.7 | `acm history` + 指定版本回滚 | **采纳（v1.1 修正语义）** | 显式分离为 `--to-tx`（字段级）与 `--snapshot`（`--hard`），见 §10.1 |
-| 一.8 | 金样回归测试三步断言 | **采纳（强化）** | §11.1 |
-| 一.9 | 进程守护交互 | **采纳后废除（v2.0 裁决）** | 外部进程扫描高误判、高平台兼容成本；防护场景已由漂移检测 + 指纹校验 + 快照兜底覆盖，机制整体移除 |
-| 一.10 | 适配优先级矩阵 + 量化验收 | **采纳** | §8/§12 |
-| 二.1 | Schema 表达能力升级 | **采纳** | §7.3；active_profile 存 state |
-| 二.2 | Core Config 改 YAML | **拒绝** | 见 A.1 |
-| 二.3 | 适配器契约标准化 | **采纳** | §7.4 |
-| 二.4 | VMR 快捷指令 | **采纳（Phase 2）** | §9 |
-| 二.5 | 多文件事务原子性 | **采纳（v1.1 强化）** | §7.5.1 + 崩溃恢复 §7.5.6 |
-| 二.6 | Diff 输出 rich 高亮 | **采纳** | §10.1 |
-| 三.1 | MVP 换 OpenClaw+Aider | **拒绝（吸收其内核）** | 见 A.1 |
-| 三.2 | Core Config 采用 YAML | **采纳** | 见 A.1 / §6 D3 |
-| 三.3 | Scope 刚性约束成铁律 | **采纳** | §5.4 |
-| 三.4 | 明确退出/降级条件 | **采纳** | §4.2 |
-
-### A.3 V2 逐项裁决
-
-| # | 建议 | 裁决 | 说明 |
-|---|---|---|---|
-| 1 | 保留三层 Core Config 并明确职责边界 | **采纳** | §7.3 |
-| 2 | Field Ownership 提升为核心架构原则 | **采纳（升级为全文纲领取向）** | §1 |
-| 3 | 字段级回滚 + 冲突检测（不静默覆盖） | **采纳（v1.1 数据模型闭环）** | §7.5.2 |
-| 4 | Adapter 只产出 ChangeSet | **采纳（强制约束）** | §7.1 |
-| 5 | 适配映射矩阵为正式基准 | **采纳** | §8 |
-| 6 | Agent Capability/Config Matrix | **采纳（P2 充实；v1.1 增加语义/投影双维度）** | §8/§7.4.1 |
-| 7 | 金样体系为基础设施 | **采纳** | §11.1 |
-| 8 | doctor/diff/dry-run 一等公民 | **采纳** | §10 |
-| 9 | VMR Discovery/Import | **采纳** | §9 |
-| 10 | VMR 是第一方集成非架构依赖 | **采纳（原文固化）** | §9 |
-| 11–12 | 动态适配器后置 / MVP 克制 | **采纳（后经 v2.0 升级为完全否决热加载）** | D7：社区适配器一律源码内置 + 金样门禁 |
-| 13–14 | 弃用"市场空白" / 不拼数量与 GUI | **采纳** | §3.2/§4.1 |
-| 15–16 | 非破坏性分级 / 否定 RFC 6902 | **采纳（v1.1 措辞再修正）** | §7.5.4 |
-| 17–18 | 私有 DB 不碰 / 快照降级 Safety Net | **采纳（铁律化 / 三层体系）** | §5.4/D4 |
-| 19–23 | 压缩分发 / 无 GUI / 热加载后置 / 无 Scope 膨胀 / 无过早插件生态 | **采纳（热加载一项后经 v2.0 彻底否决）** | D5/D7/§5 |
-| 五 | 八层核心流水线 | **采纳（v1.1 扩展为十层）** | §7.1（v1.1 加入 Desired State 与指纹校验层） |
-| 末 | 六件最值得做的 / 六件最应删的 | **全部覆盖 / 全部执行** | -- |
-
-### A.4 V3 逐项裁决（仅列与上文不同或有新增信息者）
-
-| # | 建议 | 裁决 | 说明 |
-|---|---|---|---|
-| 一.1 | 完整 CLI 规格 | **采纳** | §10 |
-| 一.2 | P0 保持 Codex+Pi | **采纳（与独立判断一致）** | §6 D6 |
-| 一.3–4 | P0 硬验收 / init 流程 | **采纳** | §12/§10 |
-| 一.5–6 | 分层架构图 / init 自动化 | **采纳** | §7.2/§9 |
-| 二.1 | 三阶段伪代码等安全细节 | **采纳** | §7.5 |
-| 二.2 | active_profile | **采纳（一处修正：存 state）** | D3 |
-| 三.2 | Python 3.11+、依赖 ≤4、锁定 uv | **采纳（基线上调至 3.12+）** | D2 |
-| 三.5 | "过细伪代码不要" | **部分不采纳** | 三阶段提交与 ChangeSet 是安全语义的规范组成部分，保留 |
-
-### A.5 从 Gemini/Sonnet 版直接吸收（需修正或未出现在建议文档）
-
-| 来源 | 内容 | 裁决 | 说明 |
-|---|---|---|---|
-| Gemini | "市场绝对空白"表述及具体 issue 编号 | **拒绝** | 附录 B：star 数据核实为真，空白论被证伪；issue 编号不可考，改引官方 FAQ |
-| Gemini | Claude Code 写 `~/.claude.json` | **拒绝（修正）** | 该文件为运行时状态，本机实证 ✔；只写 `settings.json` |
-| Gemini/Sonnet | Pi 配置路径 | **拒绝（修正）** | 官方文档：用户文件为 `models.json`；`models-store.json` 为内部注册表绝不可写 ✔ |
-| Sonnet | RFC 6902 作为非破坏写入 | **拒绝（修正）** | §7.5.4；采纳其 protected_paths 概念 |
-| Sonnet | 内置 `core.yaml` 锚定 VMR | **部分吸收** | VMR 为默认初始 profile（init 生成），不内置于包内 |
-| Sonnet | 快照 FIFO × 20 / Phase 验收 / init 流程 | **部分吸收（v1.1.1 演进为 Append-only）** | §7.5.3/§12 |
-
----
-
-## 附录 B：事实核查记录
+## 附录 A：事实核查记录
 
 核查时间：2026-08-17。方法：GitHub 仓库页实时抓取（firecrawl）+ 本机文件系统实证 + pi 官方文档。
 
@@ -1082,7 +995,7 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 
 ---
 
-## 附录 C：核心术语表
+## 附录 B：核心术语表
 
 | 术语 | 定义 |
 |---|---|
@@ -1095,34 +1008,17 @@ Journal + 字段级回滚（三阶段完整提交、`rollback --to-tx`/`--hard` 
 | **Desired State** | 激活 Profile（Phase 2 起含 per-agent 绑定）经编译后的字段级期望状态 |
 | **Current State** | 各 Agent 配置文件中管理字段的实际落盘值 |
 | **Projection / 投影** | 将 Desired State 转译写入目标 Agent 配置的动作 |
-| **Adapter** | 每 Agent 一个的语义编译器：profile -> ChangeSet，不碰文件 |
-| **ChangeSet** | 字段级变更集（文件、路径、旧值、新值、告警、黑白名单），Safety Engine 的唯一输入 |
-| **FieldOp** | ChangeSet 中的单个字段操作 |
-| **Managed Manifest** | 内存派生视图（Derived View）：运行时从 Journal 与当前目标配置 AST 动态推导的字段所有权与当前值，磁盘不单独双写 |
-| **Journal / 事务** | `journal.jsonl`：state 区唯一的持久化事务 SSOT，记录每次 ChangeSet 事务历史与 ops 变更，字段级精准回滚的数据来源 |
-| **Snapshot** | 物理文件快照（Append-only 原样留存）：写前原样备份，仅用于 `--hard` 灾难恢复与只读审计比对 |
+| **Adapter** | 每 Agent 一个的语义编译器：模块级 `plan(profile, env)` 纯函数，产出 `(list[PlannedOp], list[ProjectionWarning])`，不碰文件，§7.4 |
+| **PlannedOp** | Adapter 产出的单条期望字段值（文件、点路径、新值），不含磁盘现实信息 |
+| **FieldOp** | Safety Engine 将 `PlannedOp` 按磁盘现实（旧值、是否新建）扩充后的记录，是 `write_changeset()` 的内部产物，Adapter 从不构造它 |
+| **管理字段所有权** | MVP 期直接记录于 `~/.acm/state/<agent>/last_write.json`（`LastWrite.fields`）；Journal 上线后升级为从 `journal.jsonl` 动态推导的内存派生视图（Derived View），磁盘不单独双写 manifest 文件，§7.5.2 |
+| **Journal / 事务** | `journal.jsonl`：**尚未实现**（触发式升级项，见 §12）。上线后将成为 state 区唯一的持久化事务 SSOT，记录每次写入的完整历史与 ops 变更，是字段级精准回滚的数据来源 |
+| **Snapshot** | 物理文件快照（Append-only 原样留存）：写前原样备份，用于 `rollback`/`--hard` 灾难恢复与（待实现的）只读审计比对，§7.5.3 |
 | **Drift（漂移）** | 管理字段的磁盘值 ≠ ACM 最后写入值，说明被外部修改 |
 | **OUT_OF_SYNC** | Current == ACM 最后写入值 ≠ Desired（ACM 侧配置已改动，无外部漂移，待 `apply` 收敛） |
 | **Projection Loss** | Desired State 中目标 Agent 无法表达的字段，必须告警，不得静默丢弃 |
 | **Round-trip** | 解析-修改-序列化过程中保留原文注释/键序/排版的能力 |
 | **Format Writer** | 按格式划分的写入器，必须声明其保真能力（语义/注释/键序/空白） |
-| **Release** | 解除托管并恢复 pre-ACM 状态：受管字段回滚至接管前旧值、移除 ACM 创建的字段/文件、清空状态记录。迁移到其他工具时无需 release，直接卸载 ACM（建议删除 `~/.acm/`）即可 |
+| **Release** | 解除托管并恢复 pre-ACM 状态：受管字段回滚至接管前旧值、移除 ACM 创建的字段/文件、清空状态记录。**尚未实现**（触发式升级项）。迁移到其他工具时无需 release，直接卸载 ACM（建议删除 `~/.acm/`）即可 |
 
----
-
-## 附录 D：MVP 范围反馈裁决摘要
-
-> v2.1 制定过程中曾对四份独立给出的 MVP 范围提案（过程文档，已清理）逐项裁决，
-> 本文档与 PRINCIPLE v2.1 采纳的核心结论：
->
-> - MVP 骨架：四命令命令面（init / use / status / rollback）、路径表适配器、触发式升级治理；
-> - 安全底线：字段级修改 + 物理快照 + 原子写是最小必要安全集（不退回整文件覆盖）；并纠正
->   "零依赖"表述、"快照 + 字段逆操作"自相矛盾的回滚语义、无参 use 收敛模式；
-> - 非破坏性验收取可量化的循环标准；升级治理合并量化阈值与触发式升级表；
-> - 拒绝四项共性降级诉求：砍漂移默认阻断、投影损失告警移出运行时、适配器自行读写磁盘、状态机缩减——
->   均属公理级语义降级，违反 PRINCIPLE v2.1 §7 里程碑分级兑现原则；
-> - 拒绝砍 Pi 的提议（真实在用 + 注册式投影形态 + 全新建文件场景），改为 Slice 2 交付。
->
-> MVP 范围定义并入本文档 §12。
-
-<!-- v2.1 实现参考结束。治理性规格见 docs/ACM_PROJECT_PRINCIPLE_v2.1.md；如与其原则冲突，以原则为准，并回写修订本文档。 -->
+<!-- v2.2 实现参考结束。治理性规格见 docs/ACM_PROJECT_PRINCIPLE_v2.2.md；如与其原则冲突，以原则为准，并回写修订本文档。 -->

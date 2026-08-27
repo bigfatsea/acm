@@ -1,7 +1,7 @@
 # // Ver 2026-08-24 22:05, by gemini-3.7-flash
 """End-to-end hard acceptance test suite for ACM MVP (WP9).
 
-Verifies the 8 hard acceptance criteria defined in SPEC v2.1 §12 / ACTION PLAN v1.0 §7:
+Verifies the 8 hard acceptance criteria defined in SPEC v2.2 §12 / ACTION PLAN v1.0 §7:
 1. <= 3 commands VMR scenario with 3 P0 agents (Claude Code, Codex, Pi) -> SYNCED.
 2. Non-destructive: 10 use/rollback cycles leave unmanaged keys/comments intact.
 3. Reversibility: rollback returns exact pre-write bytes, archives new files.

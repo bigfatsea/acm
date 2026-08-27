@@ -8,7 +8,7 @@
 
 ## Governing Principles — never violate
 
-Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any conflict, principles win over implementation docs.
+Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.2.md` (Chinese). On any conflict, principles win over implementation docs.
 
 **Three axioms:**
 
@@ -29,9 +29,9 @@ Authoritative source: `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` (Chinese). On any con
 ## Implementation Status (MVP v0.3.x, config schema v3)
 
 - Implemented commands: `init`, `status`, `use`, `rollback` (+ global `--dry-run --force --verbose --show-secrets --no-color`).
-- `apply / diff / doctor / history / release / import vmr` are **not implemented** — they are trigger-based upgrades (Spec v2.1 §12). Do not implement them without checking the trigger table and getting explicit direction.
+- `apply / diff / doctor / history / release / import vmr` are **not implemented** — they are trigger-based upgrades (Spec v2.2 §12). Do not implement them without checking the trigger table and getting explicit direction.
 - Built-in adapters: `claude_code`, `codex`, `pi` only. A new adapter = new module + golden fixtures, merged in-source.
-- Profile member registration + opt-in default is **implemented**, per Spec v2.1 §7.3.3 (schema v3). A profile has two orthogonal axes: an optional `default: <R3-ref>` (the only thing that drives an agent's default-model field; resolved directly like a member value, NOT a member label) and an optional `models: {label: <R3-ref>}` (member catalog registration, consumed by Pi). At least one must be declared. Pi always registers the default model into `models.json` (as a single-entry group if not among `models:` members, named by its model_id) so `settings.json`'s `defaultProvider`/`defaultModel` are never dangling. Claude Code/Codex have no registry channel — with a `default`, they project only that model (aggregate `models.unreachable` projection-loss warning for other registered members); without one, they project nothing and emit one explicit warning that there's nothing to project. `acm init`'s generated VMR proposal auto-sets `default` to the primary detected model so a fresh install works out of the box.
+- Profile member registration + opt-in default is **implemented**, per Spec v2.2 §7.3.3 (schema v3). A profile has two orthogonal axes: an optional `default: <R3-ref>` (the only thing that drives an agent's default-model field; resolved directly like a member value, NOT a member label) and an optional `models: {label: <R3-ref>}` (member catalog registration, consumed by Pi). At least one must be declared. Pi always registers the default model into `models.json` (as a single-entry group if not among `models:` members, named by its model_id) so `settings.json`'s `defaultProvider`/`defaultModel` are never dangling. Claude Code/Codex have no registry channel — with a `default`, they project only that model (aggregate `models.unreachable` projection-loss warning for other registered members); without one, they project nothing and emit one explicit warning that there's nothing to project. `acm init`'s generated VMR proposal auto-sets `default` to the primary detected model so a fresh install works out of the box.
 
 ## Architecture
 
@@ -90,8 +90,8 @@ uv run mypy src        # strict mode — keep it green
 
 | Looking for… | Open |
 |---|---|
-| Principles, boundaries, command semantics | `docs/ACM_PROJECT_PRINCIPLE_v2.1.md` |
-| Implementation details, data structures, acceptance criteria, roadmap slices | `docs/ACM_PROJECT_SPEC_v2.1.md` |
+| Principles, boundaries, command semantics | `docs/ACM_PROJECT_PRINCIPLE_v2.2.md` |
+| Implementation details, data structures, acceptance criteria, roadmap slices | `docs/ACM_PROJECT_SPEC_v2.2.md` |
 | User-facing behavior, config reference, troubleshooting | `docs/USER_GUIDE.md` / `USER_GUIDE.zh.md` |
 | Project overview / quick start | `README.md` / `README.zh.md` |
 | Adapter field mappings, safety pipeline internals | adapters' `plan()` docstrings; `safety.py` step comments; USER_GUIDE ch. 7 & 9 |

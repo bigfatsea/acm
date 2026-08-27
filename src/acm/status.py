@@ -182,7 +182,7 @@ def compute_agent_status(
 
     # 4. Drift check — pre-compute this profile's planned ops (if any) once, both to
     # scope the drift comparison to fields this plan still produces (last_write ∩
-    # current plan ops; Spec v2.1 §7.5.2) and to reuse for step 5 without re-planning.
+    # current plan ops; Spec v2.2 §7.5.2) and to reuse for step 5 without re-planning.
     ops: list[Any] = []
     warnings: list[Any] = []
     managed_paths: set[str] | None = None

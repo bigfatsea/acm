@@ -4,7 +4,7 @@
 
 > 🌐 This document is also available in [Chinese / 中文版](USER_GUIDE.zh.md).
 >
-> Covers ACM `0.3.x` (config schema v3). Companion documents: [README](../README.md) · [Project Principles & Core Spec v2.1](ACM_PROJECT_PRINCIPLE_v2.1.md) · [Implementation Spec v2.1](ACM_PROJECT_SPEC_v2.1.md)
+> Covers ACM `0.3.x` (config schema v3). Companion documents: [README](../README.md) · [Project Principles & Core Spec v2.2](ACM_PROJECT_PRINCIPLE_v2.2.md) · [Implementation Spec v2.2](ACM_PROJECT_SPEC_v2.2.md)
 
 ---
 
