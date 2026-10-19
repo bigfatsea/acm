@@ -56,6 +56,7 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 python_files = ["test_*.py"]
 markers = [
     "e2e: End-to-end acceptance tests",

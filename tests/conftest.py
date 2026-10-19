@@ -20,25 +20,25 @@ _ACM_VARS = (
 _DEAD = "http://127.0.0.1:9"
 
 
+# Only these survive from the real environment; everything else (API keys, proxies, tool
+# config...) is removed so tests can neither depend on nor leak it.
+_KEEP = {"LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "LOGNAME"}
+
+
 @pytest.fixture(autouse=True)
 def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
-    """Fake HOME, minimal PATH, gateway probes pinned to a dead port."""
+    """Fake HOME, minimal PATH, scrubbed environment, gateway probes pinned to a dead port."""
     home = tmp_path / "home"
     home.mkdir()
     bindir = tmp_path / "bin"
     bindir.mkdir()
     for var in list(os.environ):
-        if var.startswith(
-            ("ACM_", "ANTHROPIC_", "OPENAI_", "OPENCODE_", "CODEX_", "PI_", "HERMES_")
-        ):
+        if var not in _KEEP:
             monkeypatch.delenv(var, raising=False)
-    for var in _ACM_VARS:
-        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("PATH", str(bindir))
     monkeypatch.setenv("ACM_VMR_PROBE_URL", _DEAD)
     monkeypatch.setenv("ACM_MANIFEST_TIMEOUT", "0.5")
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     yield dict(os.environ)
 
 

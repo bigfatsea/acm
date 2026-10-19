@@ -3,7 +3,7 @@
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ class Ctx:
     implicitly; ``home`` is where agents keep their per-user config.
     """
 
-    env: Mapping[str, str]
+    env: Mapping[str, str] = field(repr=False)  # may hold secrets: never print it
     home: Path
     acm_home: Path
     dry_run: bool = False
