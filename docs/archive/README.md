@@ -2,15 +2,14 @@
 
 本目录存放已被后续版本取代的历史过程文档，仅供追溯，不再是任何现行决策的依据。
 
-现行权威文档仍在 `docs/` 根目录：
-
-- `ACM_PROJECT_PRINCIPLE_v2.2.md` — 治理规格（最高准则）
-- `ACM_PROJECT_SPEC_v2.2.md` — 实现参考
-- `agent_config_manager_design_v1.1.md` — 产品愿景与架构设计（现行版）
-- `USER_GUIDE.md` / `USER_GUIDE.zh.md` — 用户文档
+2026-10-20 起，ACM 按 `docs/ACM_Rebuild_Action_Plan_opus-5.5.md` 重建（0.4.0，schema v4）。重建前的实现（v0.3.0）保存于 git 标签 `legacy-v0.3.0` 与分支 `legacy/v0.3`。原现行文档（PRINCIPLE v2.2、SPEC v2.2、design v1.1、USER_GUIDE）随之归档于此，仅供追溯；现行治理文档见 `docs/ACM_PRINCIPLE_v3.md` 与 `docs/ACM_SPEC_v3.md`。
 
 | 归档文档 | 取代者 |
 |---|---|
+| `ACM_PROJECT_PRINCIPLE_v2.2.md` | `../ACM_PRINCIPLE_v3.md` |
+| `ACM_PROJECT_SPEC_v2.2.md` | `../ACM_SPEC_v3.md` |
+| `agent_config_manager_design_v1.1.md` | `../ACM_Rebuild_Action_Plan_opus-5.5.md` 及其依据文档 |
+| `USER_GUIDE.md` / `USER_GUIDE.zh.md` | 新版用户指南（0.4.0 提供） |
 | `agent_config_manager_design_v1.0.md` | `../agent_config_manager_design_v1.1.md` |
 | `ACM_MVP_ACTION_PLAN_v1.0.md` | `../ACM_PROJECT_SPEC_v2.2.md`（§12 交付分片） |
 | `ACM_FIRST_PRINCIPLES_REVIEW.md` | `../ACM_PROJECT_PRINCIPLE_v2.2.md` |
