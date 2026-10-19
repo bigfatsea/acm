@@ -90,12 +90,10 @@ def test_removing_the_fast_role_retires_the_aux_overrides(yctx):
     project(yctx, AD, target_of(yctx, AD, manifest_config(yctx, PROFILE)))
     project(yctx, AD, target_of(yctx, AD, manifest_config(yctx, '{default: "vmr@default"}')))
     c = tree(yctx)
-    assert (
-        "auxiliary" not in c
-        or "title_generation" not in c.get("auxiliary", {})
-        or c["auxiliary"]["title_generation"] == {}
-    )
-    assert "provider" not in c.get("delegation", {})
+    for task in ("title_generation", "compression", "web_extract", "approval"):
+        assert c.get("auxiliary", {}).get(task, {}) == {}
+    assert c["auxiliary"]["vision"] == {"provider": "auto", "model": ""}  # the user's own
+    assert "provider" not in c.get("delegation", {}) and "model" not in c.get("delegation", {})
 
 
 def test_static_provider_in_responses_mode(yctx):
