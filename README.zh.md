@@ -41,8 +41,9 @@ ACM 管理的是**字段**，不是文件；模型世界的描述只有一份，
 | 文档 | 说明 |
 |---|---|
 | 🏛️ [**ACM 项目指导原则与核心规格 v2.2**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_PROJECT_PRINCIPLE_v2.2.md) | **最高治理准则**：公理原则、非破坏性边界、六步安全写通道、适配器契约与设计哲学 |
-| 📋 [**ACM MVP 实施方案与交付规格 v1.0**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_MVP_ACTION_PLAN_v1.0.md) | **执行方案**：WP0–WP9 任务分解、8 大硬性验收标准、状态机定义、测试与验证规范 |
-| 🔬 [**配置管理深度研报与最佳实践**](https://github.com/bigfatsea/acm/blob/main/docs/ACM_CONFIG_MANAGEMENT_DEEP_DIVE_AND_BEST_PRACTICES.md) | 40 年配置管理演进、双重所有权本质、字段所有权机制深度剖析 |
+| 📐 [**ACM 设计方案 v1.1**](https://github.com/bigfatsea/acm/blob/main/docs/agent_config_manager_design_v1.1.md) | **产品愿景与架构设计**：字段所有权模型、对标 magpie 的定位、触发式路线图 |
+
+历史过程文档（已被取代的研报与 v1.0 时代方案）归档于 [`docs/archive/`](./docs/archive/)。
 
 ---
 
