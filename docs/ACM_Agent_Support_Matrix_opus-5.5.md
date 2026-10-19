@@ -617,3 +617,36 @@ T2（家族成员）不执行第 2–3 步，只跑金样（1、4、5）；其�
 ### 9.3 下一步
 
 执行顺序与验收标准见 `docs/ACM_Rebuild_Action_Plan_opus-5.5.md`。本节旧版中"先修 Codex 协议映射缺陷"一项取消：ACM 将按 Action Plan 重建，旧适配器整体归档，该缺陷作为新 Codex 适配器的金样用例（`openai` 协议 provider 投影到 Codex 必须报错）保留其教训。
+
+## 10. 实现回写（2026-10-20，ACM 0.4 实现后与上文的差异与新增事实）
+
+> 本节由实现阶段回写。与上文冲突时，**以本节为准**；上文保留为设计与核查的原始记录。
+
+### 10.1 待确认项的真机结论
+
+| 项 | 结论 | 依据 |
+|---|---|---|
+| Claude Code：`env` 中置空串的 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` 是否视为未设置并回落 `apiKeyHelper`（§4.1） | **确认可用** | 真机测试（本地模拟网关，隔离 HOME）：`acm run claude` 用 `--settings` 内联 JSON 置空两者 + `apiKeyHelper: printenv VAR`，请求带期望的 key |
+| `apiKeyHelper` 子进程是否继承调用方环境变量（U4） | **确认继承** | 同上；`printenv <VAR>` 模板可用 |
+| OpenCode `small_model` 是否对应 `fast` 角色 | **确认被使用** | 真机：首个请求是标题生成，走 `small_model`；测试断言为模型集合 `{主模型, fast 模型}` |
+| Codex 自定义 catalog 的严格性 | **确认被严格解析** | 真机：不合规 catalog 被拒；已用金样固定合规结构（含 `base_instructions`） |
+| Pi 扩展 API 的每模型字段 | **新发现** | 真机：扩展注册模型时 `input / reasoning / contextWindow / maxTokens / cost` 必填；随包扩展 `acm_pi_provider.ts` 对未知值写保守默认 |
+| OpenClaw `--config-override` 内 `${VAR}` 是否被替换（§7） | **仍未确认** | 本机无 OpenClaw 二进制；`acm run openclaw` 把 provider 的 `apiKey` 写为 `${VAR}`（凭据为明文时改为 `${ACM_RUN_KEY}` 并经环境变量传值），启动时输出"替换未经真机验证"的提示；仅支持一次性任务（`agent exec`） |
+| Hermes `--base-url` 不带 `--api-key` 时的行为（§7） | **仍未确认** | 本机无 Hermes 二进制；金样覆盖 |
+
+### 10.2 与上文设计的偏差
+
+| 项 | 上文 | 实现 |
+|---|---|---|
+| Prime Agent `subagentDefaultModel` | 可映射 subagent 角色 | **不写**：语义未经核实，宁缺毋滥；仅 Pi 通用槽位 |
+| OpenCode `limit` | 按模型卡片写 | schema 要求 `limit.context` 与 `limit.output` 成对出现；上下文已知而输出未知时写 `min(32000, context)` 并告警 |
+| OpenCode 配置键 | `provider` | 沿用 `provider`（官方文档与已装 1.3.13 一致）；schema 标注其 deprecated（新键 `providers`），记为升级风险 |
+| Hermes provider 命名 | `providers.<alias>` | 具名项统一前缀 `acm-`，`model.provider: custom:acm-<alias>`，避免与内建名冲突；`model` 为空串哨兵时整体替换为映射 |
+| OpenClaw `$include` | 未规定 | 受管段使用 `$include` 时适配器报错（ERROR），不编辑 |
+| 历史命令 | `history prune` | `acm prune --keep N`；`acm restore N` 的 N 为 **op 编号** |
+| 临时启动 T2 | 默认拒绝 | 同；`acm run` 对 T2 成员报错退出 1 |
+
+### 10.3 测试覆盖的真实程度
+
+- T1 中 Claude Code / Codex / Pi / OpenCode 有真机二进制测试（`tests/real/`，二进制缺失时自动跳过）；Hermes / OpenClaw 仅金样。
+- 格式层语料为按官方文档合成的"前 ACM 用户配置"样本（含 hooks / MCP / 注释），非真实机器拷贝（`tests/fixtures/README.md`）。

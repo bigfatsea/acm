@@ -15,6 +15,7 @@
 | Schema v4, Manifest, resolution, formats, engine, history, `run`, tests | `docs/ACM_SPEC_v3.md` |
 | **Every agent's config files/keys/launch-injection rules + fact-check log** | `docs/ACM_Agent_Support_Matrix_opus-5.5.md` — the *only* place for agent config knowledge |
 | Why decisions were made | `docs/ACM_Rebuild_Action_Plan_opus-5.5.md`, `docs/ACM_VMR_Manifest_Analysis_and_Design_opus-5.5.md`, `docs/ACM_Config_Safety_and_History_Design_opus-5.5.md`, `docs/ACM_Ephemeral_Run_Design_opus-5.5.md` |
+| User-facing behavior, config reference, troubleshooting | `docs/USER_GUIDE.md` / `docs/USER_GUIDE.zh.md`; overview in `README.md` / `README.zh.md` |
 | What was built and what is left | `docs/ACM_Execution_Summary_sonnet-5.5.md` |
 
 ## Iron rules (condensed — the Principle is authoritative)
