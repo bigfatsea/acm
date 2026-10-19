@@ -39,6 +39,14 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["docs", "_tmp", "tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501", "B011"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -53,4 +61,5 @@ markers = [
     "e2e: End-to-end acceptance tests",
     "golden: Golden fixture round-trip and non-destructive tests",
     "fault: Fault injection and resilience tests",
+    "real: Real agent binaries against a local mock gateway (skipped when absent)",
 ]
