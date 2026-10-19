@@ -6,17 +6,10 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from fake_gateway import FakeGateway
 
 from acm.core.context import Ctx
 
-_ACM_VARS = (
-    "ACM_HOME",
-    "ACM_MANIFEST",
-    "ACM_MANIFEST_TIMEOUT",
-    "ACM_VMR_PROBE_URL",
-    "VMR_URL",
-    "VMR_KEY",
-)
 _DEAD = "http://127.0.0.1:9"
 
 
@@ -62,3 +55,12 @@ def make_config(ctx: Ctx) -> Callable[[str], Path]:
         return ctx.config_path
 
     return _make
+
+
+@pytest.fixture
+def gateway() -> Iterator[FakeGateway]:
+    gw = FakeGateway().start()
+    try:
+        yield gw
+    finally:
+        gw.stop()

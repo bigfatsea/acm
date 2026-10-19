@@ -112,3 +112,29 @@ class Harness:
             c, self.adapter, req, cmd="acm restore", op=log.new_op(), log=log,
             store=self.store(), interaction=inter,
         )  # fmt: skip
+
+
+def team_manifest(base: str = "http://127.0.0.1:1") -> dict:
+    """A manifest shaped like the design doc's example (§5.3.6 of the Manifest design)."""
+    return {
+        "manifest_version": 1,
+        "gateway": {"kind": "vmr", "version": "0.7.3", "name": "team-vmr"},
+        "endpoints": {
+            "openai-completions": f"{base}/v1",
+            "anthropic-messages": base,
+            "openai-responses": f"{base}/v1",
+        },
+        "auth": {"required": True},
+        "models": [
+            {"id": "coding", "protocols": ["openai-completions"], "roles": ["default", "subagent"],
+             "limit": {"context": 1000000, "context_floor": 200000}, "tool_call": True, "reasoning": True},
+            {"id": "claude", "protocols": ["anthropic-messages"], "roles": ["default", "subagent"],
+             "limit": {"context": 512000}, "modalities": {"input": ["text", "image"]}, "tool_call": True},
+            {"id": "agent", "display_name": "Deep reasoning",
+             "protocols": ["anthropic-messages", "openai-completions", "openai-responses"],
+             "roles": ["reasoning", "review"], "limit": {"context": 512000}, "reasoning": True},
+            {"id": "cheap", "protocols": ["openai-completions", "anthropic-messages"],
+             "roles": ["fast"], "limit": {"context": 512000}},
+            {"id": "resp", "protocols": ["openai-responses"], "roles": ["default"]},
+        ],
+    }  # fmt: skip
