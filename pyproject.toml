@@ -1,7 +1,7 @@
 [project]
 name = "agent-config-manager"
-version = "0.3.0"
-description = "The Unified, Non-Destructive Model Configuration & Snapshot Manager for AI Coding Agents."
+version = "0.4.0.dev0"
+description = "Declarative, non-destructive model configuration manager for AI coding agents, with version history and one-shot launches."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-acm = "acm.main:main"
+acm = "acm.cli.main:main"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
@@ -29,6 +29,7 @@ module-name = "acm"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.100.0",
     "mypy>=1.10.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
