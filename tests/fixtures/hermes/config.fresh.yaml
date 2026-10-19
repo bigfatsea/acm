@@ -1,0 +1,4 @@
+# fresh Hermes install: the model key is the empty-string sentinel
+model: ''
+terminal:
+  backend: local
