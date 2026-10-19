@@ -1,0 +1,24 @@
+// OpenClaw configuration (JSON5)
+{
+  agents: {
+    defaults: {
+      workspace: "~/.openclaw/workspace",
+      model: {
+        primary: "anthropic/claude-opus-4-6",
+        fallbacks: ["openai/gpt-5.4"],
+      },
+    },
+    list: [{ id: "main", default: true }],
+  },
+  channels: {
+    whatsapp: { allowFrom: ["+15555550123"] },
+  },
+  models: {
+    mode: "merge",
+    providers: {},
+  },
+  gateway: {
+    port: 18789,
+    auth: { token: "${OPENCLAW_GATEWAY_TOKEN}" },
+  },
+}

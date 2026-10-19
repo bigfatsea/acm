@@ -1,0 +1,19 @@
+# Hermes Agent configuration
+model:
+  default: anthropic/claude-opus-4.6
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+terminal:
+  backend: local
+  cwd: "."
+auxiliary:
+  vision:
+    provider: auto
+    model: ''
+display:
+  skin: default
+memory:
+  memory_enabled: true  # keep this
+skills:
+  external_dirs:
+    - ~/shared-skills

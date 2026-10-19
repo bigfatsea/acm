@@ -1,0 +1,18 @@
+# Codex CLI configuration
+model = "gpt-5-codex"            # my usual model
+model_reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+
+[projects."/Users/me/work/app"]
+trust_level = "trusted"
+
+[mcp_servers.docs]
+command = "npx"
+args = ["-y", "docs-mcp"]
+
+[tui]
+notifications = true
