@@ -84,3 +84,30 @@ def prune(ctx: Ctx, keep: int) -> tuple[int, int]:
         store.delete(h)
         removed += 1
     return len(drop), removed
+
+
+def unmanaged_changes(store: ObjectStore, rec: Record, fmt: str) -> list[FieldChange]:
+    """Fields outside ``rec.paths`` that differ between the record's two versions."""
+    from acm.formats.base import changed_paths
+
+    try:
+        b, a = store.get(rec.before), store.get(rec.after)
+        bt = parse(fmt, b).tree() if b is not None else {}
+        at = parse(fmt, a).tree() if a is not None else {}
+    except ACMError:
+        return []
+
+    def get(tree: Any, path: KeyPath) -> Any:
+        for seg in path:
+            try:
+                tree = tree[seg]
+            except (KeyError, IndexError, TypeError):
+                return MISSING
+        return tree
+
+    out: list[FieldChange] = []
+    for p in changed_paths(bt, at):
+        if any(p[: len(m)] == m or m[: len(p)] == p for m in rec.paths):
+            continue
+        out.append(FieldChange(p, get(bt, p), get(at, p)))
+    return out

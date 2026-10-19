@@ -97,6 +97,7 @@ class ApplyResult:
     drift: list[DriftItem] = field(default_factory=list)
     message: str = ""
     files_written: list[Path] = field(default_factory=list)
+    code: int = 0  # exit-code contribution: 0 ok, 2 blocked/error, 3 I/O failure
 
 
 class AdapterLike:

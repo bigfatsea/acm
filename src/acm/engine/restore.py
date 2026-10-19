@@ -97,10 +97,10 @@ def restore_agent(
             if ch is not None:
                 changes.append(ch)
     except SafetyBlockedError as e:
-        res.status, res.message = "blocked", e.message
+        res.status, res.message, res.code = "blocked", e.message, 2
         return res
     except ACMError as e:
-        res.status, res.message = "error", e.message
+        res.status, res.message, res.code = "error", e.message, e.exit_code
         return res
     todo = [c for c in changes if c.before != c.after]
     if not todo:
@@ -114,6 +114,7 @@ def restore_agent(
         flat = [p for _, ps in lost for p in ps]
         if inter.confirm_file_restore is None:
             res.status = "blocked"
+            res.code = 2
             res.message = (
                 "restoring whole files would discard changes outside acm's managed fields "
                 f"({', '.join(fmt_path(p) for p in flat[:6])}{'…' if len(flat) > 6 else ''}); "
@@ -121,17 +122,17 @@ def restore_agent(
             )
             return res
         if not inter.confirm_file_restore(agent, flat):
-            res.status, res.message = "blocked", "declined by user"
+            res.status, res.message, res.code = "blocked", "declined by user", 2
             return res
     try:
         res.files_written = commit(
             ctx, agent, todo, op=op, kind="restore", cmd=cmd, log=log, store=store
         )
     except SafetyBlockedError as e:
-        res.status, res.message = "blocked", e.message
+        res.status, res.message, res.code = "blocked", e.message, 2
         return res
     except ACMError as e:
-        res.status, res.message = "error", e.message
+        res.status, res.message, res.code = "error", e.message, e.exit_code
         return res
     if req.target == "baseline":
         set_unmanaged(ctx, agent, True)

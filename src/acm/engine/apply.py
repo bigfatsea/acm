@@ -43,10 +43,10 @@ def apply_agent(
     try:
         ev = evaluate(ctx, adapter, plan, log, store)
     except SafetyBlockedError as e:
-        res.status, res.message = "blocked", e.message
+        res.status, res.message, res.code = "blocked", e.message, 2
         return res
     if ev.error:
-        res.status, res.message = "error", ev.error
+        res.status, res.message, res.code = "error", ev.error, 2
         return res
     res.drift = ev.drift
     res.diffs = ev.diffs
@@ -58,6 +58,7 @@ def apply_agent(
             return res
         if decision != "overwrite":
             res.status = "blocked"
+            res.code = 2
             res.message = (
                 "managed fields were changed outside acm:\n"
                 + describe_drift(ev.drift)
@@ -77,13 +78,14 @@ def apply_agent(
     if needs_confirm and not ctx.yes:
         if inter.confirm_changes is None:
             res.status = "blocked"
+            res.code = 2
             res.message = (
                 "first takeover or new managed fields need confirmation; re-run with --yes "
                 "(use --dry-run to preview)"
             )
             return res
         if not inter.confirm_changes(adapter.id, ev.diffs, ev.first_takeover):
-            res.status, res.message = "blocked", "declined by user"
+            res.status, res.message, res.code = "blocked", "declined by user", 2
             return res
     try:
         written = commit(
@@ -97,10 +99,10 @@ def apply_agent(
             store=store,
         )
     except SafetyBlockedError as e:
-        res.status, res.message = "blocked", e.message
+        res.status, res.message, res.code = "blocked", e.message, 2
         return res
     except ACMError as e:
-        res.status, res.message = "error", e.message
+        res.status, res.message, res.code = "error", e.message, e.exit_code
         return res
     set_unmanaged(ctx, adapter.id, False)
     res.status = "written"

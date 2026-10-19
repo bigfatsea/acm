@@ -154,6 +154,13 @@ class PiFamily(Adapter):
     def plan_launch(self, target: ResolvedTarget, ctx: Ctx, launch: LaunchContext) -> LaunchSpec:
         from importlib import resources
 
+        from acm.adapters.base import LaunchUnsupportedError
+
+        if self.tier != "T1":
+            raise LaunchUnsupportedError(
+                f"one-shot launch of {self.name} is disabled until its command-line flags are "
+                "confirmed on a real install (a fork may rename them)"
+            )
         d = target.default
         warns = self._collect_warnings(target)
         env_out: dict[str, str] = {}

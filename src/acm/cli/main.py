@@ -68,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     _register_commands()
     args = _apply_agent_shorthand(args)
     try:
-        app(args=args[1:], standalone_mode=False)
-        return 0
+        rv = app(args=args[1:], standalone_mode=False)
+        return rv if isinstance(rv, int) else 0  # click returns Exit codes in this mode
     except typer.Exit as e:
         return int(e.exit_code)
     except KeyboardInterrupt:
