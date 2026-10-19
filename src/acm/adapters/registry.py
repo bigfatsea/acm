@@ -4,6 +4,7 @@ from acm.adapters.base import Adapter
 from acm.adapters.claude_code import ClaudeCode
 from acm.adapters.codex import Codex
 from acm.adapters.hermes import Hermes
+from acm.adapters.openclaw import OpenClaw
 from acm.adapters.opencode import DEVECO, MIMO, OPENCODE, OpenCodeFamily
 from acm.adapters.pi import OMO, PI, PRIME, PiFamily
 
@@ -29,4 +30,5 @@ _ADAPTERS: list[Adapter] = [
     OpenCodeFamily(MIMO),
     OpenCodeFamily(DEVECO),
     Hermes(),
+    OpenClaw(),
 ]
