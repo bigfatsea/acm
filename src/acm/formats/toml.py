@@ -17,8 +17,10 @@ def _plain(x: Any) -> Any:
 class TomlDocument:
     format = "toml"
 
-    def __init__(self, doc: TOMLDocument) -> None:
+    def __init__(self, doc: TOMLDocument, trailing_newlines: int = 1) -> None:
         self._doc = doc
+        self._trailing = trailing_newlines
+        self._dirty = False
 
     @classmethod
     def parse(cls, data: bytes) -> "TomlDocument":
@@ -27,12 +29,16 @@ class TomlDocument:
         except UnicodeDecodeError as e:
             raise FormatError(f"not valid UTF-8: {e}") from e
         try:
-            return cls(tomlkit.parse(text))
+            return cls(tomlkit.parse(text), len(text) - len(text.rstrip("\n")))
         except TOMLKitError as e:
             raise FormatError(f"invalid TOML: {e}") from e
 
     def render(self) -> bytes:
-        return tomlkit.dumps(self._doc).encode("utf-8")
+        out = tomlkit.dumps(self._doc)
+        if self._dirty and out.strip():
+            # deleting the last table leaves a stray blank line; keep the file's own ending
+            out = out.rstrip("\n") + "\n" * max(self._trailing, 1)
+        return out.encode("utf-8")
 
     def tree(self) -> Any:
         return self._doc.unwrap()
@@ -57,6 +63,7 @@ class TomlDocument:
                 node = node[seg]
             except (KeyError, IndexError):
                 self._create_chain(node, path[depth:], value)
+                self._dirty = True
                 return
             except TypeError as e:
                 raise FormatError(
@@ -80,6 +87,7 @@ class TomlDocument:
             node[leaf] = value
         except (TypeError, ValueError, TOMLKitError) as e:
             raise FormatError(f"cannot set {fmt_path(path)}: {e}") from e
+        self._dirty = True
 
     @staticmethod
     def _create_chain(container: Any, rest: KeyPath, value: Any) -> None:
@@ -112,3 +120,4 @@ class TomlDocument:
             del node[path[-1]]
         except (KeyError, IndexError, TypeError):
             return
+        self._dirty = True

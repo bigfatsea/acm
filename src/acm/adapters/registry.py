@@ -2,6 +2,7 @@
 
 from acm.adapters.base import Adapter
 from acm.adapters.claude_code import ClaudeCode
+from acm.adapters.codex import Codex
 
 
 def all_adapters() -> list[Adapter]:
@@ -15,4 +16,4 @@ def find_adapter(name: str) -> Adapter | None:
     return None
 
 
-_ADAPTERS: list[Adapter] = [ClaudeCode()]
+_ADAPTERS: list[Adapter] = [ClaudeCode(), Codex()]
