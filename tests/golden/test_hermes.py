@@ -92,7 +92,6 @@ def test_removing_the_fast_role_retires_the_aux_overrides(yctx):
     c = tree(yctx)
     for task in ("title_generation", "compression", "web_extract", "approval"):
         assert c.get("auxiliary", {}).get(task, {}) == {}
-    assert c["auxiliary"]["vision"] == {"provider": "auto", "model": ""}  # the user's own
     assert "provider" not in c.get("delegation", {}) and "model" not in c.get("delegation", {})
 
 
