@@ -176,3 +176,10 @@ def test_redirects_are_not_followed(kctx):
     finally:
         srv.shutdown()
         assert os.path.exists(kctx.home)
+
+
+def test_unusable_manifest_is_not_cached(kctx, gateway):
+    gateway.manifest = {"manifest_version": 1, "endpoints": {}}  # no models: invalid
+    with pytest.raises(ConfigError, match="invalid manifest"):
+        load(kctx, gateway)
+    assert not (kctx.manifests_dir / "team.json").exists()

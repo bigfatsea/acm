@@ -252,6 +252,7 @@ def fetch_manifest(
             raise ConfigError(f"{source}: response is not valid JSON") from e
         if not isinstance(body, dict):
             raise ConfigError(f"{source}: response is not a JSON object")
+        parse_manifest(body, source)  # never cache a document that cannot be used
         _write_cache(ctx, provider, source, etag, body)
         return Fetched(body)
     except urllib.error.HTTPError as e:

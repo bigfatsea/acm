@@ -195,6 +195,13 @@ def _evaluate_file(
     ev: Evaluation,
     check_whitelist: bool,
 ) -> FileEval | None:
+    if spec.owned:
+        owned_root = (ctx.acm_home / "owned").resolve()
+        if not spec.path.resolve().is_relative_to(owned_root):
+            raise SafetyBlockedError(
+                f"{adapter.id}: acm-owned file {spec.path} is outside {owned_root}; "
+                "nothing was written"
+            )
     before = read_bytes(spec.path)
     if spec.owned:
         return _evaluate_owned(spec, ops, last, before, store, ev)

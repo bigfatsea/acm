@@ -238,3 +238,12 @@ def test_init_force_backup_is_private(setup, team, acm, ctx):
     assert acm("init", "--vmr", team.url, "--yes", "--force")[0] == 0
     bak = ctx.config_path.with_name("config.yaml.bak")
     assert oct(bak.stat().st_mode & 0o777) == "0o600"
+
+
+def test_noop_does_not_repeat_projection_warnings(setup, acm):
+    code, out, err = acm("use", "daily", "--yes")
+    assert code == 0 and "[claude_code]" in err
+    code, out, err = acm("use", "daily", "--yes")
+    assert code == 0 and "noop" in out and "[claude_code]" not in err
+    code, out, err = acm("apply", "--verbose")
+    assert "[claude_code]" in err

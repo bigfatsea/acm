@@ -177,10 +177,12 @@ def report(out: Out, results: list[ApplyResult], ctx: Ctx) -> int:
         if r.status == "dry_run" or ctx.verbose:
             for d in r.diffs:
                 out.line("    " + field_line(d.path, d.current, d.desired, ctx.show_secrets))
+        code = max(code, r.code)
+        if r.status in ("noop", "unmanaged") and not ctx.verbose:
+            continue  # nothing was projected: the same warnings were shown when it was
         for w in r.warnings:
             key = (r.agent, w.field, w.reason)
             if key not in seen:
                 seen.add(key)
                 out.warn(f"[{r.agent}] {w.field}: {w.reason}")
-        code = max(code, r.code)
     return code

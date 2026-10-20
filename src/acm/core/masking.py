@@ -4,12 +4,15 @@ import re
 from typing import Any
 
 _SENSITIVE_KEY = re.compile(r"(api_?key|token|auth|secret|password|credential)", re.IGNORECASE)
+_COUNT = re.compile(r"tokens(_|$)", re.IGNORECASE)  # MAX_CONTEXT_TOKENS, maxTokens: sizes
 _REFERENCE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}$")
 
 
 def is_sensitive_key(key: str) -> bool:
     # "apiKeyHelper" holds a command line, not a credential
-    return bool(_SENSITIVE_KEY.search(key)) and "helper" not in key.lower()
+    if "helper" in key.lower() or _COUNT.search(key):
+        return False
+    return bool(_SENSITIVE_KEY.search(key))
 
 
 def mask_secret(value: str, show_secrets: bool = False) -> str:
