@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:50, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
@@ -91,6 +91,26 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
   - 跨源：端点换了源时 ACM 告警；
   - 一次性启动：四个 Agent 的 `acm run` 都通过，`-m vmr@fast` 打到 `small-model`，`acm run` 没有改动任何配置文件；
   - 回退：`rollback`；`restore --baseline` 后四个 Agent 全部 UNMANAGED。
+
+### 3.4 第四轮：远程 VMR + 真实上游（2026-10-20 19:20）
+
+- **环境**：远程 VMR `http://192.168.0.22:8800`，Manifest 报告的版本是 `gateway.version: e51d815`，即 thinking 路由版本；上游是真实模型。ACM 在隔离 HOME 中运行，key 取自本机 `VMR_API_KEY`，不打印、不落盘。
+- **Agent 版本**：Claude Code 2.1.304、Pi 1.2.0、OpenCode 1.19.3（本轮按 `~/ENV.md` 用 pnpm 安装）、Codex 0.148.0。
+
+| 检查 | 结果 |
+|---|---|
+| 四个 Agent 的简单回复（`claude -p`、`pi -p`、`opencode run`、`codex exec`） | 全部返回 `OK`，3–8 秒 |
+| **工具调用往返**：让 Agent 用读文件工具读出随机口令再原样回复 | 四个 Agent 全部回复正确口令，5–9 秒 |
+| `acm run claude -m vmr.fast`；`acm run claude -m vmr.agent`（含工具往返）；`acm run opencode -m vmr.cheap` | 全部通过 |
+| `acm run pi` 的 `acm/auto`，从 Pi 的 JSON 输出看实际用到的模型 | low → `vmr/fast`，medium → `vmr/coding`，high → `vmr/agent` |
+| `status`；`restore --baseline` | 先全部 SYNCED；恢复后全部 UNMANAGED |
+| ACM `-m real` 测试（OpenCode 1.19.3） | 17/17 通过 |
+
+发现：
+
+- **远程 Manifest 没有任何角色**：四个模型 `agent` / `cheap` / `coding` / `fast` 的 `meta.roles` 都没配置。后果是 `acm init` 只能提议 `default: vmr.agent`（第一个模型），`vmr@default`、`vmr@fast` 这类引用都无法解析。本轮测试改为在 profile 里直接点名模型（`default: vmr.coding`，`fast: vmr.fast`，`reasoning: vmr.agent`）。建议在远程 VMR 的配置里补上 `meta.roles`。
+- **远程 VMR 没开鉴权**（`auth.required: false`），`/manifest` 和推理接口对局域网内所有人开放。是否需要开，取决于部署意图。
+- Codex 只说 Responses 协议，而 `fast`、`agent` 不提供 `openai-responses`，所以这两个角色在 Codex 上回落到默认模型，并给出告警。这符合设计。
 
 ## 4. 建议 VMR 侧后续处理（按优先级）
 

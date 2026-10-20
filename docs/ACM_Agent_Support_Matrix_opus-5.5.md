@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:50, by Opus 5.5 -->
 
 # ACM Agent 支持矩阵：配置细节、核实结论与三梯队决策
 
@@ -633,6 +633,7 @@ T2（家族成员）不执行第 2–3 步，只跑金样（1、4、5）；其�
 |---|---|---|
 | Claude Code：`env` 中置空串的 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` 是否视为未设置并回落 `apiKeyHelper`（§4.1） | **确认可用** | 真机测试（本地模拟网关，隔离 HOME）：`acm run claude` 用 `--settings` 内联 JSON 置空两者 + `apiKeyHelper: printenv VAR`，请求带期望的 key |
 | `apiKeyHelper` 子进程是否继承调用方环境变量（U4） | **确认继承** | 同上；`printenv <VAR>` 模板可用 |
+| OpenCode 1.19.3（2026-10-20，经 pnpm 安装）对 ACM 写入的配置 | **可用** | 真机：经远程 VMR 和真实上游，简单回复与读文件工具往返都通过；ACM `-m real` 测试 17/17 |
 | OpenCode 模型条目缺省 `tool_call` 时是否还发工具 | **照常发送** | 真机（1.3.13）：`tool_call` 缺省与 `true` 两种情况下，主循环请求都带 10 个工具；ACM 在 Manifest 未声明时不写该字段，无副作用 |
 | OpenCode `small_model` 是否对应 `fast` 角色 | **确认被使用** | 真机：首个请求是标题生成，走 `small_model`；测试断言为模型集合 `{主模型, fast 模型}` |
 | Codex 自定义 catalog 的严格性 | **确认被严格解析** | 真机：不合规 catalog 被拒；已用金样固定合规结构（含 `base_instructions`） |
