@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 16:10, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 16:45, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
@@ -21,7 +21,7 @@
 | 未知即缺省 | 不知道的字段省略，不写 0 / false。ACM 忽略未知字段与未知角色 |
 | 语义 | `limit.*` 是模型的**能力上限**（超过即不提供服务）；Agent 每次请求实际用多少由 Agent 自己决定。ACM 只把上限写进 Agent 描述模型的字段（如 OpenCode `limit.context`、Claude Code `CLAUDE_CODE_MAX_CONTEXT_TOKENS`），从不写 Agent 的用量预算 |
 
-## 2. 参考实现（已复核，已 fast-forward 进 VMR `main`）
+## 2. 实现状态（已合入 VMR `main`）
 
 | 项 | 值 |
 |---|---|
@@ -32,7 +32,13 @@
 | ACM 侧复核的门禁（只读运行） | `gofmt -l .` 无输出；`go vet ./...` 无输出；`go test -race ./...` exit 0（43 个包 ok） |
 | 设计取舍 | 清单每次由路由快照现算（无第二份真相）；`meta` 只描述、永不影响路由；直连名 `provider:model` 不列入；ETag = 文档内容哈希；角色冲突是**加载期错误**（启动拒绝、热重载保留旧配置）；不信任 `X-Forwarded-*`，代理后必须设 `public_base_url`（未设而见到转发头时 WARN 一次） |
 
-2026-10-20 16:05 只读检查：VMR `main` 已指向 `c1b31619`，远端没有 `feat/manifest`。用户已同意合入，并要求清理 worktree 和分支。清理交给 VMR 侧 Agent 做，见第三轮任务书 `/Users/stanford/code/vmr/docs/ACM_VMR_Task_Prompt_Round3_opus-5.5.md` §2。**此后 ACM 侧联调只从 VMR `main` 构建。**
+2026-10-20 17:00，VMR 侧第三轮完成：
+
+- `main` @ `21b829e4`，工作区干净；`vmr-manifest` worktree 和 `feat/manifest` 分支已清理；尚未推送（领先 `origin/main` 两个提交，推送由用户决定）。
+- `c1b31619..21b829e4` 只改了文档和示例配置，没有 `.go` 文件（ACM 侧用 `git diff --name-only` 核实）。
+- VMR 的总结在 `/Users/stanford/code/vmr/archived/ACM_VMR_Summary_sonnet-5.5.md`，各轮回报在同目录。这是未跟踪且被 `.gitignore` 忽略的目录。
+
+**此后 ACM 侧联调只从 VMR `main` 构建**：`cd /Users/stanford/code/vmr && go build -o <输出目录>/vmr ./cmd/vmr`。
 
 ## 3. 联调结果（2026-10-20）
 
@@ -71,6 +77,19 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
 
 仍未验证：真实上游（真实 key、工具调用往返、长上下文）、真实 Caddy TLS 链路。
 
+### 3.3 第三轮联调（2026-10-20 16:30，VMR `main` @ `21b829e4`，真实 Agent）
+
+- VMR 配置原样取自 VMR 总结里的最小配置：`main` 是 default，挂三个协议；`quick` 是 fast，挂 completions 和 messages。
+- 联调用一个可重复运行的脚本完成，结果 **28/28 通过**。覆盖的检查：
+  - VMR 侧：`vmr check`；`/manifest` 不带 key 返回 401、带 key 返回 200；
+  - 投影：`init` / `use`；四个 Agent 全部 SYNCED；写出的文件里不含 key；Claude Code 槽位正确；
+  - 真实请求：四个真实 Agent 都返回 `OK`；上游在三个协议上都收到了 `main`；
+  - 刷新与同步：`apply` 返回 304；改上下文后变为 OUT_OF_SYNC，状态里给出逐字段差异，`apply` 后恢复 SYNCED；
+  - 角色冲突：热重载被拒、ETag 不变；`vmr check` 退出码 1；
+  - 跨源：端点换了源时 ACM 告警；
+  - 一次性启动：四个 Agent 的 `acm run` 都通过，`-m vmr@fast` 打到 `small-model`，`acm run` 没有改动任何配置文件；
+  - 回退：`rollback`；`restore --baseline` 后四个 Agent 全部 UNMANAGED。
+
 ## 4. 建议 VMR 侧后续处理（按优先级）
 
 ### V1 反向代理后的 scheme —— 已处理（`c1b31619`）
@@ -103,7 +122,11 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
 - B2：可选字段 `cost`，每百万 token 的价格。OpenCode schema 和 Pi 的 `registerProvider` 都有对应字段；单位和多候选时的聚合规则由 VMR 决定。
 - B3：可选的 Pi `registerVirtualModel` 示例扩展，按角色路由。
 
-ACM 侧待办：VMR 定下 `cost` 的字段名和规则后，ACM 负责解析，投影到 OpenCode / Pi，在 SPEC §4.2 登记，并核实 Pi `models.json` 是否接受 `cost`。
+VMR 第三轮结论：
+
+- **B1 已做**：写入文档，`description` 是一行自由文本，按"定位 / 适合 / 不适合"组织，档次靠 `roles`。
+- **B2 不做**：价格属于账号，不属于虚拟模型；套餐账号的标价会误导用户；定价与实时路由已经解耦。ACM 侧接受，`cost` 不进契约，ACM 不再有对应待办。
+- **B3 不做**：选模型是客户端逻辑，在 VMR 的 CI 里也无法维护；VMR 建议如果要做就放在 ACM 一侧。是否在 ACM 做（`acm run pi` 已经随包带一个固定扩展）待用户决定。
 
 ### V3 保持的不变量（无需改动，供后续修改时对照）
 
@@ -116,4 +139,4 @@ ACM 侧待办：VMR 定下 `cost` 的字段名和规则后，ACM 负责解析，
 
 - **未验证**：真实上游链路（真实 key、工具调用、长上下文）；真实 TLS 终止代理（Caddy）。
 - **风险**：若 VMR 侧改动契约字段名或语义，需同步更新 ACM SPEC §4 与 ACM 的 Manifest 客户端；任何契约变更先在两边文档登记。
-- **下一步**：等 VMR 第三轮回报（清理结果、B1–B3）；之后从 VMR `main` 构建，用真实 key 在临时 HOME 中跑一遍 `init → use → 真实 Agent 发起一次带工具调用的请求`。
+- **下一步**：从 VMR `main` 构建，用真实上游和真实 key，在临时 HOME 中跑一遍 `init → use → 真实 Agent 发起一次带工具调用的请求`。
