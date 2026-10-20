@@ -97,3 +97,27 @@ def test_no_discovery_gives_the_template(outcome):
     from acm.catalog.probe import ProbeResult
 
     assert proposal_for(ProbeResult(outcome, "http://h")) == template_config()
+
+
+def test_keyless_gateway_gets_an_optional_key_reference(ctx):
+    from acm.catalog.probe import ProbeResult
+
+    m = team_manifest()
+    m["auth"] = {"required": False}
+    cfg = parse_config_text(proposal_for(ProbeResult("manifest", "http://h", manifest=m)))
+    assert cfg.providers["vmr"].api_key == "${VMR_KEY:-}"  # an unset VMR_KEY must not block
+    m["auth"] = {"required": True}
+    cfg = parse_config_text(proposal_for(ProbeResult("manifest", "http://h", manifest=m)))
+    assert cfg.providers["vmr"].api_key == "${VMR_KEY}"
+
+
+def test_manifest_without_any_role_explains_and_lists_models():
+    from acm.catalog.probe import ProbeResult
+
+    m = team_manifest()
+    for model in m["models"]:
+        model["roles"] = []
+    text = proposal_for(ProbeResult("manifest", "http://h", manifest=m))
+    cfg = parse_config_text(text)
+    assert cfg.profiles["daily"].default == "vmr.coding" and not cfg.profiles["daily"].roles
+    assert "meta.roles" in text and "coding, claude, agent, cheap, resp" in text

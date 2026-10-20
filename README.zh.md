@@ -35,6 +35,8 @@ acm history                                # ACM 写过什么（新→旧）
 acm restore --baseline                     # 回到 ACM 接管之前的样子
 ```
 
+网关在另一台机器上、`VMR_URL` / `VMR_KEY` 怎么设、网关没配角色怎么办：见[接入 VMR 网关](docs/USER_GUIDE.zh.md#接入-vmr-网关)。
+
 没有网关？手写配置即可（见 [使用指南](docs/USER_GUIDE.zh.md#配置)）——任何兼容 OpenAI / Anthropic / Responses 的端点都可以。
 
 一次性启动，不写 Agent 文件：

@@ -62,7 +62,12 @@ def _setup(
 @app.command()
 def init(
     vmr: Annotated[
-        str | None, typer.Option("--vmr", help="Gateway URL to read the catalog from.")
+        str | None,
+        typer.Option(
+            "--vmr",
+            help="Gateway base URL (default: $VMR_URL, else http://127.0.0.1:8800). "
+            "Its key is read from $VMR_KEY.",
+        ),
     ] = None,
     force: Force = False,
     yes: Yes = False,

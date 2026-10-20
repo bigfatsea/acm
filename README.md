@@ -35,6 +35,8 @@ acm history                                # what ACM wrote, newest first
 acm restore --baseline                     # go back to how the files were before ACM
 ```
 
+Gateway on another machine, `VMR_URL` / `VMR_KEY`, or a gateway without roles: see [Quick start with a VMR gateway](docs/USER_GUIDE.md#quick-start-with-a-vmr-gateway).
+
 No gateway? Write the config by hand (see [USER_GUIDE](docs/USER_GUIDE.md#configuration)) — any OpenAI-, Anthropic- or Responses-compatible endpoint works.
 
 One-off launch, nothing written to the agent's files:

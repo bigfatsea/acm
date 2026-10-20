@@ -11,6 +11,13 @@ from acm.core.errors import ACMError
 app = typer.Typer(
     name="acm",
     help="Agent Config Manager — declarative, non-destructive model config for AI coding agents.",
+    epilog=(
+        "Start: acm init [--vmr URL] → acm use daily → acm status.  "
+        "Gateway: VMR_URL (default http://127.0.0.1:8800) and VMR_KEY; "
+        "acm run AGENT works with just those two, no config file.  "
+        "Config: ~/.acm/config.yaml (ACM_HOME moves ~/.acm).  "
+        "Guide: https://github.com/bigfatsea/acm/blob/main/docs/USER_GUIDE.md"
+    ),
     no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_enable=False,

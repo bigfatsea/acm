@@ -34,6 +34,8 @@ def _manifest_proposal(probe: ProbeResult, key_var: str) -> str:
         for r in model.roles:
             roles.setdefault(r, model.id)
     default_ref = f"{name}@default" if "default" in roles else f"{name}.{m.models[0].id}"
+    auth = probe.manifest.get("auth")
+    keyless = isinstance(auth, dict) and auth.get("required") is False
     lines = [
         "version: 4",
         "",
@@ -42,12 +44,20 @@ def _manifest_proposal(probe: ProbeResult, key_var: str) -> str:
         "providers:",
         f"  {name}:",
         f"    manifest: {_q(probe.base_url + '/manifest')}",
-        f'    api_key: "${{{key_var}}}"',
-        "",
-        "profiles:",
-        "  daily:",
-        f"    default: {_q(default_ref)}",
     ]
+    if keyless:  # the gateway takes no key today; an unset variable must not stop acm
+        lines.append(f'    api_key: "${{{key_var}:-}}"   # the gateway requires no key')
+    else:
+        lines.append(f'    api_key: "${{{key_var}}}"')
+    lines += ["", "profiles:", "  daily:"]
+    if not roles:
+        ids = ", ".join(mm.id for mm in m.models)
+        lines += [
+            "    # The gateway tags no model with a role (VMR: models.<name>.meta.roles), so only",
+            f"    # a default could be guessed. Pick models by name instead ({ids}):",
+            f'    # roles: {{fast: "{name}.<model>", reasoning: "{name}.<model>"}}',
+        ]
+    lines.append(f"    default: {_q(default_ref)}")
     extra = [r for r in NON_DEFAULT_ROLES if r in roles]
     if extra:
         lines.append("    roles:")

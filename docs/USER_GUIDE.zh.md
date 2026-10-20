@@ -1,9 +1,10 @@
-<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 20:10, by Opus 5.5 -->
 
 # ACM 使用指南
 
 本指南对应 ACM 0.4。权威设计见 [ACM_PRINCIPLE_v3.md](ACM_PRINCIPLE_v3.md) 与 [ACM_SPEC_v3.md](ACM_SPEC_v3.md)；本文从使用者角度说明。
 
+- [接入 VMR 网关](#接入-vmr-网关)
 - [工作原理](#工作原理)
 - [配置](#配置)
 - [命令](#命令)
@@ -13,8 +14,55 @@
 - [各 Agent 的写入范围](#各-agent-的写入范围)
 - [网关 Manifest](#网关-manifest)
 - [订阅登录](#订阅登录)
+- [环境变量](#环境变量)
 - [排障](#排障)
 - [从 0.3 升级](#从-03-升级)
+
+## 接入 VMR 网关
+
+ACM 直接读取网关的模型目录（`GET /manifest`），不需要你把模型名抄进配置文件。按 VMR 所在的位置，选对应的做法。
+
+**VMR 在本机**（默认地址 `http://127.0.0.1:8800`）：
+
+```bash
+export VMR_KEY=sk-...        # 只有网关配置了 api_keys 时才需要；无鉴权的网关什么都不用设
+acm init                     # 找到网关，展示 ~/.acm/config.yaml 的提案，确认后再写入
+acm use daily                # 在勾选列表里选择要管理的 Agent，写入它们的模型字段
+acm status                   # 所有受管 Agent 都应为 SYNCED
+```
+
+**VMR 在另一台机器上**（局域网地址或域名）：告诉 ACM 一次即可，可以在命令行指定，也可以写进 shell 配置。
+
+```bash
+acm init --vmr http://192.168.0.22:8800
+# 或者写进 ~/.zshrc / ~/.bashrc，之后 `acm init`、`acm run` 自己就能找到：
+export VMR_URL=http://192.168.0.22:8800
+export VMR_KEY=sk-...        # 网关需要 key 时
+```
+
+`acm init` 会把 Manifest 地址写进 `config.yaml`，之后的 `use`、`apply`、`status`、`run` 不再需要 `VMR_URL`。
+
+**不写配置文件，只用一次**：`acm run` 只需要 `VMR_URL`（需要的话再加 `VMR_KEY`）。它读取 Manifest，用网关的模型启动 Agent，不写任何文件。
+
+```bash
+VMR_URL=http://192.168.0.22:8800 acm run claude
+VMR_URL=http://192.168.0.22:8800 acm run pi -m coding     # 按名字指定模型；按角色用 vmr@fast
+```
+
+模型是怎么选出来的：
+
+- **角色**：网关给模型打上角色标签：`default`、`reasoning`、`fast`、`subagent`、`review`（VMR：`models.<name>.meta.roles`）。`acm init` 会提议 `vmr@default`，外加网关发布的每一个角色；之后每个 Agent 按自己的协议和槽位拿到对应的模型（见[各 Agent 的写入范围](#各-agent-的写入范围)）。网关改了角色或换了模型时，`acm status` 显示 `OUT_OF_SYNC`，`acm apply` 即可跟上。
+- **网关没有发布角色**：`acm init` 只能猜一个默认模型（第一个），并在注释里说明原因、列出可选模型。可以自己点名：
+
+  ```yaml
+  profiles:
+    daily:
+      default: vmr.coding
+      roles: {fast: vmr.fast, reasoning: vmr.agent}
+  ```
+
+  也可以请网关管理员配置角色。配了角色之后，`vmr@default` 等引用会自动跟随网关。
+- **key**：`config.yaml` 里只存引用 `${VMR_KEY}`，不存 key 本身。写给 Agent 的也是引用（Claude Code 的 `apiKeyHelper: printenv VMR_KEY`、Codex 的 `env_key`、OpenCode 的 `{env:VMR_KEY}`、Pi 的 `$VMR_KEY`），所以**要在启动 Agent 的 shell 里导出 `VMR_KEY`**，而不只是在运行 `acm` 的地方。如果网关的 Manifest 表明不需要 key，`acm init` 会写 `${VMR_KEY:-}`，什么都不用导出。
 
 ## 工作原理
 
@@ -216,6 +264,19 @@ Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bear
 - **只在一次会话里用网关**：`acm run AGENT` 不写任何文件，订阅始终是默认。
 - 接管时被 ACM 移除的 key（例如 Claude Code `settings.json` 里真实的 `ANTHROPIC_API_KEY`，否则会被发给网关）记录在历史中，`restore --baseline` / `rollback` 会把它恢复。
 - 如果已保存的登录本身过期，Agent 会要求重新登录——这取决于 Agent 厂商，ACM 无法代劳。
+
+## 环境变量
+
+| 变量 | 由谁读取 | 含义 |
+|---|---|---|
+| `VMR_URL` | `acm init`、无配置时的 `acm run` | 网关地址。`acm init` 在它缺省时用 `http://127.0.0.1:8800`；`--vmr` 优先于它 |
+| `VMR_KEY` | `acm init`（探测网关时）、零配置的 `acm run`，以及 `config.yaml` 中写了 `${VMR_KEY}` 的地方（包括 Agent 自己） | 网关的 key |
+| `ACM_MANIFEST` | 无配置时的 `acm run` | 用来代替 `VMR_URL` 的 Manifest 地址或文件 |
+| `ACM_MANIFEST_TIMEOUT` | 所有读取 Manifest 的命令 | 等待网关的秒数（默认 `2`） |
+| `ACM_HOME` | 所有命令 | 移动 `~/.acm`（配置、历史、版本库、Manifest 缓存） |
+| Agent 目录变量（`PI_CODING_AGENT_DIR` 等） | 对应的 Agent | 该 Agent 存放文件的位置，见[各 Agent 的写入范围](#各-agent-的写入范围) |
+
+`config.yaml` 里的其他 `${NAME}` 由你自己定义：ACM 运行时每个引用都必须有值，除非写成 `${NAME:-默认值}`。
 
 ## 排障
 

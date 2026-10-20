@@ -1,9 +1,10 @@
-<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 20:10, by Opus 5.5 -->
 
 # ACM User Guide
 
 This guide covers ACM 0.4. The authoritative design lives in [ACM_PRINCIPLE_v3.md](ACM_PRINCIPLE_v3.md) and [ACM_SPEC_v3.md](ACM_SPEC_v3.md) (both Chinese); this document is the user-facing view.
 
+- [Quick start with a VMR gateway](#quick-start-with-a-vmr-gateway)
 - [How ACM works](#how-acm-works)
 - [Configuration](#configuration)
 - [Commands](#commands)
@@ -13,8 +14,55 @@ This guide covers ACM 0.4. The authoritative design lives in [ACM_PRINCIPLE_v3.m
 - [What ACM writes, per agent](#what-acm-writes-per-agent)
 - [Gateway manifest](#gateway-manifest)
 - [Subscription logins](#subscription-logins)
+- [Environment variables](#environment-variables)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading from 0.3](#upgrading-from-03)
+
+## Quick start with a VMR gateway
+
+ACM reads the gateway's model catalog (`GET /manifest`) instead of you copying model names into a file. Pick the case that matches where VMR runs.
+
+**VMR on this machine** (the default address `http://127.0.0.1:8800`):
+
+```bash
+export VMR_KEY=sk-...        # only if the gateway has api_keys; a keyless gateway needs nothing
+acm init                     # finds the gateway, shows the proposed ~/.acm/config.yaml, asks before writing
+acm use daily                # pick the agents in the checklist; writes their model fields
+acm status                   # every managed agent should be SYNCED
+```
+
+**VMR on another machine** (LAN address or a domain): name it once, per command or for your shell.
+
+```bash
+acm init --vmr http://192.168.0.22:8800
+# or put it in ~/.zshrc / ~/.bashrc so `acm init` and `acm run` find it by themselves:
+export VMR_URL=http://192.168.0.22:8800
+export VMR_KEY=sk-...        # if the gateway requires a key
+```
+
+`acm init` writes the manifest URL into `config.yaml`, so `use`, `apply`, `status` and `run` work without `VMR_URL` afterwards.
+
+**No config file, one session only:** `VMR_URL` (plus `VMR_KEY` if needed) is all `acm run` needs. It reads the manifest, starts the agent with the gateway's models and writes nothing.
+
+```bash
+VMR_URL=http://192.168.0.22:8800 acm run claude
+VMR_URL=http://192.168.0.22:8800 acm run pi -m coding     # a model by name; vmr@fast for a role
+```
+
+How models are picked:
+
+- **Roles.** The gateway tags models with roles: `default`, `reasoning`, `fast`, `subagent`, `review` (VMR: `models.<name>.meta.roles`). `acm init` proposes `vmr@default` plus every role the gateway publishes. Each agent then gets the model for its protocol and slot (see [What ACM writes](#what-acm-writes-per-agent)). When the gateway re-tags or swaps a model, `acm status` shows `OUT_OF_SYNC` and `acm apply` follows it.
+- **No roles published.** `acm init` can only guess a default (the first model) and says so in a comment that lists the models. Either name models yourself:
+
+  ```yaml
+  profiles:
+    daily:
+      default: vmr.coding
+      roles: {fast: vmr.fast, reasoning: vmr.agent}
+  ```
+
+  or ask the gateway's admin to set the roles. With roles, `vmr@default` and the others follow the gateway automatically.
+- **Keys.** `config.yaml` holds the reference `${VMR_KEY}`, never the key. The agents get a reference too (Claude Code `apiKeyHelper: printenv VMR_KEY`, Codex `env_key`, OpenCode `{env:VMR_KEY}`, Pi `$VMR_KEY`), so **export `VMR_KEY` in the shell that starts the agents**, not only where you run `acm`. For a gateway whose manifest says it needs no key, `acm init` writes `${VMR_KEY:-}`, and nothing has to be exported.
 
 ## How ACM works
 
@@ -216,6 +264,19 @@ So switching to a gateway does not log you out, and switching back does not need
 - **Gateway for one session only**: `acm run AGENT` writes nothing, so the subscription stays the default.
 - A key ACM removed on takeover (for example a real `ANTHROPIC_API_KEY` in Claude Code's `settings.json`, which would otherwise be sent to the gateway) is in the history and comes back with `restore --baseline` / `rollback`.
 - If the stored login itself has expired, the agent asks you to log in again — that is between you and the agent's vendor.
+
+## Environment variables
+
+| Variable | Read by | Meaning |
+|---|---|---|
+| `VMR_URL` | `acm init`, `acm run` without a config | Gateway base URL. `acm init` falls back to `http://127.0.0.1:8800`; `--vmr` wins over it |
+| `VMR_KEY` | `acm init` (probing), zero-config `acm run`, and wherever `config.yaml` says `${VMR_KEY}` — including the agents themselves | The gateway's key |
+| `ACM_MANIFEST` | `acm run` without a config | A manifest URL or file to run against, instead of `VMR_URL` |
+| `ACM_MANIFEST_TIMEOUT` | every command that reads a manifest | Seconds to wait for the gateway (default `2`) |
+| `ACM_HOME` | every command | Moves `~/.acm` (config, history, versions, manifest cache) |
+| Agent directory variables (`PI_CODING_AGENT_DIR`, …) | the matching agent | Where that agent keeps its files; listed in [What ACM writes](#what-acm-writes-per-agent) |
+
+Any other `${NAME}` in `config.yaml` is your own: every reference must be set when ACM runs, unless it is written `${NAME:-default}`.
 
 ## Troubleshooting
 
