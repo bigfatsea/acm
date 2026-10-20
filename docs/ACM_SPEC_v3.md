@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:25, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 18:10, by Opus 5.5 -->
 
 # ACM 实现规格 v3
 
@@ -129,7 +129,7 @@ class ModelCard:
               "guarantee": {"input": ["text"], "tool_call": true, "reasoning": false}}] }
 ```
 
-客户端规则：未知字段忽略；未知角色忽略；`manifest_version` ≠ 1 → 该来源无效（错误，不降级）；`models[].protocols` 必须 ⊆ `endpoints` 的键；同一 (协议, 角色) 上出现多个模型 → Manifest 非法。`guarantee` 本版本仅用于展示。
+客户端规则：未知字段忽略；未知角色忽略；`manifest_version` ≠ 1 → 该来源无效（错误，不降级）；`models[].protocols` 必须 ⊆ `endpoints` 的键；同一 (协议, 角色) 上出现多个模型 → Manifest 非法。`guarantee` 本版本仅用于展示，不参与投影：能力字段（`tool_call`、`reasoning`、`modalities.input`）按虚拟模型的**并集**写入 Agent，也就是"任一候选支持即可"。理由是由网关按请求特征把请求路由到支持该能力的候选（用户决定，2026-10-20）。已知缺口：VMR 当前只按 tools 与 image 过滤候选，thinking 尚未参与路由（`vmr check` 会对此告警），候选异构时，带思考参数的请求可能落到不支持思考的候选上。
 
 ### 4.3 获取与缓存
 

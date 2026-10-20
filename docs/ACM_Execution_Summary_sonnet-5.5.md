@@ -242,5 +242,5 @@ P8 阶段对**用户真实文件的唯一接触**是 `acm status --all` 读取 `
 
 - **Hermes、OpenClaw 真机测试**（L2、L3）；**T2 成员的 `acm run`**（L4）。
 - **真实上游链路**：真实 key、工具调用往返、长上下文；**真实 Caddy 的 TLS 链路**。
-- **待决定：投影时是否改用 `guarantee.*`**。目前写入的 `reasoning` / `tool_call` 取的是并集，也就是"至少一个候选模型声明了"；SPEC 规定 `guarantee` 只用于展示。
+- **已决定：不改用 `guarantee.*`**（2026-10-20）。能力字段按并集投影，由 VMR 路由到支持该能力的候选（SPEC §4.2）。遗留：VMR 尚未按 thinking 过滤候选。
 - **对外动作均未执行**：ACM `main` 未推送、未打 `v0.4.0` 标签、未发布 PyPI；VMR `main` 未推送。
