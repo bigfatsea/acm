@@ -1,10 +1,10 @@
-<!-- // Ver 2026-10-20 11:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:45, by Opus 5.5 -->
 
 # ACM（Agent Config Manager）项目规格 v3（原则版）
 
 > **文档性质**：治理性规格（governing spec），只保留四样东西：核心原则、边界、核心数据模型、命令语义。实现细节在 `docs/ACM_SPEC_v3.md`；各 Agent 的配置知识**只**在 `docs/ACM_Agent_Support_Matrix_opus-5.5.md` 维护。两者与本文冲突时，以本文为准。
 >
-> **取代**：`docs/archive/ACM_PROJECT_PRINCIPLE_v2.2.md`。v3 随 0.4.0 重建生效，决策依据见 `docs/ACM_Rebuild_Action_Plan_opus-5.5.md` 及其引用的分析文档（Manifest 方案、支持矩阵、写入安全与版本历史、临时启动）。
+> **取代**：`docs/archive/ACM_PROJECT_PRINCIPLE_v2.2.md`。v3 随 0.4.0 重建生效，决策依据见 `docs/archive/ACM_Rebuild_Action_Plan_opus-5.5.md` 及其引用的分析文档（Manifest 方案、支持矩阵、写入安全与版本历史、临时启动）。
 
 ---
 
@@ -176,4 +176,4 @@ acm prune --keep N          # 显式清理历史（baseline 永不清理）
 | 本文档 | 治理规格 |
 | `docs/ACM_SPEC_v3.md` | 实现参考：schema、协议、数据格式、流程、验收 |
 | `docs/ACM_Agent_Support_Matrix_opus-5.5.md` | 各 Agent 配置知识（持久投影与临时启动）与事实核查记录的唯一集中处 |
-| `docs/ACM_Rebuild_Action_Plan_opus-5.5.md` 及分析文档 | 决策依据与执行计划（历史性文档） |
+| `docs/archive/ACM_Rebuild_Action_Plan_opus-5.5.md` 及分析文档 | 决策依据与执行计划（历史性文档） |

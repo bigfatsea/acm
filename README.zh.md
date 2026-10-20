@@ -29,7 +29,7 @@ acm --version
 ```bash
 export VMR_KEY=sk-...                      # 你的网关或 provider 所用的 key
 acm init --vmr http://127.0.0.1:8800       # 探测 Agent 与网关，生成 ~/.acm/config.yaml 提案
-acm use team                               # 勾选要管理的 Agent，投影 profile「team」（先确认）
+acm use daily                              # 勾选要管理的 Agent，投影提案中的 profile「daily」（先确认）
 acm status                                 # SYNCED / OUT_OF_SYNC / DRIFTED / ERROR / UNMANAGED
 acm history                                # ACM 写过什么（新→旧）
 acm restore --baseline                     # 回到 ACM 接管之前的样子
@@ -40,7 +40,8 @@ acm restore --baseline                     # 回到 ACM 接管之前的样子
 一次性启动，不写 Agent 文件：
 
 ```bash
-acm run claude -m team@reasoning           # 按角色选模型
+acm run claude -m vmr@reasoning            # 按角色选模型（`vmr` 是 init 按网关命名的 provider）
+acm run pi                                 # 有 fast/reasoning 角色时，Pi 使用 acm/auto，按思考档位 low/medium/high 选模型
 VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode   # 零配置；`acm <agent>` 是 `acm run` 的简写
 ```
 

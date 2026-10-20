@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:25, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:45, by Opus 5.5 -->
 
 # ACM Agent 支持矩阵：配置细节、核实结论与三梯队决策
 
@@ -6,7 +6,7 @@
 >
 > **范围**：In —— Magpie 支持的全部 Agent（源码 `builtins()` 中 62 个内建适配器）+ Magpie 未覆盖但重要的 Agent；第一、二梯队的配置规格卡；梯队与扩展机制决策；对 ACM 工程的影响。Out —— 适配器实现代码本身；GUI。
 >
-> **配套文档**：`docs/ACM_VMR_Manifest_Analysis_and_Design_opus-5.5.md`（下称"Manifest 方案"）；`docs/ACM_Rebuild_Action_Plan_opus-5.5.md`（下称"Action Plan"）；`docs/ACM_Ephemeral_Run_Design_opus-5.5.md`（临时启动的命令与机制设计）。
+> **配套文档**：`docs/ACM_VMR_Manifest_Analysis_and_Design_opus-5.5.md`（下称"Manifest 方案"）；`docs/archive/ACM_Rebuild_Action_Plan_opus-5.5.md`（下称"Action Plan"）；`docs/ACM_Ephemeral_Run_Design_opus-5.5.md`（临时启动的命令与机制设计）。
 >
 > **rev.3（2026-10-20）**：本文成为**所有 Agent 配置知识的唯一集中处**——除"改配置文件"（`acm use`）外，新增每个 Agent 的"临时启动注入"（`acm run`）规则（各规格卡中的"临时启动"段落与 §7 总表），全部经独立事实核查，核查记录见 §7.4；同时更新了 T1 各 Agent 已核实的非交互调用命令，并修正 Claude Code 的密钥策略（§6.3）。本文的角色槽位映射是 Manifest 方案 §5.5.4 的扩展版。
 >
@@ -620,7 +620,7 @@ T2（家族成员）不执行第 2–3 步，只跑金样（1、4、5）；其�
 
 ### 9.3 下一步
 
-执行顺序与验收标准见 `docs/ACM_Rebuild_Action_Plan_opus-5.5.md`。本节旧版中"先修 Codex 协议映射缺陷"一项取消：ACM 将按 Action Plan 重建，旧适配器整体归档，该缺陷作为新 Codex 适配器的金样用例（`openai` 协议 provider 投影到 Codex 必须报错）保留其教训。
+执行顺序与验收标准见 `docs/archive/ACM_Rebuild_Action_Plan_opus-5.5.md`。本节旧版中"先修 Codex 协议映射缺陷"一项取消：ACM 将按 Action Plan 重建，旧适配器整体归档，该缺陷作为新 Codex 适配器的金样用例（`openai` 协议 provider 投影到 Codex 必须报错）保留其教训。
 
 ## 10. 实现回写（2026-10-20，ACM 0.4 实现后与上文的差异与新增事实）
 

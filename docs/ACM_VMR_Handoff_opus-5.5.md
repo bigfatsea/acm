@@ -1,10 +1,10 @@
-<!-- // Ver 2026-10-20 16:45, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:55, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
-> **意图复述**：ACM 0.4 需要 VMR 发布 `GET /manifest`（模型目录）。本文把 VMR 侧需要做、已做、建议做的事交给 VMR 的维护者（或其 Agent）自行实施。**ACM 侧不再修改 VMR 仓库**——VMR 可能有并行进行的工作，合并、改写、取舍都由 VMR 侧决定。
+> **意图复述**：ACM 0.4 需要 VMR 发布 `GET /manifest`（模型目录）。本文记录 ACM 消费的契约、VMR 侧的实现状态、历轮联调结果与后续事项。
 >
-> **范围**：In —— ACM 消费的契约、参考实现的位置与状态、联调结果、建议的后续改动。Out —— 对 VMR 仓库的任何直接操作。
+> **现状（2026-10-20 17:00）**：VMR `main` @ `21b829e4` 已包含 Manifest 发布端，三轮任务全部完成。此前 VMR 侧改动都经任务书交给 VMR 自己的 Agent 实施；之后用户允许 ACM 侧直接修改 VMR 仓库，前提是先确认那边没有别人未提交的改动，且不经同意不推送。契约变更仍需两边文档同步登记。
 
 ## 1. ACM 消费的契约（Manifest v1）
 
@@ -26,7 +26,7 @@
 | 项 | 值 |
 |---|---|
 | worktree | `/Volumes/SSD2T/code/vmr-manifest` |
-| 分支 / 提交 | `feat/manifest` @ `c1b31619`（单个提交，未推送；由 VMR 侧 Agent 在第二轮任务中 rebase 并重做，回报见 `/Users/stanford/code/vmr/docs/ACM_VMR_Task_Report_sonnet-5.5.md`） |
+| 分支 / 提交 | `feat/manifest` @ `c1b31619`（单个提交，未推送；由 VMR 侧 Agent 在第二轮任务中 rebase 并重做，回报见 `/Users/stanford/code/vmr/archived/ACM_VMR_Task_Report_sonnet-5.5.md`） |
 | 基点 | VMR `main` @ `3c6bb177`，是 `main` 的直接后继，可 `git merge --ff-only feat/manifest` |
 | 改动 | `internal/server/manifest.go`（新增）、`internal/server/{manifest_test.go,server.go}`、`internal/config/{config.go,config_validate.go,check.go,manifest_meta_test.go}`、`CHANGELOG.md`、`config.example{,.zh}.yaml`、`docs/{KNOWN_ISSUES.md,UserGuide.md,UserGuide.zh.md}` |
 | ACM 侧复核的门禁（只读运行） | `gofmt -l .` 无输出；`go vet ./...` 无输出；`go test -race ./...` exit 0（43 个包 ok） |

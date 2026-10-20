@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-19 18:30, by Claude Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:45, by Opus 5.5 -->
 
 # ACM × VMR：配置面与路由面分离 —— 存在性再评估、协议设计与落地方案
 
@@ -6,7 +6,7 @@
 >
 > **范围**：In —— ACM 定位与架构、VMR 侧的自描述协议（Manifest）、ACM 对 Manifest 的消费与投影、团队共享 VMR 场景、Pi 动态路由插件的定位。Out —— VMR 路由算法本身、Agent 内部认知路由的实现细节、GUI。
 >
-> **对既有材料的态度**：`docs/agent_config_manager_design_v1.1.md`、`docs/ACM_PROJECT_PRINCIPLE_v2.2.md`、`docs/ACM_PROJECT_SPEC_v2.2.md`、VMR 的 `vmr-agent-dynamic-routing-protocol_agent.md` 与 `vmr_vs_magpie_v1.0.md` 均作为输入素材引用，**不作为既定结论**；本文对其中若干判断做了核查与修正（见 §1.3）。
+> **对既有材料的态度**：`docs/archive/agent_config_manager_design_v1.1.md`、`docs/archive/ACM_PROJECT_PRINCIPLE_v2.2.md`、`docs/archive/ACM_PROJECT_SPEC_v2.2.md`、VMR 的 `vmr-agent-dynamic-routing-protocol_agent.md` 与 `vmr_vs_magpie_v1.0.md` 均作为输入素材引用，**不作为既定结论**；本文对其中若干判断做了核查与修正（见 §1.3）。
 
 ---
 
@@ -34,8 +34,8 @@
 |---|---|---|
 | `vmr_vs_magpie_v1.0.md`（deep-researcher，局域网文档） | 2026-10-07 | 引用其对 Magpie 架构（IR 翻译、JS 中间件、Routing Group）的拆解；**修正**其"Prompt Cache 亲和完全缺失""100% 置信度"两处判断（§1.3） |
 | `~/code/vmr/docs/vmr-agent-dynamic-routing-protocol_agent.md`（Manifest v1.0 草案） | 2026-10-16 | 采纳其"网关暴露能力、Agent 掌控认知决策"的职责划分；**重设计**其 Schema（§5.4 逐项裁定） |
-| `docs/agent_config_manager_design_v1.1.md` rev.2 | 2026-10-08 | 采纳字段所有权、零守护进程、受管面纪律、"ACM = VMR 配置面"的定位；**更新**其死亡条件与 Phase 3 团队 overlay 规划 |
-| `docs/ACM_PROJECT_PRINCIPLE_v2.2.md` / `ACM_PROJECT_SPEC_v2.2.md` | 2026-08-27 起 | 作为不可违反的约束；指出需要修订的条款（§7） |
+| `docs/archive/agent_config_manager_design_v1.1.md` rev.2 | 2026-10-08 | 采纳字段所有权、零守护进程、受管面纪律、"ACM = VMR 配置面"的定位；**更新**其死亡条件与 Phase 3 团队 overlay 规划 |
+| `docs/archive/ACM_PROJECT_PRINCIPLE_v2.2.md` / `ACM_PROJECT_SPEC_v2.2.md` | 2026-08-27 起 | 作为不可违反的约束；指出需要修订的条款（§7） |
 | ACM 源码 `src/acm/vmr.py`、`adapters/*.py` | HEAD `7bb5ae0` | 核实现状：VMR 探测只用 `/v1/models` 的 `id` + `vmr_protocol`；Claude Code 适配器受管命名空间仅 `model`、`env.ANTHROPIC_BASE_URL`、`env.ANTHROPIC_AUTH_TOKEN`、`env.ANTHROPIC_API_KEY`、`effortLevel` |
 | VMR 源码 `~/code/vmr` | HEAD `d91f647c`（2026-10-13） | 核实：无 Manifest 端点；`/v1/models` 字段；`model_defaults` 能力声明；路由资格过滤（image/tools/上下文） |
 | Magpie README / docs/remote / docs/docker / docs/reference.md | 2026-10-19 抓取 | 核实 Magpie 当前能力，特别是远程/服务端模式与 Agent 接线方式 |
@@ -710,7 +710,7 @@ acm apply         # 收敛；漂移规则不变（若成员手改过受管字段
 
 ## 6. 落地路线与验收标准
 
-> 2026-10-19 补充：ACM 侧（M2、M3）的执行计划已由 `docs/ACM_Rebuild_Action_Plan_opus-5.5.md` 取代（ACM 按新架构重建）；M0（验证 Claude Code 后台请求）、M1（VMR Manifest，对应 Action Plan P7）、M4（Pi 扩展）仍以本节为准。
+> 2026-10-19 补充：ACM 侧（M2、M3）的执行计划已由 `docs/archive/ACM_Rebuild_Action_Plan_opus-5.5.md` 取代（ACM 按新架构重建）；M0（验证 Claude Code 后台请求）、M1（VMR Manifest，对应 Action Plan P7）、M4（Pi 扩展）仍以本节为准。
 
 原则：沿用 PRINCIPLE §7 的"里程碑分级兑现"——公理级语义在每个里程碑都成立，只分片交付机制。工作量为**基于经验判断的量级估计**（含测试，AI 辅助编码），不是排期承诺。
 

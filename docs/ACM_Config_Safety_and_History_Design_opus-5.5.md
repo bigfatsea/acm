@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-19 23:30, by Claude Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:45, by Opus 5.5 -->
 
 # ACM 写入安全与版本历史：设计方案（rev.2）
 
@@ -6,7 +6,7 @@
 >
 > **rev.2（2026-10-19）**：回应"只像 Magpie 那样保留首次原始状态是否更简单有效""中间状态要不要记、下次启动发现文件又变了怎么办"两个问题，把 rev.1 的"每次运行都记录观察到的版本"收窄为"**只在 ACM 写入时记录写前、写后两个版本**"，删去 `snapshot`、独立 `diff` 命令与 `observed` 事件类型；新增 §4.3"再次运行时发现文件已变化"的完整处理规则。
 >
-> **配套文档**：`docs/ACM_Rebuild_Action_Plan_opus-5.5.md`；`docs/ACM_Ephemeral_Run_Design_opus-5.5.md`（临时启动，与本文互补：临时启动根本不写文件）。
+> **配套文档**：`docs/archive/ACM_Rebuild_Action_Plan_opus-5.5.md`；`docs/ACM_Ephemeral_Run_Design_opus-5.5.md`（临时启动，与本文互补：临时启动根本不写文件）。
 
 ---
 

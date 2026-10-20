@@ -29,7 +29,7 @@ Requires Python ≥ 3.12 on macOS or Linux.
 ```bash
 export VMR_KEY=sk-...                      # whatever your gateway or provider uses
 acm init --vmr http://127.0.0.1:8800       # detect agents + gateway, propose ~/.acm/config.yaml
-acm use team                               # pick the agents to manage, project profile "team" (asks first)
+acm use daily                              # pick the agents to manage, project the proposed profile "daily" (asks first)
 acm status                                 # SYNCED / OUT_OF_SYNC / DRIFTED / ERROR / UNMANAGED
 acm history                                # what ACM wrote, newest first
 acm restore --baseline                     # go back to how the files were before ACM
@@ -40,7 +40,8 @@ No gateway? Write the config by hand (see [USER_GUIDE](docs/USER_GUIDE.md#config
 One-off launch, nothing written to the agent's files:
 
 ```bash
-acm run claude -m team@reasoning           # model by role
+acm run claude -m vmr@reasoning            # model by role (`vmr` = the provider init named after the gateway)
+acm run pi                                 # with fast/reasoning roles: Pi on acm/auto, thinking level low/medium/high picks the model
 VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode   # zero-config; `acm <agent>` is shorthand for `acm run`
 ```
 

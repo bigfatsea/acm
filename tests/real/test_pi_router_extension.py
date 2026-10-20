@@ -10,7 +10,20 @@ from importlib import resources
 import pytest
 from harness import binary
 
-pytestmark = [pytest.mark.real, pytest.mark.skipif(binary("node") is None, reason="node missing")]
+
+def _node_runs_typescript() -> bool:
+    """The extension is plain TypeScript; Node loads it natively from 22.18 / 23.6 on."""
+    node = binary("node")
+    if node is None:
+        return False
+    probe = "process.exit(process.features.typescript ? 0 : 1)"
+    return subprocess.run([node, "-e", probe], capture_output=True, timeout=30).returncode == 0
+
+
+pytestmark = [
+    pytest.mark.real,
+    pytest.mark.skipif(not _node_runs_typescript(), reason="node cannot load .ts natively"),
+]
 
 DRIVER = r"""
 const ext = (await import(process.argv[2])).default;

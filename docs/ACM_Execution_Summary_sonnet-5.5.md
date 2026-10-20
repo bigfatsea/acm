@@ -1,10 +1,12 @@
-<!-- // Ver 2026-10-20 12:10, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:50, by Opus 5.5 -->
 
 # ACM 0.4 重建：执行总结
 
 > **意图复述**：按已确认的 Action Plan（R1–R8）、历史与写入安全设计（H1–H7）和临时启动设计，把 ACM 从 0.3 的残缺实现整体重建为 0.4，并在 VMR 侧补上 Manifest 发布端；全程自行决策、不中断提问，难以抉择的项记入遗留。本文记录落地结果、过程中出现的新问题与处理、以及遗留事项。
 >
 > **范围**：In —— ACM 仓库（`main` 上的本地提交）、VMR 的 `feat/manifest` 分支（独立 worktree）。Out —— 推送、打 `v*` 标签、发布 PyPI、合并 VMR 分支（均未执行，见 §6）。
+
+> **阅读提示**：§1–§7 是 0.4 初次落地时（版本 `0.4.0.dev0`）的快照，其中的遗留与"未联调"等表述已部分过时；之后的变化见 §8（第一轮复审）与 §9（运行复核与 VMR 联调）。
 
 ## 1. 结论
 
@@ -192,3 +194,53 @@ P8 阶段对**用户真实文件的唯一接触**是 `acm status --all` 读取 `
 - 经真实 VMR 到真实上游的请求链路未验证。
 - Codex / OpenCode / Pi 的登录存储位置为基于经验判断（Claude Code 已对照官方文档）。
 - 交互式勾选只有单元测试与一次伪终端手测，无自动化端到端测试。
+
+## 9. 运行复核与 VMR 联调（2026-10-20 下午，Opus 5.5）
+
+对应任务书 `docs/archive/ACM_Runtime_Review_Prompt_opus-5.5.md`。复核以实际运行为主：
+
+- 环境：临时 HOME，环境变量只放行白名单，key 全部是假的；
+- Agent：Claude Code、Codex、OpenCode、Pi 的真实二进制；
+- 网关：VMR 构建到临时目录；上游是 `tests/fake_gateway.py`。
+
+联调和 VMR 侧的详细记录见 `docs/ACM_VMR_Handoff_opus-5.5.md` §2–§4。
+
+### 9.1 已修复 / 新增（ACM，本地提交）
+
+| 提交 | 内容 |
+|---|---|
+| `f5b283f` | Manifest 端点与 Manifest 不同源时，`use` / `apply` / `status` / `run` 告警；https 清单配 http 端点时点明明文风险（SPEC §4.3） |
+| `f5b283f` | `status` / `history` / `--dry-run` / 漂移提示只列出变化的叶子字段，不再把整个 provider 字典打印两遍；ACM 独占文件显示为"已创建 / 已替换 / 已删除"，不再是 `<root>: '<file>' -> '<file>'` |
+| `f5b283f` | `acm run` 的告警保留字段路径；OpenCode 角色告警改写措辞 |
+| `e04bac2` | `acm run pi` 新增虚拟模型 `acm/auto`，按思考档位选择角色：`low` 对应 fast，`medium` 对应 default，`high` 对应 reasoning。工具调用后的继续请求和重试沿用原模型；后台请求只在窗口足够时走 fast（SPEC §9 第 5 条） |
+
+### 9.2 VMR 侧
+
+- 三轮任务书与回报都已完成。VMR `main` @ `21b829e4` 已包含 `GET /manifest`，worktree 和分支已清理，尚未推送。
+- 联调结果：
+  - 第二轮：`c1b31619`，真实 Agent，全部通过；
+  - 第三轮：`main`，脚本化检查 28/28 通过；
+  - `acm run pi` 的档位路由经 VMR `main` 端到端打通。
+
+### 9.3 决定
+
+| 决定 | 内容 |
+|---|---|
+| 跨源端点 | 每次都告警，不阻断，不新增状态（没有采用 VMR 建议的"首次确认并记住"） |
+| 模型定位 | 档次只由 `roles` 表达；不加自由的场景标签或档位数字；`description` 按"定位 / 适合 / 不适合"书写（VMR 文档） |
+| `cost` | 不进契约（VMR：价格属于账号，不属于虚拟模型） |
+| Pi 动态路由 | 只在 `acm run` 中提供；持久写入（`acm use`）需要安装插件，越过 PRINCIPLE §2.3，连同修改原则一起暂缓 |
+| VMR 仓库 | 用户允许直接修改；改之前先确认那边没有别人未提交的改动，不经同意不推送 |
+
+### 9.4 验证
+
+- `uv run pytest -q`：458 通过，1 跳过；
+- `-m real`：17 通过；
+- `ruff check`、`mypy src`：全部通过。
+
+### 9.5 仍未完成
+
+- **Hermes、OpenClaw 真机测试**（L2、L3）；**T2 成员的 `acm run`**（L4）。
+- **真实上游链路**：真实 key、工具调用往返、长上下文；**真实 Caddy 的 TLS 链路**。
+- **待决定：投影时是否改用 `guarantee.*`**。目前写入的 `reasoning` / `tool_call` 取的是并集，也就是"至少一个候选模型声明了"；SPEC 规定 `guarantee` 只用于展示。
+- **对外动作均未执行**：ACM `main` 未推送、未打 `v0.4.0` 标签、未发布 PyPI；VMR `main` 未推送。
