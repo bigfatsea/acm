@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 15:40, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:25, by Opus 5.5 -->
 
 # ACM 使用指南
 
@@ -159,6 +159,8 @@ acm run opencode -m team@fast          # 按角色
 acm run pi --profile direct -- -p "hi" # -- 之后的参数交给 Agent
 VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode      # 零配置
 ```
+
+**Pi：一个跟随思考档位的模型。** 当 profile 里有与 `default` 不同的 `fast` 或 `reasoning` 模型（且没有传 `-m`）时，`acm run pi` 会以虚拟模型 `acm/auto` 启动 Pi，由思考档位决定用哪个模型：`low` 用 fast，`medium`（启动时的档位）用 default，`high` 用 reasoning。在 Pi 里照常切换档位即可，也可以用 `acm run pi -- --thinking high` 直接从某一档开始。工具调用后的继续请求和重试会沿用刚才应答的模型，以保住 Prompt Cache；压缩摘要等后台请求只在 fast 模型的上下文窗口不小于当前模型时才用 fast。Pi 页脚会显示实际路由到的模型，例如 `auto • high → deep • high`。该功能只用于 `acm run`；`acm use` 仍然把各角色模型注册进 `/model`。
 
 各 Agent 采用的机制（命令行参数、配置覆盖环境变量，或 `~/.acm/state/run/<pid>/` 下的临时目录）由适配器决定。API key 不会出现在 argv：以环境变量传给 Agent——你自己的 `${VAR}`；`config.yaml` 里是明文时每个 provider 一个变量（默认模型的 provider 用 `ACM_RUN_KEY`，其他用 `ACM_RUN_KEY_<NAME>`），保证每个 key 只发往它自己的端点。暂不支持 T2 家族成员（OmO、Prime Agent、MiMo Code、DevEco Code）——`acm run` 会明确说明并以 1 退出，而不是猜测。
 

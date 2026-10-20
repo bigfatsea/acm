@@ -53,6 +53,7 @@ class DocView:
 class LaunchContext:
     passthrough: list[str] = field(default_factory=list)
     bin_path: str | None = None
+    model_override: bool = False  # `acm run -m`: the user picked the model explicitly
 
 
 @dataclass

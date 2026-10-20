@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 15:40, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:25, by Opus 5.5 -->
 
 # ACM User Guide
 
@@ -159,6 +159,8 @@ acm run opencode -m team@fast          # a role
 acm run pi --profile direct -- -p "hi" # arguments after -- go to the agent
 VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode      # zero-config
 ```
+
+**Pi: one model that follows the thinking level.** When the profile has a `fast` or `reasoning` model that differs from `default` (and you did not pass `-m`), `acm run pi` starts Pi on the virtual model `acm/auto`. The thinking level picks the model: `low` uses fast, `medium` (the start) uses default, `high` uses reasoning. Switch the level as usual inside Pi, or start on one with `acm run pi -- --thinking high`. Follow-ups after tool calls and retries stay on the model that answered, so the prompt cache survives. Background requests such as compaction summaries use the fast model only when its context window is at least as large as the current one. Pi's footer shows the routed model, for example `auto • high → deep • high`. This exists only for `acm run`; `acm use` keeps registering the role models for `/model`.
 
 The mechanism per agent (CLI flags, config override env vars, or a temporary directory under `~/.acm/state/run/<pid>/`) is chosen by the adapter. API keys never appear in argv: they reach the agent as an environment variable — your own `${VAR}`, or, when `config.yaml` holds a literal, one variable per provider (`ACM_RUN_KEY` for the default model's provider, `ACM_RUN_KEY_<NAME>` for others), so each key only goes to its own endpoint. Not supported yet: T2 family members (OmO, Prime Agent, MiMo Code, DevEco Code) — `acm run` says so and exits 1 rather than guessing.
 

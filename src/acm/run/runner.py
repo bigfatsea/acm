@@ -196,7 +196,9 @@ def run_agent(
         raise next(iter(catalog.errors.values()))
     try:
         target = resolve_target(config, catalog, name, adapter.protocols, adapter.id)
-        spec = adapter.plan_launch(target, ctx, LaunchContext(passthrough, bin_path))
+        spec = adapter.plan_launch(
+            target, ctx, LaunchContext(passthrough, bin_path, model_override=model is not None)
+        )
     except TargetError as e:
         raise ConfigError(str(e)) from e
     except LaunchUnsupportedError as e:

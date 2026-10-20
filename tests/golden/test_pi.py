@@ -163,3 +163,26 @@ def test_launch_with_literal_key(yctx):
     spec = AD.plan_launch(t, yctx, LaunchContext())
     assert spec.env["ACM_RUN_KEY"] == "sk-lit" and "sk-lit" not in spec.env["ACM_PI_PROVIDERS"]
     assert all(p["apiKey"] == "$ACM_RUN_KEY" for p in json.loads(spec.env["ACM_PI_PROVIDERS"]))
+
+
+def test_launch_routes_roles_through_the_auto_virtual_model(yctx):
+    t = target_of(yctx, AD, manifest_config(yctx, PROFILE))
+    spec = AD.plan_launch(t, yctx, LaunchContext(bin_path="/bin/pi"))
+    assert spec.argv[3:] == ["--model", "acm/auto", "--thinking", "medium"]
+    router = json.loads(spec.env["ACM_PI_ROUTER"])
+    assert {lvl: (x["provider"], x["model"]) for lvl, x in router["tiers"].items()} == {
+        "low": ("vmr", "cheap"),
+        "medium": ("vmr", "coding"),
+        "high": ("vmr", "agent"),
+    }
+    assert router["tiers"]["medium"]["context"] == 200000  # the conservative floor
+    assert router["contextWindow"] == 200000 and "sk-gw" not in spec.env["ACM_PI_ROUTER"]
+
+
+def test_launch_without_roles_or_with_an_explicit_model_selects_the_model_itself(yctx):
+    t = target_of(yctx, AD, manifest_config(yctx, '{default: "vmr@default"}'))
+    spec = AD.plan_launch(t, yctx, LaunchContext())
+    assert "ACM_PI_ROUTER" not in spec.env and spec.argv[-2:] == ["--model", "vmr/coding"]
+    t = target_of(yctx, AD, manifest_config(yctx, PROFILE))
+    spec = AD.plan_launch(t, yctx, LaunchContext(model_override=True))
+    assert "ACM_PI_ROUTER" not in spec.env and spec.argv[-2:] == ["--model", "vmr/coding"]

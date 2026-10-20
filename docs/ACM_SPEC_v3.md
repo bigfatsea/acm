@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 15:40, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:25, by Opus 5.5 -->
 
 # ACM 实现规格 v3
 
@@ -309,8 +309,13 @@ ACM 独占文件放在 `~/.acm/owned/<agent>/`（引擎强制：独占文件路�
 2. `-m REF` 覆盖 default：接受限定模型与角色引用；零配置模式下 `-m` 可省略 provider 前缀（`-m coding` 等价于 `gateway.kind.coding`）。
 3. 经与 `use` 相同的解析层得到 `ResolvedTarget`，调用适配器 `plan_launch` 得到 `LaunchSpec = {argv, env, tmp_files, mode: "exec" | "child", notes}`。
 4. 密钥不进 argv。config 中为明文的 key 经环境变量传给 Agent，**每个 provider 一个变量**（默认模型的 provider 用 `ACM_RUN_KEY`，其他用 `ACM_RUN_KEY_<NAME>`），保证 key 只发往它自己的端点；`${VAR}` 引用且已设置的直接用 Agent 原生引用语法。临时文件（如有）写入 `~/.acm/state/run/<pid>/`（0700 / 0600）。`exec` 模式直接替换进程；`child` 模式 ACM 等待、透传终端与信号与退出码，退出后删除临时文件。
-5. 适配器对不支持的 Agent / 场景返回明确错误（退出 1），不做猜测性注入；T2 成员在真机确认前默认拒绝。
-6. 不写任何 Agent 文件、`config.yaml`、历史记录。
+5. **Pi 的档位路由**：profile 的 `fast` 或 `reasoning` 角色解析到与 default 不同的模型、且没有用 `-m` 时，随包扩展额外注册虚拟模型 `acm/auto`，以 `--model acm/auto --thinking medium` 启动；档位映射到角色：`low` 对应 fast，`medium` 对应 default，`high` 对应 reasoning，未解析的角色回落 default。规则（`route()`）：
+   - `continuation` 和 `retry` 沿用上一个应答的模型，保住 Prompt Cache；
+   - `direct`（压缩摘要等后台请求）只在 fast 的窗口不小于当前模型窗口时走 fast，否则沿用当前模型。
+
+   档位到模型的对应关系来自同一个 `ResolvedTarget`（经环境变量 `ACM_PI_ROUTER` 传入，不含密钥）。不做按内容判断任务类型的分类。
+6. 适配器对不支持的 Agent / 场景返回明确错误（退出 1），不做猜测性注入；T2 成员在真机确认前默认拒绝。
+7. 不写任何 Agent 文件、`config.yaml`、历史记录。
 
 ## 10. 安全
 

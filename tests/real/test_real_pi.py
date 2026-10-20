@@ -88,3 +88,16 @@ def test_one_shot_launch_via_extension(rig):
     for name in ("models.json", "settings.json"):
         assert (d / name).read_bytes() == before[name]
     assert not rig.ctx.history_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("level", "model"), [("low", "cheap"), ("medium", "coding"), ("high", "agent")]
+)
+def test_one_shot_auto_model_routes_by_thinking_level(rig, level, model):
+    spec = rig.launch_spec(PROMPT)
+    assert spec.argv[3:7] == ["--model", "acm/auto", "--thinking", "medium"]
+    argv = [*spec.argv[:6], level, *spec.argv[7:]]
+    out = rig.run(argv, {**spec.env, **ENV})
+    assert out.returncode == 0, out.stderr + out.stdout
+    assert "OK" in out.stdout
+    assert_hit(rig, "/chat/completions", model=model)

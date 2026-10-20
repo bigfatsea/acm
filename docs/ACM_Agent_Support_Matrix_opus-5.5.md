@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 11:50, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 17:25, by Opus 5.5 -->
 
 # ACM Agent 支持矩阵：配置细节、核实结论与三梯队决策
 
@@ -371,6 +371,10 @@ T2 成员的官方文档核实放在其实现任务中（Action Plan P6），以
 - 依据 1：`-e, --extension <path>`（`docs/cli.md`）。
 - 依据 2："Call `pi.registerProvider()` from the extension factory. Pi waits for asynchronous factories before startup continues, so providers registered there are available to startup model selection"（`docs/custom-provider.md`）——因此同一条命令里的 `--model` 能选中扩展注册的 provider。
 - 依据 3：provider 的 key 支持 `$NAME` / `${NAME}` 环境变量插值（同上）。
+- **档位路由（2026-10-20，Pi 1.2.0 真机确认）**：profile 有与 default 不同的 `fast` / `reasoning` 模型且未用 `-m` 时，同一个扩展再调用 `pi.registerVirtualModel({provider: "acm", id: "auto", thinkingLevels: ["low","medium","high"], route})`，启动参数改为 `--model acm/auto --thinking medium`。档位对应角色：`low` 对应 fast，`medium` 对应 default，`high` 对应 reasoning。`continuation` / `retry` 沿用 `request.previous` / `request.failed`；`direct` 只在 fast 窗口足够时走 fast。
+  - 依据：Pi 包内 `docs/virtual-models.md`：虚拟模型可被 `--model` 选中；`route()` 在每次请求前调用；`reason` 取 `user` / `continuation` / `retry` / `direct` 之一；沿用 `previous` / `failed` 可保住 prompt cache。
+  - 实测：`acm run pi --profile daily -- -p … --thinking low|high` 分别打到 fast / reasoning 模型；Agent 参数里后出现的 `--thinking` 覆盖 ACM 给的 `medium`。
+  - 持久写入（`acm use`）不做：虚拟模型只能由扩展代码注册，持久化即安装插件，越过 PRINCIPLE §2.3。
 
 **真机实测**：`pi -p "reply with OK"`（`-p, --print`：运行提示后输出结果并退出，已核实 `docs/cli.md`）→ audit 命中。
 
@@ -541,7 +545,7 @@ model:
 | Claude Code | `--settings '<内联 JSON>'` | `apiKeyHelper: printenv <VAR>`，JSON 中无密钥 | `exec`，零文件 | 全部（default、reasoning、fast、subagent、窗口） | 支持；1 项待真机确认（§4.1） |
 | Codex | 多个 `-c key=value` | `env_key` | 有临时 catalog 时父进程，否则 `exec` | default、review、subagent、窗口（经 catalog） | 支持 |
 | OpenCode | 环境变量 `OPENCODE_CONFIG_CONTENT` + 可选 `-m` | `{env:VAR}` | `exec`，零文件 | default、fast（`small_model`）、窗口 | 支持（源码确认变量替换） |
-| Pi | `-e <随包固定扩展>` + `--model` | `$NAME` | `exec`，零文件 | default + 注册其余角色模型 | 支持 |
+| Pi | `-e <随包固定扩展>` + `--model` | `$NAME` | `exec`，零文件 | default + 注册其余角色模型；有 fast / reasoning 时经虚拟模型 `acm/auto` 按思考档位路由 | 支持 |
 | OpenClaw | `openclaw agent exec "<任务>" --config-override '<JSON>' --model ...` | `${VAR}`（替换与否待确认） | 由 OpenClaw 自身管理临时状态 | default、fast（`utilityModel`） | **仅一次性任务**；交互式不支持；1 项待确认 |
 | Hermes | `--provider custom --base-url ... -m ...` | 子进程环境变量 `OPENAI_API_KEY` | `exec`，零文件 | 仅 default | 支持（仅 OpenAI 兼容入口）；1 项待确认 |
 

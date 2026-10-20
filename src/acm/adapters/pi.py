@@ -24,6 +24,9 @@ from acm.formats.base import KeyPath
 
 _SETTINGS = ("defaultProvider", "defaultModel", "defaultThinkingLevel")
 DUMMY_KEY = "dummy"  # Pi refuses a provider without an apiKey
+# `acm run`: the thinking level selected on the virtual model `acm/auto` picks the role
+ROUTER_TIERS = (("low", "fast"), ("medium", "default"), ("high", "reasoning"))
+ROUTER_MODEL = "acm/auto"
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,25 @@ class PiFamily(Adapter):
 
     # ----------------------------------------------------------------- one-shot
 
+    def _router(self, target: ResolvedTarget, launch: LaunchContext) -> dict[str, Any] | None:
+        """Tiers for the `acm/auto` virtual model; None when there is nothing to route between
+        (no fast / reasoning model, or the user picked one model with `acm run -m`)."""
+        if launch.model_override:
+            return None
+        d = target.default
+        tiers: dict[str, dict[str, Any]] = {}
+        for level, role in ROUTER_TIERS:
+            m = target.role(role) or d
+            tiers[level] = {
+                "provider": alias_for(m.provider, m.protocol),
+                "model": m.id,
+                "thinking": m.card.effort or level,
+                "context": m.card.effective_context,
+            }
+        if len({(t["provider"], t["model"]) for t in tiers.values()}) == 1:
+            return None
+        return {"tiers": tiers, "contextWindow": d.card.effective_context}
+
     def plan_launch(self, target: ResolvedTarget, ctx: Ctx, launch: LaunchContext) -> LaunchSpec:
         from importlib import resources
 
@@ -174,15 +196,15 @@ class PiFamily(Adapter):
         listing = [{"alias": a, **obj} for a, obj in providers.items()]
         env_out["ACM_PI_PROVIDERS"] = json.dumps(listing, ensure_ascii=False, separators=(",", ":"))
         ext = str(resources.files("acm.adapters").joinpath("data/acm_pi_provider.ts"))
-        argv = [
-            launch.bin_path or self.bins[0],
-            "-e",
-            ext,
-            "--model",
-            f"{alias_for(d.provider, d.protocol)}/{d.id}",
-        ]
-        if d.card.effort:
-            argv += ["--thinking", d.card.effort]
+        argv = [launch.bin_path or self.bins[0], "-e", ext]
+        router = self._router(target, launch)
+        if router is not None:
+            env_out["ACM_PI_ROUTER"] = json.dumps(router, separators=(",", ":"))
+            argv += ["--model", ROUTER_MODEL, "--thinking", "medium"]
+        else:
+            argv += ["--model", f"{alias_for(d.provider, d.protocol)}/{d.id}"]
+            if d.card.effort:
+                argv += ["--thinking", d.card.effort]
         argv += launch.passthrough
         return LaunchSpec(
             argv=argv, env=env_out, mode="exec", notes=launch_notes(warns),
