@@ -17,6 +17,8 @@ from acm.adapters.base import (
     anthropic_v1,
     display_name,
     groups,
+    launch_notes,
+    run_key_vars,
     secret_for_agent,
 )
 from acm.catalog.model import ResolvedModel, ResolvedTarget
@@ -199,16 +201,12 @@ class OpenCodeFamily(Adapter):
             )
         warns = self._warnings(target)
         providers = self._providers(target, ctx, warns)
-        env_out: dict[str, str] = {}
-        secret_env: set[str] = set()
-        cred = target.default.provider.credential
-        if not (cred.is_reference and ctx.env.get(cred.var or "", "") != ""):
-            value = cred.resolve(ctx.env)
-            if value:
-                env_out["ACM_RUN_KEY"] = value
-                secret_env.add("ACM_RUN_KEY")
-                for obj in providers.values():
-                    obj["options"]["apiKey"] = "{env:ACM_RUN_KEY}"
+        key_vars, env_out = run_key_vars(target, ctx)
+        secret_env = set(env_out)
+        for (pname, proto), models in groups(target).items():
+            if pname in key_vars:
+                alias = alias_for(models[0].provider, proto)
+                providers[alias]["options"]["apiKey"] = f"{{env:{key_vars[pname]}}}"
         content: dict[str, Any] = {"provider": providers, "model": self._ref(target.default)}
         fast = target.roles.get("fast")
         if fast:
@@ -218,6 +216,6 @@ class OpenCodeFamily(Adapter):
         )
         argv = [launch.bin_path or self.bins[0], *launch.passthrough]
         return LaunchSpec(
-            argv=argv, env=env_out, mode="exec", notes=[w.reason for w in warns],
+            argv=argv, env=env_out, mode="exec", notes=launch_notes(warns),
             secret_env=secret_env,
         )  # fmt: skip

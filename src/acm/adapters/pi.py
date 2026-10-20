@@ -13,6 +13,8 @@ from acm.adapters.base import (
     alias_for,
     display_name,
     groups,
+    launch_notes,
+    run_key_vars,
     secret_for_agent,
 )
 from acm.catalog.model import ResolvedModel, ResolvedTarget
@@ -163,18 +165,12 @@ class PiFamily(Adapter):
             )
         d = target.default
         warns = self._collect_warnings(target)
-        env_out: dict[str, str] = {}
-        secret_env: set[str] = set()
         providers = self._provider_objects(target, ctx, warns)
-        first = next(iter(groups(target).values()))[0]
-        cred = first.provider.credential
-        if not (cred.is_reference and ctx.env.get(cred.var or "", "") != ""):
-            value = cred.resolve(ctx.env)
-            if value:
-                env_out["ACM_RUN_KEY"] = value
-                secret_env.add("ACM_RUN_KEY")
-                for obj in providers.values():
-                    obj["apiKey"] = "$ACM_RUN_KEY"
+        key_vars, env_out = run_key_vars(target, ctx)
+        secret_env = set(env_out)
+        for (pname, proto), models in groups(target).items():
+            if pname in key_vars:
+                providers[alias_for(models[0].provider, proto)]["apiKey"] = f"${key_vars[pname]}"
         listing = [{"alias": a, **obj} for a, obj in providers.items()]
         env_out["ACM_PI_PROVIDERS"] = json.dumps(listing, ensure_ascii=False, separators=(",", ":"))
         ext = str(resources.files("acm.adapters").joinpath("data/acm_pi_provider.ts"))
@@ -189,6 +185,6 @@ class PiFamily(Adapter):
             argv += ["--thinking", d.card.effort]
         argv += launch.passthrough
         return LaunchSpec(
-            argv=argv, env=env_out, mode="exec", notes=[w.reason for w in warns],
+            argv=argv, env=env_out, mode="exec", notes=launch_notes(warns),
             secret_env=secret_env,
         )  # fmt: skip

@@ -1,5 +1,6 @@
 """Adapter contract, launch types, and helpers shared by adapters."""
 
+import re
 import shlex
 import shutil
 from abc import ABC, abstractmethod
@@ -190,3 +191,39 @@ def printenv_command(cred: CredentialRef) -> str:
 
 def env_mapping(ctx: Ctx) -> Mapping[str, str]:
     return ctx.env
+
+
+def run_key_vars(target: ResolvedTarget, ctx: Ctx) -> tuple[dict[str, str], dict[str, str]]:
+    """Environment variables carrying literal keys for a one-shot run, one per provider.
+
+    Returns (provider name -> variable, variable -> key). The default model's provider uses
+    ``ACM_RUN_KEY``; any other provider gets ``ACM_RUN_KEY_<NAME>``, so each key is only
+    ever sent to its own endpoint. A provider whose key is a set ``${VAR}`` is left out: the
+    agent's native reference to that variable is used instead.
+    """
+    names: dict[str, str] = {}
+    env: dict[str, str] = {}
+    seen: set[str] = set()
+    for m in [target.default, *target.all_models()]:
+        p = m.provider
+        if p.name in seen:
+            continue
+        seen.add(p.name)
+        cred = p.credential
+        if cred.is_reference and ctx.env.get(cred.var or "", "") != "":
+            continue
+        value = cred.resolve(ctx.env)
+        if not value:
+            continue
+        var = "ACM_RUN_KEY" if not names else "ACM_RUN_KEY_" + re.sub(
+            r"[^A-Za-z0-9]", "_", p.name
+        ).upper()
+        names[p.name] = var
+        env[var] = value
+    return names, env
+
+
+def launch_notes(warnings: list[ProjectionWarning]) -> list[str]:
+    """Warnings worth showing for a one-shot run. "Key written in plain text" does not apply:
+    a run passes literal keys through environment variables and writes no agent file."""
+    return [w.reason for w in warnings if w.field != "api_key"]

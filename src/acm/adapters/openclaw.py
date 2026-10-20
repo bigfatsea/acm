@@ -17,6 +17,8 @@ from acm.adapters.base import (
     alias_for,
     display_name,
     groups,
+    launch_notes,
+    run_key_vars,
 )
 from acm.catalog.model import ResolvedModel, ResolvedTarget
 from acm.core.context import Ctx
@@ -163,16 +165,13 @@ class OpenClaw(Adapter):
         d = target.default
         warns = self._warnings(target)
         providers = self._providers(target, ctx, warns)
-        env_out: dict[str, str] = {}
-        secret_env: set[str] = set()
-        cred = d.provider.credential
-        if not (cred.is_reference and ctx.env.get(cred.var or "", "") != ""):
-            value = cred.resolve(ctx.env)
-            if value:
-                env_out["ACM_RUN_KEY"] = value
-                secret_env.add("ACM_RUN_KEY")
-                for o in providers.values():
-                    o["apiKey"] = "${ACM_RUN_KEY}"
+        key_vars, env_out = run_key_vars(target, ctx)
+        secret_env = set(env_out)
+        for (pname, proto), models in groups(target).items():
+            if pname in key_vars:
+                providers[alias_for(models[0].provider, proto)]["apiKey"] = (
+                    f"${{{key_vars[pname]}}}"
+                )
         override: dict[str, Any] = {"models": {"providers": providers}}
         fast = target.roles.get("fast")
         if fast:
@@ -182,7 +181,7 @@ class OpenClaw(Adapter):
             "--config-override", json.dumps(override, ensure_ascii=False, separators=(",", ":")),
             "--model", ref(d), *launch.passthrough,
         ]  # fmt: skip
-        notes = [w.reason for w in warns]
+        notes = launch_notes(warns)
         notes.append(
             "OpenClaw runs one task (`agent exec`); interactive use goes through its Gateway "
             "and needs `acm use`. Environment substitution inside --config-override is "

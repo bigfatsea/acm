@@ -61,6 +61,17 @@ class ClaudeCode(Adapter):
 
         def pick(role: str, fallback: bool = True) -> str | None:
             m = target.roles.get(role)
+            if m is not None and m.provider.name != d.provider.name:
+                warns.append(
+                    ProjectionWarning(
+                        f"roles.{role}",
+                        f"'{m.id}' comes from provider '{m.provider.name}', but Claude Code sends "
+                        f"every model to one endpoint ('{d.provider.name}'); "
+                        + ("the slot uses the default model" if fallback else "slot left unset"),
+                        self.id,
+                    )
+                )
+                return d.id if fallback else None
             if m is not None:
                 return m.id
             if fallback:

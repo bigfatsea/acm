@@ -146,8 +146,28 @@ class Codex(Adapter):
 
     def _collect(
         self, target: ResolvedTarget
-    ) -> tuple[list[ResolvedModel], list[ProjectionWarning]]:
+    ) -> tuple[list[ResolvedModel], dict[str, ResolvedModel | None], list[ProjectionWarning]]:
+        """Models for the catalog and the review / subagent slots.
+
+        Codex sends every model through the one ``model_provider``, so models of any other
+        provider are left out (with a warning) instead of being routed to the wrong endpoint.
+        """
         warns = list(target.warnings)
+        home = target.default.provider.name
+
+        def usable(m: ResolvedModel, what: str) -> bool:
+            if m.provider.name == home:
+                return True
+            warns.append(
+                ProjectionWarning(
+                    what,
+                    f"'{m.id}' comes from provider '{m.provider.name}', but Codex sends every "
+                    f"model to one provider ('{home}'); left out",
+                    self.id,
+                )
+            )
+            return False
+
         for role in ("reasoning", "fast"):
             if target.roles.get(role) is not None:
                 warns.append(
@@ -157,7 +177,15 @@ class Codex(Adapter):
                         self.id,
                     )
                 )
-        return target.all_models(), warns
+        slots: dict[str, ResolvedModel | None] = {}
+        for role in ("review", "subagent"):
+            m = target.roles.get(role)
+            slots[role] = m if m is not None and usable(m, f"roles.{role}") else None
+        models = [m for m in target.all_models() if m.provider.name == home]
+        for m in target.all_models():
+            if m.provider.name != home and m not in (target.roles.get(r) for r in slots):
+                usable(m, f"models.{m.id}")
+        return models, slots, warns
 
     def _catalog_bytes(self, models: list[ResolvedModel]) -> bytes:
         entries = [catalog_entry(m, 10 + i) for i, m in enumerate(models)]
@@ -167,7 +195,7 @@ class Codex(Adapter):
 
     def plan_files(self, target: ResolvedTarget, ctx: Ctx, view: DocView) -> Plan:
         d = target.default
-        models, warns = self._collect(target)
+        models, slots, warns = self._collect(target)
         table, w2 = self._provider_table(d, ctx)
         warns += w2
         alias = alias_for(d.provider, d.protocol)
@@ -179,13 +207,13 @@ class Codex(Adapter):
             Set("config", ("model_catalog_json",), str(catalog_path)),
             OwnedFile("catalog", self._catalog_bytes(models)),
         ]
-        review = target.roles.get("review")
+        review = slots["review"]
         ops.append(
             Set("config", ("review_model",), review.id)
             if review
             else Delete("config", ("review_model",))
         )
-        sub = target.roles.get("subagent")
+        sub = slots["subagent"]
         ops.append(
             Set("config", ("agents", "default_subagent_model"), sub.id)
             if sub
@@ -199,7 +227,7 @@ class Codex(Adapter):
 
     def plan_launch(self, target: ResolvedTarget, ctx: Ctx, launch: LaunchContext) -> LaunchSpec:
         d = target.default
-        models, warns = self._collect(target)
+        models, slots, warns = self._collect(target)
         cred = d.provider.credential
         value = cred.resolve(ctx.env)
         env_out: dict[str, str] = {}
@@ -219,10 +247,10 @@ class Codex(Adapter):
             (f"model_providers.{alias}", table),
             ("model_catalog_json", f"{RUN_DIR_TOKEN}/catalog.json"),
         ]
-        if target.roles.get("review"):
-            cfg.append(("review_model", target.roles["review"].id))  # type: ignore[union-attr]
-        if target.roles.get("subagent"):
-            cfg.append(("agents.default_subagent_model", target.roles["subagent"].id))  # type: ignore[union-attr]
+        if (review := slots["review"]) is not None:
+            cfg.append(("review_model", review.id))
+        if (sub := slots["subagent"]) is not None:
+            cfg.append(("agents.default_subagent_model", sub.id))
         if d.card.effort:
             cfg.append(("model_reasoning_effort", d.card.effort))
         argv = [launch.bin_path or "codex"]
