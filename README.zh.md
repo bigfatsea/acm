@@ -29,7 +29,7 @@ acm --version
 ```bash
 export VMR_KEY=sk-...                      # 你的网关或 provider 所用的 key
 acm init --vmr http://127.0.0.1:8800       # 探测 Agent 与网关，生成 ~/.acm/config.yaml 提案
-acm use team                               # 把 profile「team」投影到所有已安装 Agent（先确认）
+acm use team                               # 勾选要管理的 Agent，投影 profile「team」（先确认）
 acm status                                 # SYNCED / OUT_OF_SYNC / DRIFTED / ERROR / UNMANAGED
 acm history                                # ACM 写过什么（新→旧）
 acm restore --baseline                     # 回到 ACM 接管之前的样子

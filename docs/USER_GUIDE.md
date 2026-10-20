@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 03:10, by Sonnet 5.5 -->
+<!-- // Ver 2026-10-20 11:45, by Opus 5.5 -->
 
 # ACM User Guide
 
@@ -7,10 +7,12 @@ This guide covers ACM 0.4. The authoritative design lives in [ACM_PRINCIPLE_v3.m
 - [How ACM works](#how-acm-works)
 - [Configuration](#configuration)
 - [Commands](#commands)
+- [Choosing which agents ACM manages](#choosing-which-agents-acm-manages)
 - [Safety, drift and recovery](#safety-drift-and-recovery)
 - [One-off launch: `acm run`](#one-off-launch-acm-run)
 - [What ACM writes, per agent](#what-acm-writes-per-agent)
 - [Gateway manifest](#gateway-manifest)
+- [Subscription logins](#subscription-logins)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading from 0.3](#upgrading-from-03)
 
@@ -91,13 +93,13 @@ Global flags where they apply: `--dry-run`, `--force`, `--yes/-y`, `--verbose`, 
 | Command | What it does |
 |---|---|
 | `acm init [--vmr URL] [--force] [-y]` | Detect installed agents and a gateway (`--vmr`, `VMR_URL`, or `http://127.0.0.1:8800`): `GET /manifest`, falling back to `/v1/models`. Shows the proposed `config.yaml` and writes it after confirmation. Refuses to overwrite an existing file unless `--force`. |
-| `acm use PROFILE [AGENT...]` | Make PROFILE active and project it. Asks before the first takeover of a file or when new fields appear. |
-| `acm apply [AGENT...]` | Re-project the active profile — picks up catalog changes from the gateway. |
+| `acm use PROFILE [AGENT...]` | Choose the agents to manage (see below), project PROFILE onto them, and make it active once at least one agent is projected. Asks before taking over an agent or when new fields appear. |
+| `acm apply [AGENT...]` | Re-project the active profile onto the managed agents — picks up catalog changes from the gateway. |
 | `acm status [AGENT...] [--all]` | State per agent; with `--verbose`, field-level differences. |
 | `acm history [AGENT...] [--full] [--limit N]` | What ACM wrote per file, newest first, each with an operation number. |
 | `acm restore [N] [AGENT...] [--baseline] [--file]` | Return to a historical version. See below. |
 | `acm rollback [AGENT...]` | Undo the latest operation for each agent (managed fields only). |
-| `acm prune --keep N` | Delete old history entries and unreferenced versions. Baselines are always kept. |
+| `acm prune --keep N` | Delete old history entries and unreferenced versions; keeps the newest N (N ≥ 1) per file. Baselines are always kept. |
 | `acm run AGENT [-m REF] [--profile P] [--manifest M] [-- ARGS]` | One-off launch. Shorthand: `acm AGENT ...`. |
 
 Agent names accept the id (`claude_code`), the alias (`claude`) and hyphenated spellings.
@@ -110,16 +112,27 @@ Agent names accept the id (`claude_code`), the alias (`claude`) and hyphenated s
 | `OUT_OF_SYNC` | The plan differs from the file (new profile, new catalog). `acm apply` fixes it. |
 | `DRIFTED` | A managed field was changed outside ACM since its last write. Writes are blocked until `--force` or resolution. |
 | `ERROR` | The file cannot be parsed, its structure is unexpected, the plan failed, or the catalog is unreachable. Nothing is written. |
-| `UNMANAGED` | No active profile, nothing recorded, or you chose to stop managing the agent. |
+| `UNMANAGED` | Not in the managed set: never selected, deselected, released after drift, or returned with `restore --baseline`. Also shown when there is no active profile. |
 | `NOT_DETECTED` | The agent is not installed. |
 
 **Exit codes**: `0` ok or no-op · `1` configuration error · `2` safety block (drift, lock, whitelist, confirmation needed non-interactively) · `3` I/O failure or catalog unreachable · `4` not found · `130` interrupted. Normal output goes to stdout; warnings and errors to stderr.
+
+## Choosing which agents ACM manages
+
+ACM only writes the agents you selected — like choosing install targets with `npx skills`.
+
+- `acm use` / `acm apply` without agent names, in a terminal, list the agents **detected on this machine** (agents that are not installed are not listed). Managed agents are pre-checked, others are not; the first time, every detected agent is pre-checked. Toggle by number, `a` = all, `n` = none, Enter = continue, `q` = abort.
+- Deselecting a managed agent stops managing it (`released`). Its files are left exactly as they are; `acm restore --baseline AGENT` reverts them.
+- Agents that are not selected are skipped and listed as `skipped`, with the command that adds them.
+- Without a terminal (scripts) or with `--yes`, the pre-checked set is used as is.
+- Naming agents (`acm use team claude codex`) works on exactly those agents and adds them to the set. An agent that is not in the set yet — including one you released earlier — is a takeover: ACM shows the changes and asks (non-interactively: `--yes`).
+- The set is kept in `~/.acm/state/managed.json`.
 
 ## Safety, drift and recovery
 
 **Before any write**, per agent: read files → check drift → compute plan → compare with current values (equal ⇒ no-op, exit 0) → confirm first takeover → apply in memory → re-parse and assert that only planned fields changed → recheck the file hash → store versions → atomic replace → append to history. Any failure before the replace leaves the file untouched. A global lock prevents two ACM processes from interleaving.
 
-**Drift.** For each file ACM remembers the managed fields it last wrote. If the current value of one of them differs, that is drift: ACM prints `path: what ACM wrote → what is there now` and blocks (exit 2). Choose `--force` to overwrite. Interactive runs offer: overwrite, stop managing this agent, or abort. Changes to *unmanaged* fields are never drift.
+**Drift.** For each file ACM remembers the managed fields it last wrote. If the current value of one of them differs, that is drift: ACM prints `path: what ACM wrote → what is there now` and blocks (exit 2). Values are masked like any other output. Choose `--force` to overwrite. Interactive runs offer: overwrite, stop managing this agent, or abort. Changes to *unmanaged* fields are never drift.
 
 **History.** Every write is a line in `~/.acm/state/history.jsonl` plus the exact before/after bytes in a content-addressed store. The first write to a file also records a *baseline* — the file as it was before ACM.
 
@@ -131,9 +144,9 @@ Agent names accept the id (`claude_code`), the alias (`claude`) and hyphenated s
 | `acm restore --baseline` | The state before ACM first touched the file. |
 | `acm rollback` | The state before the latest operation. |
 
-By default only managed fields are restored; everything else in the file stays as it is now, so changes the agent made in the meantime survive. `--file` replaces the whole file with that version and first shows which unmanaged changes it would lose. A restore is itself recorded, so it can be undone. After `restore --baseline` the agent is treated as `UNMANAGED` until the next `acm use` or `acm apply`, so `status` does not report the pre-ACM values as drift. If ACM created a file and you restore its baseline, the managed fields are removed and the file is deleted when nothing else is left in it.
+By default only managed fields are restored; everything else in the file stays as it is now, so changes the agent made in the meantime survive. `--file` replaces the whole file with that version and first shows which unmanaged changes it would lose. A restore is itself recorded, so it can be undone. After `restore --baseline` the agent leaves the managed set (`UNMANAGED`): later `use` / `apply` runs skip it until you select or name it again. If ACM created a file and you restore its baseline, the managed fields are removed and the file is deleted when nothing else is left in it.
 
-**Secrets.** The version store holds exact copies of agent config files and may contain plain-text keys that were already there. It lives under `~/.acm/state` (mode 0700, files 0600). `history` and `status` mask values of keys containing `key`, `token`, `secret` or `authorization`; `--show-secrets` disables masking.
+**Secrets.** The version store holds exact copies of agent config files and may contain plain-text keys that were already there. It lives under `~/.acm/state` (mode 0700, files 0600). All output masks values of keys containing `key`, `token`, `auth`, `secret`, `password` or `credential` (size fields such as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` or `maxTokens` stay readable); `--show-secrets` disables masking.
 
 ## One-off launch: `acm run`
 
@@ -147,7 +160,7 @@ acm run pi --profile direct -- -p "hi" # arguments after -- go to the agent
 VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode      # zero-config
 ```
 
-The mechanism per agent (CLI flags, config override env vars, or a temporary directory under `~/.acm/state/run/<pid>/`) is chosen by the adapter. API keys never appear in argv: they reach the agent as an environment variable (your own, or `ACM_RUN_KEY` when `config.yaml` holds a literal). Not supported yet: T2 family members (OmO, Prime Agent, MiMo Code, DevEco Code) — `acm run` says so and exits 1 rather than guessing.
+The mechanism per agent (CLI flags, config override env vars, or a temporary directory under `~/.acm/state/run/<pid>/`) is chosen by the adapter. API keys never appear in argv: they reach the agent as an environment variable — your own `${VAR}`, or, when `config.yaml` holds a literal, one variable per provider (`ACM_RUN_KEY` for the default model's provider, `ACM_RUN_KEY_<NAME>` for others), so each key only goes to its own endpoint. Not supported yet: T2 family members (OmO, Prime Agent, MiMo Code, DevEco Code) — `acm run` says so and exits 1 rather than guessing.
 
 ## What ACM writes, per agent
 
@@ -183,6 +196,25 @@ A manifest provider points at a document served by your gateway. ACM fetches it 
 
 The document format is in [SPEC §4.2](ACM_SPEC_v3.md). [VMR](https://github.com/bigfatsea/vmr) serves it at `GET /manifest` from its routing table; models are tagged with roles in its `models.<name>.meta.roles`. The gateway only publishes; ACM and you decide which model fills which slot.
 
+## Subscription logins
+
+Most people start with an agent's own subscription (Claude Pro/Max, ChatGPT for Codex, the provider logins of OpenCode or Pi). Those logins live in the agent's credential store, which ACM never manages:
+
+| Agent | Where the login lives | What ACM writes instead |
+|---|---|---|
+| Claude Code | macOS Keychain, or `~/.claude/.credentials.json` | `settings.json`: `env.ANTHROPIC_BASE_URL`, model slots, `apiKeyHelper` |
+| Codex | `~/.codex/auth.json` | `config.toml`: `model_provider`, `model`, `model_providers.<alias>`, … |
+| OpenCode | `~/.local/share/opencode/auth.json` | `opencode.json`: `provider.<alias>`, `model`, `small_model` |
+| Pi | `~/.pi/agent/auth.json` | `models.json` providers, `settings.json` default provider / model |
+
+So switching to a gateway does not log you out, and switching back does not need a new login:
+
+- **Back to the subscription**: `acm restore --baseline AGENT` (or `acm rollback AGENT` to undo just the last change). The fields ACM wrote are removed and the agent uses its stored login again. In Claude Code the documented precedence puts `ANTHROPIC_AUTH_TOKEN` / `apiKeyHelper` above the subscription login, so once they are gone the login is used.
+- **Back to the gateway**: `acm use PROFILE AGENT --yes`.
+- **Gateway for one session only**: `acm run AGENT` writes nothing, so the subscription stays the default.
+- A key ACM removed on takeover (for example a real `ANTHROPIC_API_KEY` in Claude Code's `settings.json`, which would otherwise be sent to the gateway) is in the history and comes back with `restore --baseline` / `rollback`.
+- If the stored login itself has expired, the agent asks you to log in again — that is between you and the agent's vendor.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -195,6 +227,7 @@ The document format is in [SPEC §4.2](ACM_SPEC_v3.md). [VMR](https://github.com
 | Agent `ERROR`, file cannot be parsed | The agent's own file is invalid. Fix it (ACM never rewrites a file it cannot parse), then `acm status`. |
 | `OUT_OF_SYNC` after the gateway changed models | `acm apply`. |
 | Claude Code does not use the gateway | `acm status --verbose` shows whether `env.ANTHROPIC_BASE_URL` and `apiKeyHelper` are in sync. The key variable named in `config.yaml` must be exported in the shell that starts Claude Code, because the helper is `printenv VAR`. |
+| Agent `skipped` | It is not in the managed set. Select it in the checklist or name it: `acm use PROFILE AGENT`. |
 | Want ACM gone | `acm restore --baseline` per agent (or `acm rollback` repeatedly), then uninstall. Files stay valid at any point; ACM keeps no hooks into the agents. |
 
 ## Upgrading from 0.3
@@ -203,4 +236,4 @@ The document format is in [SPEC §4.2](ACM_SPEC_v3.md). [VMR](https://github.com
 
 1. Keep a copy of your old `~/.acm/config.yaml`.
 2. `acm init --force` regenerates the config from your gateway or edit by hand following [Configuration](#configuration): protocols are now `openai-completions` / `anthropic-messages` / `openai-responses`; the `capabilities` block is replaced by `input` / `tool_call` / `reasoning`; `models:` live under their provider.
-3. `acm use <profile>` takes over the agents again. Fields ACM wrote under 0.3 are simply overwritten; the first 0.4 write records a fresh baseline from the file's *current* content.
+3. `acm use <profile>` takes over the agents again. Fields ACM wrote under 0.3 are simply overwritten; the first 0.4 write records a fresh baseline from the file's *current* content. That baseline already contains what 0.3 wrote, so `restore --baseline` returns to the 0.3-era state, not to the file before 0.3; restore 0.3's own backups first if you need that.

@@ -16,7 +16,8 @@
 | **Every agent's config files/keys/launch-injection rules + fact-check log** | `docs/ACM_Agent_Support_Matrix_opus-5.5.md` — the *only* place for agent config knowledge |
 | Why decisions were made | `docs/ACM_Rebuild_Action_Plan_opus-5.5.md`, `docs/ACM_VMR_Manifest_Analysis_and_Design_opus-5.5.md`, `docs/ACM_Config_Safety_and_History_Design_opus-5.5.md`, `docs/ACM_Ephemeral_Run_Design_opus-5.5.md` |
 | User-facing behavior, config reference, troubleshooting | `docs/USER_GUIDE.md` / `docs/USER_GUIDE.zh.md`; overview in `README.md` / `README.zh.md` |
-| What was built and what is left | `docs/ACM_Execution_Summary_sonnet-5.5.md` |
+| What was built and what is left | `docs/ACM_Execution_Summary_sonnet-5.5.md` (incl. §8 review addendum) |
+| What VMR must provide (handoff; ACM never edits the VMR repo) | `docs/ACM_VMR_Handoff_opus-5.5.md` |
 
 ## Iron rules (condensed — the Principle is authoritative)
 
@@ -40,7 +41,7 @@ Key invariants: adapters never touch disk; key paths are tuples (model ids conta
 
 ## States & exit codes
 
-Agent states: `SYNCED / OUT_OF_SYNC / DRIFTED / ERROR / UNMANAGED / NOT_DETECTED`. Exit codes: `0` ok/no-op · `1` config error · `2` safety block · `3` I/O failure · `4` not found · `130` SIGINT. stdout = normal output; stderr = errors/warnings.
+Agent states: `SYNCED / OUT_OF_SYNC / DRIFTED / ERROR / UNMANAGED / NOT_DETECTED`. Only agents in the user-chosen managed set (`state/managed.json`) are written; `use`/`apply` offer a checklist of detected agents. Exit codes: `0` ok/no-op · `1` config error · `2` safety block · `3` I/O failure · `4` not found · `130` SIGINT. stdout = normal output; stderr = errors/warnings.
 
 ## Development
 

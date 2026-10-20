@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 02:10, by Claude Sonnet 5.5 -->
+<!-- // Ver 2026-10-20 11:30, by Opus 5.5 -->
 
 # ACM（Agent Config Manager）项目规格 v3（原则版）
 
@@ -29,7 +29,7 @@
 ### 2.2 管什么
 
 - **L1 连接与凭据**：端点（按协议）、凭据引用、headers、proxy。
-- **L2 模型规格**：上下文窗口、最大输出、推理与输入模态等"换模型就要跟着变"的元数据。
+- **L2 模型规格**：上下文窗口、最大输出、推理与输入模态等"换模型就要跟着变"的元数据——指模型的**能力上限**（来自静态声明或网关目录），写入 Agent 描述模型的字段。Agent 自己的**用量预算**（每次请求实际用多少输入 / 输出、何时压缩，如 Claude Code 的 `CLAUDE_CODE_MAX_OUTPUT_TOKENS`、自动压缩窗口）由 Agent 或用户决定，ACM 不写。
 - **L3 意图**：profile —— 默认模型、角色（reasoning / fast / subagent / review）、成员注册。
 - **投影**：把 L1–L3 写入 Agent 原生字段（`use` / `apply`），或渲染为一次性启动注入（`run`）。
 - **历史**：写入时保存的版本，及基于它的 `history` / `restore` / `rollback`。
@@ -37,7 +37,7 @@
 
 ### 2.3 不管什么
 
-- MCP servers、tools、skills、prompts、权限、hooks、plugins、会话与登录状态。
+- MCP servers、tools、skills、prompts、权限、hooks、plugins、会话与登录状态（含订阅 / OAuth 登录凭据文件与钥匙串条目：ACM 永不列为受管文件，因此恢复 ACM 的字段后 Agent 自动回到原登录方式）。
 - 账号轮转 / OAuth 池 / 额度监控；本地代理 / 网关 / 请求改写（VMR 的领域）。
 - Secret storage（只存 `${VAR}` 引用）。
 - 常驻进程；GUI。
@@ -105,15 +105,15 @@ Plan（字段级 ops + 投影损失告警 + 错误）  ──→ 写入引擎（
 
 - `DRIFTED`：ACM 管理的字段被外部（手工、Agent 运行时、其他工具）改动，与 ACM 上次写后的值不一致。
 - `OUT_OF_SYNC`：意图或目录变化，期望值与当前值不一致（含"网关目录变了"）。
-- `UNMANAGED`：检测到 Agent，但 ACM 未接管（从未写入，或用户选择了"不再管理"）。
+- `UNMANAGED`：检测到 Agent，但不在**受管集合**中（从未写入，或用户取消勾选 / 选择"不再管理" / 执行了 `restore --baseline`）。
 
 ### 4.2 命令
 
 ```
 acm init [--vmr URL]        # 扫描 Agent + 探测 VMR + 展示提案 + 确认后生成 config.yaml
 acm status [AGENT]          # 各 Agent 状态、漂移明细、目录变化、投影损失摘要
-acm use PROFILE [AGENT...]  # 改变激活 profile 并立即投影
-acm apply [AGENT...]        # 不改意图，仅按当前意图 + 最新目录重新收敛
+acm use PROFILE [AGENT...]  # 改变激活 profile 并立即投影（不点名时先选择受管 Agent）
+acm apply [AGENT...]        # 不改意图，仅按当前意图 + 最新目录重新收敛（同上）
 acm history [AGENT]         # 查看历史
 acm restore REF [AGENT]     # 恢复到某一次写入之后；--baseline 回到接管前；--file 整文件
 acm rollback [AGENT]        # 恢复到最近一次 ACM 操作之前
@@ -124,11 +124,12 @@ acm prune --keep N          # 显式清理历史（baseline 永不清理）
 
 ### 4.3 语义不变量
 
-1. **漂移没有自动修复路径**：写入遇外部漂移默认阻断；`--force`，或在交互式下明确选择"覆盖 / 不再管理 / 放弃"之一。
+1. **漂移没有自动修复路径**：写入遇外部漂移默认阻断；`--force`，或在交互式下明确选择"覆盖 / 不再管理 / 放弃"之一。漂移明细与其他输出一样默认掩码。
 2. **目录变化显式暴露**：网关目录变化使相关 Agent 变为 `OUT_OF_SYNC`，从不自动应用。
-3. **首次接管须确认**：首次写入某 Agent，或出现新的受管键时，先展示变更并确认（非交互须 `--yes`）。
-4. **`use` 与 `apply` 不混淆**：use 改变意图并收敛；apply 只收敛。
-5. **投影损失显式告警**：目标 Agent 无法表达的设置必须在 stderr 聚合告警，不得静默丢弃。
+3. **首次接管须确认**：首次写入某 Agent、把不在受管集合中的 Agent 重新纳入，或出现新的受管键时，先展示变更并确认（非交互须 `--yes`）。
+3a. **受管集合由用户选择**（类似 `npx skills` 选择安装目标）：`use` / `apply` 不点名时，交互式列出本机检测到的 Agent（未检测到的不列），受管的默认勾选、其余默认不勾选；取消勾选 = 不再管理（文件保持原样）。非交互时只处理受管集合（从未选择过时默认全部检测到的 Agent）。点名 Agent = 显式纳入。不在集合中的 Agent 一律跳过，绝不静默写入。
+4. **`use` 与 `apply` 不混淆**：use 改变意图并收敛；apply 只收敛。`use` 只在至少一个 Agent 投影成功（写入或已一致）后才切换激活 profile。
+5. **投影损失显式告警**：目标 Agent 无法表达的设置必须在 stderr 聚合告警，不得静默丢弃（含：单端点 Agent 无法把某角色发往另一 provider）。在写入或预览时显示；无改动的重复运行不重复刷屏（`--verbose` 始终显示）。
 6. **批处理独立性**：按 Agent 独立执行，一个阻断不回滚其他 Agent 的成功，最终退出码取最高严重级；同一 Agent 的多个文件视为一个单元，中途失败自动退回。
 7. **恢复本身是一次写入**：任何恢复都有写前写后版本，因此可再撤销。
 8. **退出码**：0 成功 / no-op；1 配置错误；2 安全阻断（漂移、写锁、白名单、校验失败）；3 I/O 失败；4 未找到；130 SIGINT。正常输出走 stdout，错误与告警走 stderr。

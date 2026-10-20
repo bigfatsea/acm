@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 00:40, by Claude Opus 5.5 -->
+<!-- // Ver 2026-10-20 11:50, by Opus 5.5 -->
 
 # ACM Agent 支持矩阵：配置细节、核实结论与三梯队决策
 
@@ -645,6 +645,17 @@ T2（家族成员）不执行第 2–3 步，只跑金样（1、4、5）；其�
 | OpenClaw `$include` | 未规定 | 受管段使用 `$include` 时适配器报错（ERROR），不编辑 |
 | 历史命令 | `history prune` | `acm prune --keep N`；`acm restore N` 的 N 为 **op 编号** |
 | 临时启动 T2 | 默认拒绝 | 同；`acm run` 对 T2 成员报错退出 1 |
+| 单端点 Agent 的跨 provider 角色（复审 B6） | 未规定 | Claude Code 只有一个 `ANTHROPIC_BASE_URL`，Codex 只有一个 `model_provider`：来自其他 provider 的角色 / 成员不写入槽位或 catalog，回落默认模型（Claude Code）或删除槽位（Codex `review_model` / `agents.default_subagent_model`）并告警。别名槽位映射本身不变 |
+| `acm run` 的明文 key（复审 B1） | 统一 `ACM_RUN_KEY` | 每个 provider 一个变量：默认 provider 用 `ACM_RUN_KEY`，其他用 `ACM_RUN_KEY_<NAME>`（Pi、OpenCode、OpenClaw） |
+
+### 10.2a 复审核实（2026-10-20，官方文档）
+
+| 项 | 结论 | 来源 |
+|---|---|---|
+| Claude Code 别名槽位 | `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL` 控制 `opus` / `sonnet` / `haiku` / `fable` 别名解析，现行映射正确 | code.claude.com/docs/en/model-config |
+| `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | 存在："Override the context window size Claude Code assumes for the active model"——属模型能力信息，不是用量预算 | code.claude.com/docs/en/env-vars |
+| Claude Code 认证优先级 | `ANTHROPIC_AUTH_TOKEN` / `apiKeyHelper` 高于订阅 OAuth 登录；订阅登录存于钥匙串或 `~/.claude/.credentials.json`，与 `settings.json` 分离——移除 ACM 字段即回到订阅，无需重新登录（登录本身过期除外） | code.claude.com/docs/en/authentication |
+| Codex / OpenCode / Pi 的登录存储 | `~/.codex/auth.json`、`~/.local/share/opencode/auth.json`、`~/.pi/agent/auth.json`；ACM 不管理（测试强制：任何适配器的受管文件都不是登录存储） | 基于经验判断，未真机核实 |
 
 ### 10.3 测试覆盖的真实程度
 

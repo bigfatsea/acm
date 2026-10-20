@@ -247,3 +247,29 @@ def test_noop_does_not_repeat_projection_warnings(setup, acm):
     assert code == 0 and "noop" in out and "[claude_code]" not in err
     code, out, err = acm("apply", "--verbose")
     assert "[claude_code]" in err
+
+
+def test_deselecting_in_the_checklist_releases_the_agent(setup, acm, claude_home, ctx, monkeypatch):
+    import acm.cli.commands as commands
+    from acm.cli import support
+
+    assert acm("use", "daily", "--yes")[0] == 0
+    written = claude_home.read_text()
+    real_make_ctx = support.make_ctx
+
+    def interactive_ctx(**kw):
+        return real_make_ctx(**kw).with_flags(interactive=True)
+
+    seen = {}
+
+    def pick(out, detected, pre):
+        seen["pre"] = set(pre)
+        return []
+
+    monkeypatch.setattr(commands, "make_ctx", interactive_ctx)
+    monkeypatch.setattr(commands, "choose_agents", pick)
+    code, out, err = acm("apply")
+    assert code == 0 and seen["pre"] == {"claude_code"}
+    assert "released" in out and "restore --baseline claude_code" in out
+    assert claude_home.read_text() == written  # files are left as they are
+    assert json.loads((ctx.state_dir / "managed.json").read_text()) == []

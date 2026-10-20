@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 03:15, by Sonnet 5.5 -->
+<!-- // Ver 2026-10-20 11:45, by Opus 5.5 -->
 
 # ACM 使用指南
 
@@ -7,10 +7,12 @@
 - [工作原理](#工作原理)
 - [配置](#配置)
 - [命令](#命令)
+- [选择受管 Agent](#选择受管-agent)
 - [安全、漂移与恢复](#安全漂移与恢复)
 - [一次性启动：`acm run`](#一次性启动acm-run)
 - [各 Agent 的写入范围](#各-agent-的写入范围)
 - [网关 Manifest](#网关-manifest)
+- [订阅登录](#订阅登录)
 - [排障](#排障)
 - [从 0.3 升级](#从-03-升级)
 
@@ -91,13 +93,13 @@ profiles:
 | 命令 | 作用 |
 |---|---|
 | `acm init [--vmr URL] [--force] [-y]` | 探测已安装的 Agent 与网关（`--vmr`、`VMR_URL` 或 `http://127.0.0.1:8800`）：先 `GET /manifest`，回落 `/v1/models`。展示 `config.yaml` 提案，确认后写入。已存在则拒绝，除非 `--force`。 |
-| `acm use PROFILE [AGENT...]` | 激活 PROFILE 并投影。首次接管文件或出现新字段时先询问。 |
-| `acm apply [AGENT...]` | 重新投影当前 profile，用于获取网关目录变化。 |
+| `acm use PROFILE [AGENT...]` | 选择要管理的 Agent（见下），把 PROFILE 投影上去；至少一个 Agent 投影成功后才激活。接管 Agent 或出现新字段时先询问。 |
+| `acm apply [AGENT...]` | 把当前 profile 重新投影到受管 Agent，用于获取网关目录变化。 |
 | `acm status [AGENT...] [--all]` | 各 Agent 状态；`--verbose` 显示字段级差异。 |
 | `acm history [AGENT...] [--full] [--limit N]` | 按文件列出 ACM 写过的内容（新→旧），每条带操作编号。 |
 | `acm restore [N] [AGENT...] [--baseline] [--file]` | 恢复到历史版本，见下。 |
 | `acm rollback [AGENT...]` | 撤销每个 Agent 最近一次操作（仅受管字段）。 |
-| `acm prune --keep N` | 删除旧历史与不再被引用的版本；基线始终保留。 |
+| `acm prune --keep N` | 删除旧历史与不再被引用的版本；每个文件保留最近 N 条（N ≥ 1）；基线始终保留。 |
 | `acm run AGENT [-m REF] [--profile P] [--manifest M] [-- ARGS]` | 一次性启动。简写：`acm AGENT ...`。 |
 
 Agent 名接受 id（`claude_code`）、别名（`claude`）和连字符写法。
@@ -110,16 +112,27 @@ Agent 名接受 id（`claude_code`）、别名（`claude`）和连字符写法�
 | `OUT_OF_SYNC` | 计划与文件不同（换了 profile、目录变了）。`acm apply` 可修复。 |
 | `DRIFTED` | 自 ACM 上次写入后，受管字段被外部改过；在 `--force` 或处理之前写入被阻断。 |
 | `ERROR` | 文件无法解析、结构不符预期、计划失败或目录不可得；不写任何东西。 |
-| `UNMANAGED` | 没有激活 profile、没有记录，或你选择不再管理该 Agent。 |
+| `UNMANAGED` | 不在受管集合中：从未选择、被取消勾选、漂移时选择不再管理，或已 `restore --baseline`。没有激活 profile 时也显示此状态。 |
 | `NOT_DETECTED` | 未安装该 Agent。 |
 
 **退出码**：`0` 成功或无变化 · `1` 配置错误 · `2` 安全阻断（漂移、锁、白名单、非交互下需要确认）· `3` I/O 失败或目录不可达 · `4` 未找到 · `130` 中断。正常输出到 stdout，警告与错误到 stderr。
+
+## 选择受管 Agent
+
+ACM 只写你选中的 Agent，类似 `npx skills` 安装时选择目标 Agent。
+
+- 在终端里运行不点名的 `acm use` / `acm apply`，会列出**本机检测到的** Agent（未安装的不列）。受管的默认勾选，其余不勾选；第一次时所有检测到的都默认勾选。输入编号切换，`a` 全选，`n` 全不选，回车继续，`q` 放弃。
+- 取消勾选一个受管 Agent = 不再管理它（`released`）：文件保持原样；`acm restore --baseline AGENT` 可还原。
+- 未选中的 Agent 被跳过，输出 `skipped` 及纳入它的命令。
+- 非终端（脚本）或带 `--yes` 时，直接使用默认勾选的集合。
+- 点名（`acm use team claude codex`）只处理这些 Agent，并把它们加入集合。不在集合中的 Agent（包括之前释放的）属于接管：ACM 展示变更并确认（非交互须 `--yes`）。
+- 集合保存在 `~/.acm/state/managed.json`。
 
 ## 安全、漂移与恢复
 
 **每次写入之前**（逐 Agent）：读文件 → 检查漂移 → 计算 plan → 与当前值比较（相同 ⇒ no-op，退出 0）→ 首次接管需确认 → 内存中应用 → 重新解析并断言只有计划字段变化 → 复核文件哈希 → 保存版本 → 原子替换 → 追加历史。替换之前的任何失败都不会改动文件。全局锁防止两个 ACM 进程交错写入。
 
-**漂移**：ACM 为每个文件记住上次写入的受管字段值；若其中某个当前值不同，即为漂移。ACM 打印 `路径：ACM 写的值 → 现在的值` 并阻断（退出 2）。可用 `--force` 覆盖；交互运行时会提供：覆盖 / 不再管理此 Agent / 放弃。*非受管*字段的变化永远不算漂移。
+**漂移**：ACM 为每个文件记住上次写入的受管字段值；若其中某个当前值不同，即为漂移。ACM 打印 `路径：ACM 写的值 → 现在的值` 并阻断（退出 2）。其中的值与其他输出一样掩码。可用 `--force` 覆盖；交互运行时会提供：覆盖 / 不再管理此 Agent / 放弃。*非受管*字段的变化永远不算漂移。
 
 **历史**：每次写入在 `~/.acm/state/history.jsonl` 追加一行，并把前后字节存入内容寻址版本库。某文件的首次写入还会记录一条*基线*——ACM 接管之前的原貌。
 
@@ -131,9 +144,9 @@ Agent 名接受 id（`claude_code`）、别名（`claude`）和连字符写法�
 | `acm restore --baseline` | ACM 首次接触该文件之前的状态。 |
 | `acm rollback` | 最近一次操作之前的状态。 |
 
-默认只恢复受管字段，文件中其他内容保持现状，因此 Agent 在此期间自己写入的变化不会丢。`--file` 用该版本整体替换文件，并先展示会丢失哪些非受管变化。恢复本身也被记录，因此可再次撤销。`restore --baseline` 之后该 Agent 视为 `UNMANAGED`，直到下一次 `acm use` 或 `acm apply`，因此 `status` 不会把接管前的值当作漂移。若文件由 ACM 新建、恢复到基线，受管字段被移除，且文件中不剩其他内容时文件被删除。
+默认只恢复受管字段，文件中其他内容保持现状，因此 Agent 在此期间自己写入的变化不会丢。`--file` 用该版本整体替换文件，并先展示会丢失哪些非受管变化。恢复本身也被记录，因此可再次撤销。`restore --baseline` 之后该 Agent 移出受管集合（`UNMANAGED`）：之后的 `use` / `apply` 跳过它，直到你重新勾选或点名。若文件由 ACM 新建、恢复到基线，受管字段被移除，且文件中不剩其他内容时文件被删除。
 
-**密钥**：版本库保存 Agent 配置文件的原样副本，其中可能含原本就存在的明文 key。它位于 `~/.acm/state`（目录 0700，文件 0600）。`history` 与 `status` 对键名含 `key`、`token`、`secret`、`authorization` 的值掩码；`--show-secrets` 取消掩码。
+**密钥**：版本库保存 Agent 配置文件的原样副本，其中可能含原本就存在的明文 key。它位于 `~/.acm/state`（目录 0700，文件 0600）。所有输出对键名含 `key`、`token`、`auth`、`secret`、`password`、`credential` 的值掩码（`CLAUDE_CODE_MAX_CONTEXT_TOKENS`、`maxTokens` 这类大小字段照常显示）；`--show-secrets` 取消掩码。
 
 ## 一次性启动：`acm run`
 
@@ -147,7 +160,7 @@ acm run pi --profile direct -- -p "hi" # -- 之后的参数交给 Agent
 VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode      # 零配置
 ```
 
-各 Agent 采用的机制（命令行参数、配置覆盖环境变量，或 `~/.acm/state/run/<pid>/` 下的临时目录）由适配器决定。API key 不会出现在 argv：以环境变量传给 Agent（你自己的变量；`config.yaml` 里是明文时用 `ACM_RUN_KEY`）。暂不支持 T2 家族成员（OmO、Prime Agent、MiMo Code、DevEco Code）——`acm run` 会明确说明并以 1 退出，而不是猜测。
+各 Agent 采用的机制（命令行参数、配置覆盖环境变量，或 `~/.acm/state/run/<pid>/` 下的临时目录）由适配器决定。API key 不会出现在 argv：以环境变量传给 Agent——你自己的 `${VAR}`；`config.yaml` 里是明文时每个 provider 一个变量（默认模型的 provider 用 `ACM_RUN_KEY`，其他用 `ACM_RUN_KEY_<NAME>`），保证每个 key 只发往它自己的端点。暂不支持 T2 家族成员（OmO、Prime Agent、MiMo Code、DevEco Code）——`acm run` 会明确说明并以 1 退出，而不是猜测。
 
 ## 各 Agent 的写入范围
 
@@ -183,6 +196,25 @@ Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bear
 
 文档格式见 [SPEC §4.2](ACM_SPEC_v3.md)。[VMR](https://github.com/bigfatsea/vmr) 在 `GET /manifest` 按其路由表派生并提供；模型的角色在其 `models.<name>.meta.roles` 中标注。网关只发布，哪个槽位用哪个模型由 ACM 与你决定。
 
+## 订阅登录
+
+多数人一开始用的是 Agent 自己的订阅（Claude Pro/Max、Codex 的 ChatGPT 登录、OpenCode 或 Pi 的 provider 登录）。这些登录保存在 Agent 的凭据存储里，ACM 从不管理：
+
+| Agent | 登录保存在 | ACM 改写的是 |
+|---|---|---|
+| Claude Code | macOS 钥匙串，或 `~/.claude/.credentials.json` | `settings.json`：`env.ANTHROPIC_BASE_URL`、模型槽位、`apiKeyHelper` |
+| Codex | `~/.codex/auth.json` | `config.toml`：`model_provider`、`model`、`model_providers.<alias>` 等 |
+| OpenCode | `~/.local/share/opencode/auth.json` | `opencode.json`：`provider.<alias>`、`model`、`small_model` |
+| Pi | `~/.pi/agent/auth.json` | `models.json` 的 providers，`settings.json` 的默认 provider / 模型 |
+
+因此切到网关不会让你退出登录，切回来也不需要重新登录：
+
+- **切回订阅**：`acm restore --baseline AGENT`（只撤销上一次改动用 `acm rollback AGENT`）。ACM 写的字段被移除，Agent 重新使用已保存的登录。Claude Code 官方的认证优先级中 `ANTHROPIC_AUTH_TOKEN` / `apiKeyHelper` 高于订阅登录，二者移除后即回到订阅。
+- **切回网关**：`acm use PROFILE AGENT --yes`。
+- **只在一次会话里用网关**：`acm run AGENT` 不写任何文件，订阅始终是默认。
+- 接管时被 ACM 移除的 key（例如 Claude Code `settings.json` 里真实的 `ANTHROPIC_API_KEY`，否则会被发给网关）记录在历史中，`restore --baseline` / `rollback` 会把它恢复。
+- 如果已保存的登录本身过期，Agent 会要求重新登录——这取决于 Agent 厂商，ACM 无法代劳。
+
 ## 排障
 
 | 现象 | 原因与处理 |
@@ -195,6 +227,7 @@ Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bear
 | Agent 为 `ERROR`，文件无法解析 | Agent 自己的文件无效。先修好它（ACM 绝不重写无法解析的文件），再 `acm status`。 |
 | 网关改了模型后显示 `OUT_OF_SYNC` | `acm apply`。 |
 | Claude Code 没有走网关 | `acm status --verbose` 查看 `env.ANTHROPIC_BASE_URL` 与 `apiKeyHelper` 是否同步。`config.yaml` 中指定的 key 变量必须在启动 Claude Code 的 shell 中导出，因为 helper 就是 `printenv VAR`。 |
+| Agent 显示 `skipped` | 它不在受管集合中。在勾选列表里选中它，或点名：`acm use PROFILE AGENT`。 |
 | 想彻底移除 ACM | 对每个 Agent 运行 `acm restore --baseline`（或多次 `acm rollback`），然后卸载。任何时刻文件都保持有效；ACM 不在 Agent 里留任何钩子。 |
 
 ## 从 0.3 升级
@@ -203,4 +236,4 @@ Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bear
 
 1. 保留旧的 `~/.acm/config.yaml` 副本。
 2. 运行 `acm init --force` 从网关重新生成，或参照[配置](#配置)手改：协议名改为 `openai-completions` / `anthropic-messages` / `openai-responses`；`capabilities` 块换成 `input` / `tool_call` / `reasoning`；`models:` 放在各自 provider 之下。
-3. `acm use <profile>` 重新接管 Agent。0.3 写入的字段会被直接覆盖；0.4 的首次写入会以文件*当前*内容记录新的基线。
+3. `acm use <profile>` 重新接管 Agent。0.3 写入的字段会被直接覆盖；0.4 的首次写入会以文件*当前*内容记录新的基线。该基线已包含 0.3 写入的内容，因此 `restore --baseline` 回到的是 0.3 时期的状态，而不是 0.3 之前；如需更早的状态，请先用 0.3 自己的备份恢复。

@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 03:20, by Sonnet 5.5 -->
+<!-- // Ver 2026-10-20 12:10, by Opus 5.5 -->
 
 # ACM 0.4 重建：执行总结
 
@@ -153,3 +153,42 @@ flowchart LR
 | VMR | `go test ./...`、`go vet ./...`、`gofmt -l internal` | 全部通过、无输出 |
 
 P8 阶段对**用户真实文件的唯一接触**是 `acm status --all` 读取 `~/.acm/config.yaml`（只读，因版本不符而报错退出，未写入任何文件）。
+
+## 8. 复审附录（2026-10-20，Opus 5.5）
+
+复审方式：通读引擎、CLI、解析、Manifest 客户端与适配器；在临时 HOME 中逐条复现；首次 ACM ↔ VMR 联调（结果见 `docs/ACM_VMR_Handoff_opus-5.5.md` §3）。
+
+### 8.1 已修复
+
+| 编号 | 问题（复现结论） | 处理 |
+|---|---|---|
+| B1 | `acm run` 对多 provider profile：默认 provider 的明文 key 被套用到所有 provider，发往其他 provider 的端点 | 每个 provider 一个变量（`ACM_RUN_KEY` / `ACM_RUN_KEY_<NAME>`），Pi / OpenCode / OpenClaw |
+| B2 | 漂移明细未掩码，`use` / `apply` 被阻断时把新旧 key 明文打到 stderr | `describe_drift` 统一掩码 |
+| B3 / B4 | `restore --baseline` 后 `acm use` 不经确认重新接管；"不再管理"不生效（之后每次都因漂移退出 2） | 受管集合 `state/managed.json`（正向列表）+ `npx skills` 式勾选；不在集合中的 Agent 跳过；重新纳入按接管确认 |
+| B5 | 所有 Agent 投影失败时仍切换 `active` | 至少一个 Agent written / noop 才写 `active` |
+| B6 | 单端点 Agent（Claude Code、Codex）把其他 provider 的模型写进槽位，请求发往默认端点 | 跨 provider 角色回落默认模型 / 删除槽位并告警；别名映射机制不变 |
+| B7 | `init --force` 的 `config.yaml.bak` 为 0644 | 0600 原子写 |
+| — | 掩码误伤 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 等计数字段 | `*tokens` 计数字段不掩码 |
+| — | `prune --keep 0` 使所有 Agent 变为 UNMANAGED、丢失漂移基准 | `--keep` 下限 1 |
+| — | 非法 Manifest 先写缓存再校验 | 先校验后缓存 |
+| — | SPEC 声称独占文件路径受引擎校验，实际未实现 | 引擎强制独占文件位于 `~/.acm/owned/` |
+| — | no-op 时每次重复投影告警 | 只在写入 / 预览 / 失败时输出，`--verbose` 始终输出 |
+| — | 发布前无测试门禁；版本仍为 `0.4.0.dev0` | 新增 `ci.yml`（ubuntu + macOS：ruff、mypy、pytest），`release.yml` 依赖它并校验标签与版本一致；版本 `0.4.0` |
+
+### 8.2 用户拍板
+
+| 编号 | 决定 |
+|---|---|
+| D1 | 受管 Agent 由用户勾选（参照 `npx skills`）：只列检测到的 Agent，受管默认勾选，未勾选跳过 |
+| D2 | 接管时移除的 key 必须可恢复（已由历史保证并实测）；订阅 / OAuth 登录存储永不受管，切回订阅无需重新登录（USER_GUIDE「订阅登录」） |
+| D3 | VMR 的 `limit.*` 是能力上限，Agent 的用量预算由 Agent 决定；ACM 只写能力字段（PRINCIPLE §2.2 L2） |
+| D4 | 0.3 用户的基线为 0.3 时期的文件，文档写明 |
+| D5 | ACM 不再修改 VMR 仓库，改为交接文档 `docs/ACM_VMR_Handoff_opus-5.5.md` |
+| D6 | 先修复与 CI，版本 0.4.0；推送与打标签由用户执行 |
+
+### 8.3 仍未完成
+
+- Hermes、OpenClaw 真机测试（L2、L3）；T2 成员 `acm run`（L4）。
+- 经真实 VMR 到真实上游的请求链路未验证。
+- Codex / OpenCode / Pi 的登录存储位置为基于经验判断（Claude Code 已对照官方文档）。
+- 交互式勾选只有单元测试与一次伪终端手测，无自动化端到端测试。

@@ -1,6 +1,6 @@
 [project]
 name = "agent-config-manager"
-version = "0.4.0.dev0"
+version = "0.4.0"
 description = "Declarative, non-destructive model configuration manager for AI coding agents, with version history and one-shot launches."
 readme = "README.md"
 license = { text = "Apache-2.0" }

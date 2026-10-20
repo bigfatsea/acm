@@ -1,0 +1,35 @@
+name: CI
+
+# 每次 push / PR 运行 lint、类型检查与测试；release.yml 复用本工作流作为发布前门禁
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: {}
+
+jobs:
+  check:
+    name: Lint, types, tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy src
+
+      - name: Pytest
+        run: uv run pytest -q

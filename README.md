@@ -29,7 +29,7 @@ Requires Python ≥ 3.12 on macOS or Linux.
 ```bash
 export VMR_KEY=sk-...                      # whatever your gateway or provider uses
 acm init --vmr http://127.0.0.1:8800       # detect agents + gateway, propose ~/.acm/config.yaml
-acm use team                               # project profile "team" onto all installed agents (asks first)
+acm use team                               # pick the agents to manage, project profile "team" (asks first)
 acm status                                 # SYNCED / OUT_OF_SYNC / DRIFTED / ERROR / UNMANAGED
 acm history                                # what ACM wrote, newest first
 acm restore --baseline                     # go back to how the files were before ACM

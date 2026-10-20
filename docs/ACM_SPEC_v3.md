@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 02:40, by Claude Sonnet 5.5 -->
+<!-- // Ver 2026-10-20 11:30, by Opus 5.5 -->
 
 # ACM 实现规格 v3
 
@@ -152,6 +152,7 @@ class ModelCard:
 1. `P.<id>`：取卡片；按偏好序取第一个 `p ∈ card.protocols`；无交集 → 若是 default 则该 Agent 置 ERROR，否则投影损失告警。
 2. `P@r`：按偏好序遍历 `p`，取满足 `r ∈ roles ∧ p ∈ protocols` 的卡片（唯一性已在 §4.2 保证；静态 provider 以 `roles` 提示构造同样的集合）。
 3. 找不到：`default` → ERROR；其他角色由适配器的**槽位策略**决定（回落到 default 并告警，或不写）。
+4. **单端点 Agent**（Claude Code、Codex：所有模型共用一个端点 / provider）：来自其他 provider 的角色或成员不写入其槽位 / 目录，按槽位策略回落并告警（否则请求会被发往错误的端点）。
 
 输出 `ResolvedTarget`：`provider`、`endpoints`（按协议）、`credential`（引用 + 解析值句柄）、`default: ResolvedModel`、`roles: {Role: ResolvedModel | None}`、`members: {label: ResolvedModel}`、`warnings`。`ResolvedModel = (card, protocol, base_url)`。
 
@@ -216,12 +217,14 @@ class Adapter(Protocol):
 ```
 .lock                      全局非阻塞 flock
 active                     当前激活 profile 名
-unmanaged.json             用户选择"不再管理"的 Agent 列表
+managed.json               受管集合（正向列表；文件不存在 = 用户尚未选择过）
 objects/<ab>/<sha256>      版本库（0600），保存文件某版本的原始字节
 history.jsonl              历史记录（只追加）
 manifests/<provider>.json  Manifest 缓存
 run/<pid>/                 临时启动的临时文件（用后即删，残留于下次运行时清理）
 ```
+
+ACM 独占文件放在 `~/.acm/owned/<agent>/`（引擎强制：独占文件路径不在其下 = 安全阻断）。
 
 ### 7.2 历史记录
 
@@ -234,7 +237,7 @@ run/<pid>/                 临时启动的临时文件（用后即删，残留�
  "owned":false,"external_before":false}
 ```
 
-- `kind`：`baseline`（该文件第一次被 ACM 写入之前；`before == after`；`paths` 取该次计划的受管路径，`prune` 折叠历史时承载被折叠记录的路径并集）、`write`、`restore`、`auto_revert`。
+- `kind`：`baseline`（该文件第一次被 ACM 写入之前；`before == after`；`paths` 初始为空，`prune` 折叠历史时承载被折叠记录的路径并集）、`write`、`restore`、`auto_revert`。
 - `before` / `after`：版本哈希；文件不存在用 `"-"`。`paths`：该次 Plan 的全部受管路径（含退役路径）。`external_before`：写前内容是否不同于上一条记录的 `after`。
 - `op`：同一次命令的所有记录共享。`seq`：全局递增。
 - 一致性顺序：先写对象（幂等）→ 再写文件 → 再追加记录（单行 + `fsync`）。`baseline` 记录在该文件第一次写入**之前**追加，因此崩溃不会丢失"原始版本"；"写入后、记录前"崩溃只丢一条 `write`，下次运行表现为一次外部改动。
@@ -247,7 +250,7 @@ run/<pid>/                 临时启动的临时文件（用后即删，残留�
    - 有漂移：非交互 → 退出 2，列出 `路径：ACM 写的值 → 现在的值`，除非 `--force`；交互 → 展示差异后三选一（覆盖 / 不再管理此 Agent / 放弃）。
 3. 计算 Plan（含退役路径）；Plan 报错 → Agent 置 ERROR，中止。
 4. 与当前值比较：全部相同 → no-op。
-5. **首次接管或出现新受管路径**：展示变更清单并确认（`--yes` 跳过；非交互无 `--yes` → 退出 2）。`--dry-run` 到此为止并输出清单。
+5. **首次接管、重新纳入（Agent 不在受管集合中）或出现新受管路径**：展示变更清单并确认（`--yes` 跳过；非交互无 `--yes` → 退出 2）。`--dry-run` 到此为止并输出清单。
 6. 内存中应用 ops → `render()` → 重新解析 + 非破坏断言（§5.3）；任一失败 → 中止，零写盘。
 7. 复核各文件内容哈希与步骤 1 一致（防读写间隙被改）；不一致 → 中止，提示重试。
 8. 首次写入某文件：先存 `before` 对象并追加 `baseline` 记录。
@@ -256,7 +259,7 @@ run/<pid>/                 临时启动的临时文件（用后即删，残留�
 
 ### 7.4 状态判定
 
-`NOT_DETECTED`（未安装）→ `UNMANAGED`（无任何记录，或在 `unmanaged.json` 中，或无激活 profile）→ 否则：Plan 报错或文件无法解析或受管路径结构不匹配 = `ERROR`；有漂移 = `DRIFTED`；期望值 ≠ 当前值（含目录变化）= `OUT_OF_SYNC`；否则 `SYNCED`。`status` 输出漂移与差异明细、投影损失摘要、目录新鲜度。
+`NOT_DETECTED`（未安装）→ `UNMANAGED`（不在 `managed.json` 中；该文件不存在时 = 无任何写入记录；或无激活 profile）→ 否则：Plan 报错或文件无法解析或受管路径结构不匹配 = `ERROR`；有漂移 = `DRIFTED`；期望值 ≠ 当前值（含目录变化）= `OUT_OF_SYNC`；否则 `SYNCED`。`status` 输出漂移与差异明细、投影损失摘要、目录新鲜度。
 
 ### 7.5 恢复
 
@@ -268,13 +271,13 @@ run/<pid>/                 临时启动的临时文件（用后即删，残留�
 
 - **字段恢复**：令 `P` = 该文件历史中所有记录的 `paths` 的并集；对每个 `p ∈ P`，把当前文件中的值设为目标版本中的值（目标中缺失则删除）。当前文件的其他一切保持不变。适配器的 `is_managed` 对 `p` 不再成立 → 跳过并告警。
 - **整文件恢复**（`--file`）：用目标版本的字节替换整个文件（目标为 `"-"` 则删除）；先展示"恢复后会丢失哪些非受管变化"并确认。
-- `restore --baseline` 成功后该 Agent 置入 `unmanaged.json`（状态 `UNMANAGED`），直到下一次 `use` / `apply` 成功后清除。
+- `restore --baseline` 成功后该 Agent 移出 `managed.json`（状态 `UNMANAGED`）；之后的 `use` / `apply` 跳过它，直到用户勾选或点名重新纳入（需确认）。
 - 字段恢复到 baseline 且 baseline 为 `"-"`（ACM 新建的文件）：删除受管路径后若文件语义上为空对象则删除文件。
 - 恢复本身走 §7.3 的写入流程（kind = `restore`），因此可被再次恢复。恢复可能与当前漂移无关，不做漂移阻断，但仍做非破坏断言与哈希复核。
 
 ### 7.6 `prune`
 
-`acm prune --keep N`：每个文件保留最近 N 条记录及其引用的对象，加上所有 `baseline`；其余记录与不再被引用的对象删除。仅显式执行。
+`acm prune --keep N`（N ≥ 1，保证漂移基准仍在）：每个文件保留最近 N 条记录及其引用的对象，加上所有 `baseline`；其余记录与不再被引用的对象删除。仅显式执行。
 
 ## 8. 命令
 
@@ -282,22 +285,29 @@ run/<pid>/                 临时启动的临时文件（用后即删，残留�
 |---|---|
 | `init [--vmr URL] [--force] [--yes]` | 扫描 Agent；探测目录（`--vmr` 或 `VMR_URL` 或本机默认地址 `http://127.0.0.1:8800`）：先 `GET /manifest`，404 回落 `GET /v1/models` 生成静态提案；401 / 403 明确提示；展示提案并确认后写 `config.yaml`（0600）。已存在则拒绝，除非 `--force` |
 | `status [AGENT]` | 见 §7.4；退出码取最高严重级（ERROR→2，DRIFTED→2，其余 0） |
-| `use PROFILE [AGENT...]` | 写 `active`（投影成功后）；逐 Agent 执行 §7.3 |
+| `use PROFILE [AGENT...]` | 选择 Agent（见下）；逐 Agent 执行 §7.3；至少一个 Agent 结果为 written / noop 才写 `active` |
 | `apply [AGENT...]` | 同 `use`，不改 `active` |
+
+**Agent 选择**（`use` / `apply`）：
+- 点名 `AGENT...`：只处理这些 Agent（须已检测到）；不在受管集合中的视为重新纳入（§7.3 第 5 步确认）。
+- 不点名、交互式（且无 `--yes`）：列出检测到的 Agent，受管集合中的默认勾选（`managed.json` 不存在时全部勾选），用户可逐个切换、全选、全不选或放弃。
+- 不点名、非交互或 `--yes`：直接取默认勾选集合。
+- 未选中的 Agent：受管的移出集合（`released`，文件不动，提示 `restore --baseline` 可还原）；非受管的输出 `skipped` 及纳入方法。
+- 写入成功（written / noop）的 Agent 加入受管集合；漂移时选择"不再管理"或 `restore --baseline` 将其移出。
 | `history [AGENT] [--full] [--limit N]` | 按文件分组列出记录，标注字段变化（受管路径的值变化，已掩码）；`--full` 附整文件差异 |
 | `restore REF [AGENT] [--baseline] [--file]` | 见 §7.5 |
 | `rollback [AGENT]` | 见 §7.5 |
 | `run AGENT [-m REF] [--profile P] [--manifest M] [-- ARGS]` | 见 §9 |
 | `prune --keep N` | 见 §7.6 |
 
-输出：默认掩码（键名含 `key` / `token` / `secret` / `authorization` 的值）；`--show-secrets` 显示。
+输出：默认掩码（键名含 `key` / `token` / `auth` / `secret` / `password` / `credential` 的值；以 `tokens` 结尾的计数字段如 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`、`maxTokens` 与 `apiKeyHelper` 除外），漂移明细同样掩码；`--show-secrets` 显示。投影告警在写入、预览或失败时输出；no-op 时只在 `--verbose` 下输出。
 
 ## 9. 临时启动 `acm run`
 
 1. **目标来源优先级**：命令行（`-m`、`--profile`、`--manifest`）> 环境变量（`ACM_MANIFEST`，或 `VMR_URL` + `VMR_KEY`，此时无需 `config.yaml`，provider 名取 `gateway.kind`）> `config.yaml` 的激活 profile。
 2. `-m REF` 覆盖 default：接受限定模型与角色引用；零配置模式下 `-m` 可省略 provider 前缀（`-m coding` 等价于 `gateway.kind.coding`）。
 3. 经与 `use` 相同的解析层得到 `ResolvedTarget`，调用适配器 `plan_launch` 得到 `LaunchSpec = {argv, env, tmp_files, mode: "exec" | "child", notes}`。
-4. 密钥不进 argv。临时文件（如有）写入 `~/.acm/state/run/<pid>/`（0700 / 0600）。`exec` 模式直接替换进程；`child` 模式 ACM 等待、透传终端与信号与退出码，退出后删除临时文件。
+4. 密钥不进 argv。config 中为明文的 key 经环境变量传给 Agent，**每个 provider 一个变量**（默认模型的 provider 用 `ACM_RUN_KEY`，其他用 `ACM_RUN_KEY_<NAME>`），保证 key 只发往它自己的端点；`${VAR}` 引用且已设置的直接用 Agent 原生引用语法。临时文件（如有）写入 `~/.acm/state/run/<pid>/`（0700 / 0600）。`exec` 模式直接替换进程；`child` 模式 ACM 等待、透传终端与信号与退出码，退出后删除临时文件。
 5. 适配器对不支持的 Agent / 场景返回明确错误（退出 1），不做猜测性注入；T2 成员在真机确认前默认拒绝。
 6. 不写任何 Agent 文件、`config.yaml`、历史记录。
 
@@ -305,7 +315,8 @@ run/<pid>/                 临时启动的临时文件（用后即删，残留�
 
 - 凭据只以引用形式存储；`config.yaml`、state 目录、版本库、Manifest 缓存权限 0600 / 0700。
 - 版本库保存 Agent 配置的完整内容，可能含明文 key；`history` / `diff` 输出掩码；文档明示。
-- 白名单由适配器 `is_managed` 声明，引擎在 Plan 阶段与写入阶段两次校验；`OwnedFile` 路径须在 `~/.acm` 或该 Agent 的配置目录内。
+- 白名单由适配器 `is_managed` 声明，引擎在评估阶段校验（写入前对渲染结果再做非破坏断言）；`OwnedFile` 路径须在 `~/.acm/owned/` 内（引擎强制）。
+- Agent 的登录凭据（订阅 / OAuth：`auth.json`、`.credentials.json`、钥匙串等）永不作为受管文件（测试强制）。
 - 适配器纯函数；无 `eval`、动态导入、远端代码。
 
 ## 11. 测试与验收
