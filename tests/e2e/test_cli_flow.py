@@ -140,7 +140,9 @@ def test_restore_whole_file_needs_confirmation_when_it_discards_changes(setup, a
 
 def test_prune_keeps_baseline(setup, acm):
     acm("use", "daily", "--yes")
-    code, out, err = acm("prune", "--keep", "0")
+    acm("use", "daily", "--yes", "--force")
+    assert acm("prune", "--keep", "0")[0] == 1  # would drop the drift reference
+    code, out, err = acm("prune", "--keep", "1")
     assert code == 0 and "Removed" in out
     code, out, err = acm("history")
     assert "baseline" in out
@@ -180,3 +182,59 @@ def test_unreachable_gateway_with_cache_still_works_and_says_so(setup, acm):
 def test_version_flag(acm):
     code, out, err = acm("--version")
     assert code == 0 and out.strip().startswith("0.4.0")
+
+
+def test_released_agent_is_skipped_until_named_again(setup, acm, claude_home, ctx):
+    assert acm("use", "daily", "--yes")[0] == 0
+    assert acm("restore", "--baseline", "--yes")[0] == 0
+    original = claude_home.read_text()
+    code, out, err = acm("use", "daily", "--yes")
+    assert code == 0 and "skipped" in out and "acm use daily claude_code" in out
+    assert claude_home.read_text() == original
+    code, out, err = acm("status")
+    assert "UNMANAGED" in out
+    code, out, err = acm("use", "daily", "claude")  # naming it is a takeover: confirm
+    assert code == 2 and "--yes" in err and claude_home.read_text() == original
+    code, out, err = acm("use", "daily", "claude", "--yes")
+    assert code == 0 and "written" in out
+    assert json.loads((ctx.state_dir / "managed.json").read_text()) == ["claude_code"]
+
+
+def test_active_profile_changes_only_after_a_projection(stub_agents, claude_home, acm, ctx):
+    stub_agents("claude")
+    ctx.config_path.parent.mkdir(parents=True, exist_ok=True)
+    ctx.config_path.write_text(
+        "version: 4\nproviders:\n"
+        "  an:\n    protocol: anthropic-messages\n    base_url: https://a.example.com\n"
+        "    models: {m1: {}}\n"
+        "  oa:\n    protocol: openai-completions\n    base_url: https://o.example.com/v1\n"
+        "    models: {o1: {}}\n"
+        "profiles:\n  good: {default: an.m1}\n  bad: {default: oa.o1}\n"
+    )
+    assert acm("use", "good", "--yes")[0] == 0
+    code, out, err = acm("use", "bad", "--yes")  # Claude Code cannot speak openai-completions
+    assert code == 2 and "active profile was not changed" in err
+    assert (ctx.state_dir / "active").read_text().strip() == "good"
+
+
+def test_drift_message_masks_secrets(team, stub_agents, claude_home, acm, ctx):
+    stub_agents("claude")
+    ctx.config_path.parent.mkdir(parents=True, exist_ok=True)
+    ctx.config_path.write_text(
+        "version: 4\nproviders:\n  ds:\n    protocol: anthropic-messages\n"
+        "    base_url: https://api.example.com\n    api_key: sk-literal-secret-0001\n"
+        "    models: {m1: {}}\nprofiles:\n  a: {default: ds.m1}\n"
+    )
+    assert acm("use", "a", "--yes")[0] == 0
+    claude_home.write_text(
+        claude_home.read_text().replace("sk-literal-secret-0001", "sk-rotated-secret-0002")
+    )
+    code, out, err = acm("use", "a")
+    assert code == 2 and "ANTHROPIC_AUTH_TOKEN" in err
+    assert "secret-0001" not in err and "secret-0002" not in err
+
+
+def test_init_force_backup_is_private(setup, team, acm, ctx):
+    assert acm("init", "--vmr", team.url, "--yes", "--force")[0] == 0
+    bak = ctx.config_path.with_name("config.yaml.bak")
+    assert oct(bak.stat().st_mode & 0o777) == "0o600"

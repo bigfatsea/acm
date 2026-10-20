@@ -4,12 +4,14 @@ from typing import Annotated
 
 import typer
 
+from acm.adapters.base import Adapter
 from acm.adapters.registry import all_adapters
 from acm.catalog.probe import default_gateway_url, probe_gateway
 from acm.catalog.proposal import proposal_for
 from acm.cli.main import app
 from acm.cli.output import Out, field_line, show_value
 from acm.cli.support import (
+    choose_agents,
     interaction_for,
     make_ctx,
     plan_agents,
@@ -24,10 +26,10 @@ from acm.engine.active import read_active, write_active
 from acm.engine.apply import apply_agent
 from acm.engine.fsio import cleanup_stale_tmp
 from acm.engine.history import HistoryLog, ObjectStore, Record
+from acm.engine.managed import load_managed, set_managed
 from acm.engine.model import ApplyResult
 from acm.engine.restore import RestoreRequest, restore_agent
 from acm.engine.status import SEVERITY, agent_status
-from acm.engine.unmanaged import load_unmanaged
 from acm.engine.views import prune as prune_history
 from acm.engine.views import record_changes, unmanaged_changes
 from acm.formats.base import fmt_path
@@ -102,7 +104,7 @@ def init(
             raise SafetyBlockedError("declined")
     if ctx.config_path.exists():
         backup = ctx.config_path.with_name("config.yaml.bak")
-        backup.write_bytes(ctx.config_path.read_bytes())
+        write_config_text(backup, ctx.config_path.read_text(encoding="utf-8"))  # 0600
         out.line(f"Previous config saved as {backup}")
     write_config_text(ctx.config_path, text)
     out.line(f"Wrote {ctx.config_path}. Next: `acm use daily` (add --dry-run to preview).")
@@ -118,11 +120,25 @@ def _project(
     if profile not in config.profiles:
         known = ", ".join(config.profiles)
         raise NotFoundError(f"profile '{profile}' not found (available: {known})")
-    adapters = select_adapters(agents, ctx)
-    if not adapters:
+    detected = select_adapters(agents, ctx)
+    if not detected:
         out.line("No supported agents were detected on this machine.")
         return 0
-    planned, catalog = plan_agents(ctx, config, profile, adapters, strict=True)
+    managed = load_managed(ctx)
+    if agents:  # naming an agent is the explicit way to (re)include it
+        chosen = detected
+    else:
+        pre = {a.id for a in detected} if managed is None else managed
+        if ctx.interactive and not ctx.yes:
+            chosen = choose_agents(out, detected, pre)
+        else:
+            chosen = [a for a in detected if a.id in pre]
+    left_out = [a for a in detected if a not in chosen]
+    if not chosen:
+        out.line("No agents selected; nothing was written.")
+        _report_left_out(out, ctx, left_out, managed, cmd)
+        return 0
+    planned, catalog = plan_agents(ctx, config, profile, chosen, strict=True)
     for note in catalog.notes():
         out.warn(note)
     cleanup_stale_tmp(*{f.path.parent for p in planned for f in p.adapter.files(ctx)})
@@ -132,17 +148,39 @@ def _project(
         store = ObjectStore(ctx)
         op = HistoryLog(ctx).new_op()
         for p in planned:
+            takeover = managed is not None and p.adapter.id not in managed
             results.append(
                 apply_agent(
                     ctx, p.adapter, p.plan, cmd=cmd, op=op, log=HistoryLog(ctx), store=store,
-                    interaction=inter,
+                    interaction=inter, takeover=takeover,
                 )
             )  # fmt: skip
-        if set_active and not ctx.dry_run:
+        _report_left_out(out, ctx, left_out, managed, cmd)
+        projected = any(r.status in ("written", "noop") for r in results)
+        if set_active and projected and not ctx.dry_run:
             write_active(ctx, profile)
     for w in HistoryLog(ctx).warnings:
         out.warn(w)
-    return report(out, results, ctx)
+    code = report(out, results, ctx)
+    if set_active and not projected and not ctx.dry_run:
+        out.warn(f"no agent was projected, so the active profile was not changed to '{profile}'")
+    return code
+
+
+def _report_left_out(
+    out: Out, ctx: Ctx, left_out: list[Adapter], managed: set[str] | None, cmd: str
+) -> None:
+    """Agents not selected this time; deselecting a managed one stops managing it."""
+    for a in left_out:
+        if managed is not None and a.id in managed:
+            if not ctx.dry_run:
+                set_managed(ctx, a.id, False)
+            out.line(
+                f"{a.id.ljust(14)}{'released'.ljust(11)}no longer managed; its files are left "
+                f"as they are (`acm restore --baseline {a.id}` reverts them)"
+            )
+        else:
+            out.line(f"{a.id.ljust(14)}{'skipped'.ljust(11)}not managed (`{cmd} {a.id}` adds it)")
 
 
 @app.command()
@@ -208,13 +246,13 @@ def status(
             out.warn(f"catalog '{name}': {err.message}")
     elif active:
         out.warn(f"active profile '{active}' no longer exists in config.yaml")
-    log, store, unmanaged = HistoryLog(ctx), ObjectStore(ctx), load_unmanaged(ctx)
+    log, store, managed = HistoryLog(ctx), ObjectStore(ctx), load_managed(ctx)
     worst = 0
     out.line(f"Active profile: {active or '(none)'}")
     for ad in adapters:
         ap = planned.get(ad.id)
         st = agent_status(
-            ctx, ad, ap.plan if ap else None, detected=ad.detect(ctx), unmanaged=unmanaged,
+            ctx, ad, ap.plan if ap else None, detected=ad.detect(ctx), managed=managed,
             log=log, store=store,
         )  # fmt: skip
         detail = st.message.split("\n", 1)[0]
@@ -382,7 +420,9 @@ def rollback(
 
 @app.command()
 def prune(
-    keep: Annotated[int, typer.Option("--keep", min=0, help="Recent entries to keep per file.")],
+    keep: Annotated[
+        int, typer.Option("--keep", min=1, help="Recent entries to keep per file (>= 1).")
+    ],
     no_color: NoColor = False,
 ) -> None:
     """Delete old history entries and unreferenced versions (baselines are always kept)."""

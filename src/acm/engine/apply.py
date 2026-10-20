@@ -2,9 +2,11 @@
 
 from acm.core.context import Ctx
 from acm.core.errors import ACMError, SafetyBlockedError
+from acm.core.masking import mask_value_at
 from acm.engine.commit import FileChange, commit
 from acm.engine.evaluate import Evaluation, evaluate
 from acm.engine.history import HistoryLog, ObjectStore
+from acm.engine.managed import set_managed
 from acm.engine.model import (
     AdapterLike,
     ApplyResult,
@@ -13,15 +15,23 @@ from acm.engine.model import (
     Interaction,
     Plan,
 )
-from acm.engine.unmanaged import set_unmanaged
-from acm.formats.base import fmt_path
+from acm.formats.base import MISSING, fmt_path
 
 
-def describe_drift(items: list[DriftItem]) -> str:
+def _show(path: tuple[str | int, ...], value: object, show_secrets: bool) -> str:
+    if value is MISSING:
+        return "(absent)"
+    return repr(mask_value_at(path, value, show_secrets))
+
+
+def describe_drift(items: list[DriftItem], show_secrets: bool = False) -> str:
     lines = []
     for d in items:
         where = f"{d.file}" + (f" {fmt_path(d.path)}" if d.path else "")
-        lines.append(f"  {where}: acm wrote {d.expected!r}, now {d.found!r}")
+        lines.append(
+            f"  {where}: acm wrote {_show(d.path, d.expected, show_secrets)}, "
+            f"now {_show(d.path, d.found, show_secrets)}"
+        )
     return "\n".join(lines)
 
 
@@ -35,9 +45,13 @@ def apply_agent(
     log: HistoryLog,
     store: ObjectStore,
     interaction: Interaction | None = None,
+    takeover: bool = False,
 ) -> ApplyResult:
     """Project ``plan`` onto one agent. Never raises for agent-level problems: they are returned
-    as ``blocked`` / ``error`` results so a batch can continue with the other agents."""
+    as ``blocked`` / ``error`` results so a batch can continue with the other agents.
+
+    ``takeover``: the agent is not in the managed set yet, so a write needs the same
+    confirmation as a first takeover even when acm wrote it before."""
     inter = interaction or Interaction()
     res = ApplyResult(agent=adapter.id, status="noop", warnings=list(plan.warnings))
     try:
@@ -53,7 +67,7 @@ def apply_agent(
     if ev.drift and not ctx.force:
         decision = inter.resolve_drift(adapter.id, ev.drift) if inter.resolve_drift else None
         if decision == "unmanage":
-            set_unmanaged(ctx, adapter.id, True)
+            set_managed(ctx, adapter.id, False)
             res.status, res.message = "unmanaged", "acm will no longer manage this agent"
             return res
         if decision != "overwrite":
@@ -61,7 +75,7 @@ def apply_agent(
             res.code = 2
             res.message = (
                 "managed fields were changed outside acm:\n"
-                + describe_drift(ev.drift)
+                + describe_drift(ev.drift, ctx.show_secrets)
                 + "\nre-run with --force to overwrite them"
                 + (" (or answer the prompt)" if inter.resolve_drift else "")
             )
@@ -69,12 +83,12 @@ def apply_agent(
     changed = ev.changed
     if not changed:
         if not ctx.dry_run:
-            set_unmanaged(ctx, adapter.id, False)
+            set_managed(ctx, adapter.id, True)
         return res
     if ctx.dry_run:
         res.status = "dry_run"
         return res
-    needs_confirm = ev.first_takeover or bool(ev.new_paths)
+    needs_confirm = ev.first_takeover or takeover or bool(ev.new_paths)
     if needs_confirm and not ctx.yes:
         if inter.confirm_changes is None:
             res.status = "blocked"
@@ -84,7 +98,7 @@ def apply_agent(
                 "(use --dry-run to preview)"
             )
             return res
-        if not inter.confirm_changes(adapter.id, ev.diffs, ev.first_takeover):
+        if not inter.confirm_changes(adapter.id, ev.diffs, ev.first_takeover or takeover):
             res.status, res.message, res.code = "blocked", "declined by user", 2
             return res
     try:
@@ -104,7 +118,7 @@ def apply_agent(
     except ACMError as e:
         res.status, res.message, res.code = "error", e.message, e.exit_code
         return res
-    set_unmanaged(ctx, adapter.id, False)
+    set_managed(ctx, adapter.id, True)
     res.status = "written"
     res.files_written = written
     return res
@@ -119,16 +133,8 @@ def _changes(ev: Evaluation) -> list[FileChange]:
 
 
 def format_diffs(diffs: list[Diff], show_secrets: bool = False) -> list[str]:
-    from acm.core.masking import mask_value_at
-    from acm.formats.base import MISSING
-
-    def v(path: tuple[str | int, ...], x: object) -> str:
-        if x is MISSING:
-            return "(absent)"
-        return repr(mask_value_at(path, x, show_secrets))
-
     return [
         f"{d.file}: {fmt_path(d.path) or '<file>'}: "
-        f"{v(d.path, d.current)} -> {v(d.path, d.desired)}"
+        f"{_show(d.path, d.current, show_secrets)} -> {_show(d.path, d.desired, show_secrets)}"
         for d in diffs
     ]

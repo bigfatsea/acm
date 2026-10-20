@@ -1,18 +1,18 @@
 from fakes import Harness, plan_of, set_
 
+from acm.engine.managed import set_managed
 from acm.engine.model import Plan
 from acm.engine.restore import RestoreRequest
 from acm.engine.status import agent_status
-from acm.engine.unmanaged import set_unmanaged
 from acm.engine.views import guess_format, prune, record_changes
 from acm.formats.base import MISSING
 
 
 def status(h: Harness, plan, *, detected=True):
-    from acm.engine.unmanaged import load_unmanaged
+    from acm.engine.managed import load_managed
 
     return agent_status(
-        h.ctx, h.adapter, plan, detected=detected, unmanaged=load_unmanaged(h.ctx),
+        h.ctx, h.adapter, plan, detected=detected, managed=load_managed(h.ctx),
         log=h.log(), store=h.store(),
     )  # fmt: skip
 
@@ -39,7 +39,7 @@ def test_unmanaged_flag_and_missing_plan(h: Harness):
     plan = plan_of(set_("model", "m1"))
     h.apply(plan)
     assert status(h, None).state == "UNMANAGED"
-    set_unmanaged(h.ctx, "fake", True)
+    set_managed(h.ctx, "fake", False)
     assert status(h, plan).state == "UNMANAGED"
 
 

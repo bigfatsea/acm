@@ -9,6 +9,7 @@ from acm.engine.commit import FileChange, commit
 from acm.engine.evaluate import assert_non_destructive, explained
 from acm.engine.fsio import read_bytes
 from acm.engine.history import WRITE_KINDS, HistoryLog, ObjectStore
+from acm.engine.managed import set_managed
 from acm.engine.model import (
     AdapterLike,
     ApplyResult,
@@ -17,7 +18,6 @@ from acm.engine.model import (
     Interaction,
     ProjectionWarning,
 )
-from acm.engine.unmanaged import set_unmanaged
 from acm.formats.base import (
     MISSING,
     Document,
@@ -105,7 +105,7 @@ def restore_agent(
     todo = [c for c in changes if c.before != c.after]
     if not todo:
         if req.target == "baseline" and not ctx.dry_run:
-            set_unmanaged(ctx, agent, True)
+            set_managed(ctx, agent, False)
         return res
     if ctx.dry_run:
         res.status = "dry_run"
@@ -135,7 +135,7 @@ def restore_agent(
         res.status, res.message, res.code = "error", e.message, e.exit_code
         return res
     if req.target == "baseline":
-        set_unmanaged(ctx, agent, True)
+        set_managed(ctx, agent, False)
     res.status = "written"
     return res
 

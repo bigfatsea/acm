@@ -16,7 +16,7 @@ from acm.catalog.resolve import (
 from acm.cli.output import Out, field_line
 from acm.config.schema import CoreConfig
 from acm.core.context import Ctx
-from acm.core.errors import ACMError, FormatError, NotFoundError
+from acm.core.errors import ACMError, FormatError, NotFoundError, SafetyBlockedError
 from acm.engine.apply import describe_drift
 from acm.engine.model import ApplyResult, Diff, DriftDecision, DriftItem, Interaction, Plan
 from acm.formats.base import KeyPath, fmt_path
@@ -94,6 +94,34 @@ def is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def choose_agents(out: Out, detected: list[Adapter], preselected: set[str]) -> list[Adapter]:
+    """A checklist of the detected agents (managed ones pre-checked); returns the chosen ones."""
+    chosen = {a.id for a in detected if a.id in preselected}
+    while True:
+        out.err("Agents to manage (managed ones are pre-selected):")
+        for i, a in enumerate(detected, 1):
+            mark = "x" if a.id in chosen else " "
+            exp = " (experimental)" if a.tier == "T2" else ""
+            out.err(f"  {i}. [{mark}] {a.name}{exp}")
+        out.err("Toggle by number (e.g. 2 3), a = all, n = none, Enter = continue, q = abort")
+        try:
+            ans = input("> ").strip().lower()
+        except EOFError:
+            ans = ""
+        if not ans:
+            return [a for a in detected if a.id in chosen]
+        if ans == "q":
+            raise SafetyBlockedError("aborted")
+        if ans == "a":
+            chosen = {a.id for a in detected}
+        elif ans == "n":
+            chosen = set()
+        else:
+            for tok in ans.replace(",", " ").split():
+                if tok.isdigit() and 1 <= int(tok) <= len(detected):
+                    chosen ^= {detected[int(tok) - 1].id}
+
+
 def interaction_for(out: Out, ctx: Ctx) -> Interaction:
     """Prompts, only when a terminal is attached."""
     if not ctx.interactive:
@@ -108,7 +136,7 @@ def interaction_for(out: Out, ctx: Ctx) -> Interaction:
 
     def resolve_drift(agent: str, items: list[DriftItem]) -> DriftDecision:
         out.err(f"{agent}: managed fields were changed outside acm:")
-        out.err(describe_drift(items))
+        out.err(describe_drift(items, ctx.show_secrets))
         a = ask("[o]verwrite with acm's values / [u]nmanage this agent / [a]bort (default)?")
         return {"o": "overwrite", "u": "unmanage"}.get(a[:1], "abort")  # type: ignore[return-value]
 

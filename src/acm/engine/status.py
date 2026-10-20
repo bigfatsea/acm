@@ -37,14 +37,19 @@ def agent_status(
     plan: Plan | None,
     *,
     detected: bool,
-    unmanaged: set[str],
+    managed: set[str] | None,
     log: HistoryLog,
     store: ObjectStore,
 ) -> AgentStatus:
+    """``managed``: the user's managed set (None: no choice recorded yet, so an agent counts
+    as managed once acm has written it)."""
     if not detected:
         return AgentStatus(adapter.id, "NOT_DETECTED")
-    has_records = any(r.kind in WRITE_KINDS for r in log.for_agent(adapter.id))
-    if adapter.id in unmanaged or plan is None or not has_records:
+    if managed is None:
+        is_managed = any(r.kind in WRITE_KINDS for r in log.for_agent(adapter.id))
+    else:
+        is_managed = adapter.id in managed
+    if not is_managed or plan is None:
         warnings = list(plan.warnings) if plan is not None else []
         return AgentStatus(adapter.id, "UNMANAGED", warnings=warnings)
     try:

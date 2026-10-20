@@ -3,9 +3,10 @@ import json
 import pytest
 from fakes import ORIGINAL, FakeAdapter, Harness, plan_of, set_
 
+from acm.engine.apply import apply_agent
 from acm.engine.history import WRITE_KINDS
+from acm.engine.managed import load_managed
 from acm.engine.model import Delete, Interaction
-from acm.engine.unmanaged import load_unmanaged
 from acm.formats.base import parse
 
 
@@ -109,7 +110,7 @@ def test_interactive_drift_choices(h: Harness, decision, status):
     res = h.apply(plan_of(set_("model", "m2")), inter=inter)
     assert res.status == status
     assert ('"m2"' in h.text()) == (decision == "overwrite")
-    assert ("fake" in load_unmanaged(h.ctx)) == (decision == "unmanage")
+    assert ("fake" not in (load_managed(h.ctx) or set())) == (decision == "unmanage")
 
 
 def test_removed_paths_are_retired(h: Harness):
@@ -152,18 +153,37 @@ def test_new_file_gets_dash_baseline_and_baseline_restore_deletes_it(h: Harness)
 
     res = h.restore(RestoreRequest("baseline"))
     assert res.status == "written" and not h.path.exists()
-    assert "fake" in load_unmanaged(h.ctx)
+    assert "fake" not in (load_managed(h.ctx) or set())
 
 
-def test_unmanaged_flag_cleared_by_next_use(h: Harness):
+def test_successful_write_adds_agent_back_to_managed_set(h: Harness):
+    h.seed()
+    h.apply(plan_of(set_("model", "m1")))
+    assert load_managed(h.ctx) == {"fake"}
+    from acm.engine.restore import RestoreRequest
+
+    h.restore(RestoreRequest("baseline"))
+    assert load_managed(h.ctx) == set()
+    h.apply(plan_of(set_("model", "m1")))
+    assert load_managed(h.ctx) == {"fake"}
+
+
+def test_takeover_of_released_agent_needs_confirmation(ctx):
+    h = Harness(ctx.with_flags(yes=True), FakeAdapter())
     h.seed()
     h.apply(plan_of(set_("model", "m1")))
     from acm.engine.restore import RestoreRequest
 
     h.restore(RestoreRequest("baseline"))
-    assert "fake" in load_unmanaged(h.ctx)
-    h.apply(plan_of(set_("model", "m1")))
-    assert "fake" not in load_unmanaged(h.ctx)
+    log = h.log()
+    plan = plan_of(set_("model", "m2"))
+    no_yes = h.ctx.with_flags(yes=False)
+    res = apply_agent(
+        no_yes, h.adapter, plan, cmd="t", op=log.new_op(), log=log, store=h.store(),
+        takeover=True,
+    )  # fmt: skip
+    assert res.status == "blocked" and "--yes" in res.message
+    assert h.text() == ORIGINAL
 
 
 def test_deleting_a_user_key_via_plan_delete(h: Harness):
