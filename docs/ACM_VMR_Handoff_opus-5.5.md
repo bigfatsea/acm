@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 19:50, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 23:30, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
@@ -38,7 +38,7 @@
 - `c1b31619..21b829e4` 只改了文档和示例配置，没有 `.go` 文件（ACM 侧用 `git diff --name-only` 核实）。
 - VMR 的总结在 `/Users/stanford/code/vmr/archived/ACM_VMR_Summary_sonnet-5.5.md`，各轮回报在同目录。这是未跟踪且被 `.gitignore` 忽略的目录。
 
-2026-10-20 19:30：本地 `main` 前进到 `e51d815c`（thinking 路由，见 V7），尚未推送。
+2026-10-20 19:30：`main` 前进到 `e51d815c`（thinking 路由，见 V7）；23:00 核实已在 `origin/main` 上。
 
 **此后 ACM 侧联调只从 VMR `main` 构建**：`cd /Users/stanford/code/vmr && go build -o <输出目录>/vmr ./cmd/vmr`。
 
@@ -112,6 +112,31 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
 - **远程 VMR 没开鉴权**（`auth.required: false`），`/manifest` 和推理接口对局域网内所有人开放。是否需要开，取决于部署意图。
 - Codex 只说 Responses 协议，而 `fast`、`agent` 不提供 `openai-responses`，所以这两个角色在 Codex 上回落到默认模型，并给出告警。这符合设计。
 
+### 3.5 第五轮：远程配置补齐角色与 Responses 端点后（2026-10-20 23:10）
+
+- **远程配置的变化**（`GET /config` 前后对比）：
+  - 四个模型加了 `meta`，角色为 `agent` = default + subagent，`coding` = reasoning + review，`fast` = fast，`cheap` 不给角色；
+  - 四个模型都补齐了 `openai-completions`、`anthropic-messages`、`openai-responses` 三种协议；
+  - 两个火山 provider 的额度系数改为 `deepseek-v4.1-flash: 0.5`，`model_defaults` 同步改名，并给它声明了 `image`。
+- **`vmr check`**（本地 VMR `main` 对远程配置）：通过。"openai-responses 上没有 default 角色"这条告警已消失，只剩停用 provider、audio/video 未参与路由这几条提示性告警。
+- **隔离 HOME，不设 `VMR_KEY`**：`acm init --vmr http://192.168.0.22:8800` 提议 `vmr@default` 加四个角色；`acm use daily` 一次写入四个 Agent，没有报错。上一轮 Codex 报的 `'vmr@default' ... on openai-responses` 已不再出现。
+
+| 检查 | 结果 | VMR 日志里的实际路由 |
+|---|---|---|
+| `codex exec` 简单回复 / 工具往返 | 通过，111 秒 / 160 秒 | `openai-responses:agent` → cliproxy gemini-3.8-flash-high，上游单次 66–109 秒 |
+| `claude -p` 简单回复 / 工具往返 | 通过，5 秒 / 2 秒 | `anthropic-messages:agent` → 火山 deepseek-v4.1-flash；首次 `2x`，即 cliproxy 失败后回退到火山 |
+| `pi -p` 简单回复 / 工具往返 | 通过，26 秒 / 91 秒 | `openai-completions:agent` → cliproxy gemini-3-flash |
+| `opencode run` 简单回复 / 工具往返 | 通过，16 秒 / 123 秒 | 标题生成走 `fast`；其中一次在 cliproxy 等响应头 120 秒超时，再回退到火山 |
+| `acm run codex -m vmr@reasoning` | 通过，4 秒 | `openai-responses:coding` → 火山 glm-5.3 |
+| `acm run pi`，`acm/auto` 分别配 `--thinking low` / `high` | 通过，2 秒 / 8 秒 | low → `fast`，high → `coding`（含工具往返） |
+| `acm run claude -m vmr@fast`（工具往返） | 通过，3 秒 | `anthropic-messages:fast` → 火山 deepseek-v4.1-flash |
+
+发现：
+
+- **慢在上游**：所有慢请求都卡在 cliproxy（gemini 系列）。同一时段局域网里其他用户的 cliproxy 请求同样要 17–50 秒。VMR 和 ACM 都没有额外开销；默认模型 `agent` 把 cliproxy 放在 priority 1，所以默认路径会先等它。
+- **回退等待过长**：cliproxy 超时时，要等满 120 秒才回退。
+- VMR 日志的用户列，按各 Agent 写入的占位 key 区分：Claude Code 显示为 `key`，Pi 为 `dummy`，Codex 和 OpenCode 为 `-`。网关没开鉴权，这一列只用于展示。
+
 ## 4. 建议 VMR 侧后续处理（按优先级）
 
 ### V1 反向代理后的 scheme —— 已处理（`c1b31619`）
@@ -150,7 +175,7 @@ VMR 第三轮结论：
 - **B2 不做**：价格属于账号，不属于虚拟模型；套餐账号的标价会误导用户；定价与实时路由已经解耦。ACM 侧接受，`cost` 不进契约，ACM 不再有对应待办。
 - **B3 不做**：选模型是客户端逻辑，在 VMR 的 CI 里也无法维护；VMR 建议如果要做就放在 ACM 一侧。是否在 ACM 做（`acm run pi` 已经随包带一个固定扩展）待用户决定。
 
-### V7 thinking 路由 —— 已实施（VMR `e51d815c`，本地提交，未推送）
+### V7 thinking 路由 —— 已实施（VMR `e51d815c`，已推送）
 
 按用户决定实施：thinking 与 tools、image 一样做硬过滤，不去掉参数、不降级。
 
@@ -174,6 +199,6 @@ VMR 第三轮结论：
 
 ## 5. 未验证的假设、风险与下一步
 
-- **未验证**：真实上游链路（真实 key、工具调用、长上下文）；真实 TLS 终止代理（Caddy）。
+- **已验证**（§3.4、§3.5）：真实上游、工具调用往返、免 key 网关。**仍未验证**：长上下文是否贴近发布的 512K 上限；真实 TLS 终止代理（Caddy）。
 - **风险**：若 VMR 侧改动契约字段名或语义，需同步更新 ACM SPEC §4 与 ACM 的 Manifest 客户端；任何契约变更先在两边文档登记。
-- **下一步**：从 VMR `main` 构建，用真实上游和真实 key，在临时 HOME 中跑一遍 `init → use → 真实 Agent 发起一次带工具调用的请求`。
+- **下一步**：核实各上游的真实上下文窗口，按实际值填写 `max_context_tokens`；评估 cliproxy 的优先级和上游超时设置。
