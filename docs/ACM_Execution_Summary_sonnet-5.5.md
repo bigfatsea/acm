@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:50, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:40, by Opus 5.5 -->
 
 # ACM 0.4 重建：执行总结
 
@@ -6,7 +6,7 @@
 >
 > **范围**：In —— ACM 仓库（`main` 上的本地提交）、VMR 的 `feat/manifest` 分支（独立 worktree）。Out —— 推送、打 `v*` 标签、发布 PyPI、合并 VMR 分支（均未执行，见 §6）。
 
-> **阅读提示**：§1–§7 是 0.4 初次落地时（版本 `0.4.0.dev0`）的快照，其中的遗留与"未联调"等表述已部分过时；之后的变化见 §8（第一轮复审）与 §9（运行复核与 VMR 联调）。
+> **阅读提示**：§1–§7 是 0.4 初次落地时（版本 `0.4.0.dev0`）的快照，其中的遗留与"未联调"等表述已部分过时；之后的变化见 §8（第一轮复审）、§9（运行复核与 VMR 联调）与 §10（能力路由）。
 
 ## 1. 结论
 
@@ -242,5 +242,48 @@ P8 阶段对**用户真实文件的唯一接触**是 `acm status --all` 读取 `
 
 - **Hermes、OpenClaw 真机测试**（L2、L3）；**T2 成员的 `acm run`**（L4）。
 - **真实上游链路**：真实 key、工具调用往返、长上下文；**真实 Caddy 的 TLS 链路**。
-- **已决定：不改用 `guarantee.*`**（2026-10-20）。能力字段按并集投影，由 VMR 路由到支持该能力的候选（SPEC §4.2）。遗留：VMR 尚未按 thinking 过滤候选。
+- **已决定：不改用 `guarantee.*`**（2026-10-20）。能力字段按并集投影，由 VMR 路由到支持该能力的候选（SPEC §4.2）。VMR 的 thinking 过滤已在 §10 补上。
 - **对外动作均未执行**：ACM `main` 未推送、未打 `v0.4.0` 标签、未发布 PyPI；VMR `main` 未推送。
+
+## 10. 能力路由：thinking 与 tools（2026-10-20 晚，Opus 5.5）
+
+分析报告：`docs/ACM_VMR_Capability_Routing_Analysis_opus-5.5.md`。用户决定：thinking 做硬过滤，与 tools、image 一致；没有能思考的候选就拒绝，不去掉参数、不降级。
+
+### 10.1 VMR（`e51d815c`，本地提交，未推送）
+
+- **识别**：`TopLevelProbe` 现在返回 `Probe` 结构体，在同一次扫描里识别 `WantsThinking`。只看顶层显式开关：
+  - `thinking.type` 为 enabled / adaptive；
+  - `reasoning.effort` 或 `reasoning_effort`，取值不为 `none`；
+  - `reasoning.enabled`、`enable_thinking`。
+- **路由**：`thinking` 成为第三个硬条件。拒绝时，503 消息和 VMR 运行日志的 `ALL_FAILED` 行都写明原因。
+- **配置检查**：`vmr check` 不再把 thinking 列为"已接受但未生效"。新增两条覆盖告警：某协议上没有候选声明 `tools`；`anthropic-messages` 上没有候选声明 `thinking`。
+- **能力解析**：统一到 `Config.ResolveModelCapabilities`，路由快照和配置检查共用。
+- **文档**：用户指南（中英）、示例配置（中英）、`KNOWN_ISSUES`（取舍登记）、`CHANGELOG [Unreleased]`、Core 设计文档的条件准入路由一节。
+
+### 10.2 ACM（本地提交）
+
+- `guarantee` 存在而并集里没有某项能力时，卡片记为 `False`（已知不支持），而不是 `None`（未知）。现有适配器对这两种取值的处理相同，所以投影内容不变。
+- 新增两条投影告警：
+  - 模型已知不支持工具（任何 Agent）；
+  - Claude Code 槽位模型已知不能思考（Claude Code 对网关模型的每个请求都打开思考）。
+- 文档：
+  - SPEC §4.2：写明并集语义与"已知不支持"的推断；
+  - 用户指南：故障排查表补上 Claude Code fast 槽位被拒绝的情况；
+  - 支持矩阵：Claude Code 对网关模型每个请求都开 thinking；OpenCode 缺省 `tool_call` 时照常发工具。
+
+### 10.3 验证
+
+| 检查 | 结果 |
+|---|---|
+| VMR 门禁：`gofmt -l`、`go vet ./...`、`go test -race ./...`（含 archtest） | 全部通过 |
+| VMR 真实 Agent 联调（scratchpad `it4/run.sh`） | 9/9 通过 |
+| ACM 门禁：`pytest` | 462 通过，1 跳过；`-m real` 17 通过 |
+| ACM 门禁：`ruff`、`mypy` | 通过 |
+| ACM 告警对真实 VMR Manifest | `quick`（guarantee 存在、`reasoning` 缺省）在 `acm use` 时对 Claude Code 告警 |
+| 遗留项 C3（OpenCode 缺省 `tool_call`） | 实测照常发工具，关闭 |
+
+### 10.4 遗留
+
+- **对现有 VMR 部署是行为变化**：候选都声明了能力、却没有 `thinking` 的虚拟模型，带思考参数的请求从"能通过"变为被拒绝，最典型的是 Claude Code 的 haiku 槽位。升级前先跑 `vmr check`。
+- **对外动作**：VMR `e51d815c` 与 ACM 本轮提交都未推送；ACM `v0.4.0` 标签仍只在本地，PyPI 暂缓。
+- **未实测**：真实上游下各厂商对思考参数的处理；文档 / PDF 能力（C5）与 audio / video（C6）按决定以后再做。

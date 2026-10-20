@@ -194,3 +194,36 @@ def test_launch_plan_with_literal_key_uses_a_private_env_var(yctx):
     assert spec.env == {"ACM_RUN_KEY": "sk-literal"} and "sk-literal" not in " ".join(spec.argv)
     assert json.loads(spec.argv[2])["apiKeyHelper"] == "printenv ACM_RUN_KEY"
     assert spec.secret_env == {"ACM_RUN_KEY"}
+
+
+def _cannot_think(model_id: str) -> dict:
+    """team_manifest with ``model_id`` known to have no thinking candidate (all declared)."""
+    from fakes import team_manifest
+
+    m = team_manifest("http://gw.test")
+    for mm in m["models"]:
+        if mm["id"] == model_id:
+            mm.pop("reasoning", None)
+            mm["guarantee"] = {"input": ["text"], "tool_call": True, "reasoning": False}
+    return m
+
+
+def test_slot_model_known_unable_to_think_warns(yctx):
+    cfg = manifest_config(yctx, '{default: "vmr@default", roles: {fast: "vmr@fast"}}',
+                          manifest=_cannot_think("cheap"))  # fmt: skip
+    t = target_of(yctx, AD, cfg)
+    assert t.role("fast").card.reasoning is False
+    plan = plan_of_target(yctx, AD, t)
+    hits = [w for w in plan.warnings if w.field == "models.cheap.reasoning"]
+    assert len(hits) == 1 and "turns thinking on for every request" in hits[0].reason
+
+
+def test_unknown_thinking_support_stays_quiet(yctx):
+    t = target_of(
+        yctx, AD, manifest_config(yctx, '{default: "vmr@default", roles: {fast: "vmr@fast"}}')
+    )
+    assert t.role("fast").card.reasoning is None  # no guarantee published: unknown, not "no"
+    warns = plan_of_target(yctx, AD, t).warnings
+    assert not [
+        w for w in warns if w.field.startswith("models.") and w.field.endswith(".reasoning")
+    ]

@@ -21,10 +21,12 @@ FIXTURES = Path(__file__).parent / "fixtures"
 TEAM_PROFILE = '{default: "vmr@default", roles: {reasoning: "vmr@reasoning", fast: "vmr@fast", subagent: "vmr@subagent", review: "vmr@review"}}'
 
 
-def manifest_config(ctx: Ctx, profile: str = TEAM_PROFILE, key: str = '"${VMR_KEY}"') -> str:
+def manifest_config(
+    ctx: Ctx, profile: str = TEAM_PROFILE, key: str = '"${VMR_KEY}"', manifest: dict | None = None
+) -> str:
     """Config with a file-backed manifest provider named vmr (no network)."""
     mpath = ctx.home / "manifest.json"
-    mpath.write_text(json.dumps(team_manifest("http://gw.test")))
+    mpath.write_text(json.dumps(manifest or team_manifest("http://gw.test")))
     return textwrap.dedent(
         f"""
         version: 4

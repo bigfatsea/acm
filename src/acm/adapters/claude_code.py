@@ -96,6 +96,21 @@ class ClaudeCode(Adapter):
         sub = pick("subagent", fallback=False)
         if sub:
             slots["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
+        # Claude Code turns thinking on for every request to a model it does not know
+        # (gateway names included); a gateway refuses that on a model that cannot think.
+        used = {d.id: d, **{m.id: m for r in ("reasoning", "fast", "subagent")
+                            if (m := target.roles.get(r)) is not None
+                            and m.provider.name == d.provider.name}}  # fmt: skip
+        for m in used.values():
+            if m.card.reasoning is False:
+                warns.append(
+                    ProjectionWarning(
+                        f"models.{m.id}.reasoning",
+                        f"'{m.id}' has no thinking-capable model behind it, but Claude Code turns "
+                        "thinking on for every request; a gateway will refuse them",
+                        self.id,
+                    )
+                )
         if target.roles.get("review") is not None:
             warns.append(
                 ProjectionWarning(

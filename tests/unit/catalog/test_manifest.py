@@ -217,3 +217,33 @@ def test_endpoints_on_another_origin_are_surfaced():
 def test_https_manifest_with_http_endpoints_names_the_downgrade():
     (w,) = _from("http://vmr.example.com", "https://vmr.example.com/manifest").warnings
     assert "plain http" in w
+
+
+def test_guarantee_turns_a_missing_capability_into_a_known_no():
+    m = team_manifest()
+    by_id = {mm["id"]: mm for mm in m["models"]}
+    # all candidates declared, none can think or call tools
+    by_id["cheap"]["guarantee"] = {"input": ["text"], "tool_call": False, "reasoning": False}
+    # union says yes even though not every candidate can: stays True
+    by_id["agent"]["guarantee"] = {"input": ["text"], "tool_call": False, "reasoning": False}
+    p = provider_from_manifest(
+        "t", parse_manifest(m), credential=parse_credential(""), headers={}, source="s"
+    )
+    assert (p.card("cheap").reasoning, p.card("cheap").tool_call) == (False, False)
+    assert p.card("agent").reasoning is True
+    assert p.card("resp").reasoning is None and p.card("resp").tool_call is None  # unknown
+
+
+def test_a_model_known_without_tools_warns_for_every_agent(ctx):
+    from golden_helpers import manifest_config, target_of
+
+    from acm.adapters.opencode import OpenCodeFamily
+
+    m = team_manifest("http://gw.test")
+    for mm in m["models"]:
+        if mm["id"] == "cheap":
+            mm["guarantee"] = {"input": ["text"], "tool_call": False, "reasoning": False}
+    cfg = manifest_config(ctx, '{default: "vmr@default", roles: {fast: "vmr@fast"}}', manifest=m)
+    t = target_of(ctx, OpenCodeFamily(), cfg)
+    (w,) = [w for w in t.warnings if w.field == "roles.fast"]
+    assert "no tool-capable model" in w.reason

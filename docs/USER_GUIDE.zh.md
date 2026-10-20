@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:55, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
 
 # ACM 使用指南
 
@@ -230,6 +230,7 @@ Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bear
 | 网关改了模型后显示 `OUT_OF_SYNC` | `acm apply`。 |
 | `warning: manifest '…' was read from A but its endpoints send requests and the key to B` | 网关发布的端点与 Manifest URL 不同源。部署在反向代理后时，通常是没有配置对外地址（VMR：`public_base_url`），https 还可能变成了 http。若确实有意分开，把 `manifest` 指向与端点相同的地址。 |
 | Agent 为 `ERROR`：`no model with role 'default' on <protocol>` | 网关在该 Agent 使用的协议上没有 `default` 模型（Codex 需要 `openai-responses`，Claude Code 需要 `anthropic-messages`）。请网关在该协议上提供，或在 profile 中直接引用某个模型。其他 Agent 不受影响。 |
+| Claude Code 在某个模型上失败（多半是 `haiku` / fast 槽位），网关提示 `rejected by condition(s): thinking`，`acm use` 时也告警过 `'X' has no thinking-capable model behind it` | Claude Code 对网关模型的每个请求（包括后台请求）都打开思考，而网关只把这类请求发给能思考的模型。在网关里给这个虚拟模型的某个真实模型声明 `thinking`（VMR：`model_defaults`），或者把该角色指向能思考的模型。 |
 | Claude Code 没有走网关 | `acm status --verbose` 查看 `env.ANTHROPIC_BASE_URL` 与 `apiKeyHelper` 是否同步。`config.yaml` 中指定的 key 变量必须在启动 Claude Code 的 shell 中导出，因为 helper 就是 `printenv VAR`。 |
 | Agent 显示 `skipped` | 它不在受管集合中。在勾选列表里选中它，或点名：`acm use PROFILE AGENT`。 |
 | 想彻底移除 ACM | 对每个 Agent 运行 `acm restore --baseline`（或多次 `acm rollback`），然后卸载。任何时刻文件都保持有效；ACM 不在 Agent 里留任何钩子。 |

@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:55, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
 
 # ACM User Guide
 
@@ -230,6 +230,7 @@ So switching to a gateway does not log you out, and switching back does not need
 | `OUT_OF_SYNC` after the gateway changed models | `acm apply`. |
 | `warning: manifest '…' was read from A but its endpoints send requests and the key to B` | The gateway publishes endpoints on another origin than the manifest URL. Behind a reverse proxy this usually means its public address is not configured (VMR: `public_base_url`), and https may have turned into http. If the split is intended, point `manifest` at the same address as the endpoints. |
 | Agent `ERROR`: `no model with role 'default' on <protocol>` | The gateway offers no `default` model on the protocol this agent speaks (Codex needs `openai-responses`, Claude Code `anthropic-messages`). Ask the gateway to serve it there, or reference a model explicitly in the profile. Other agents are unaffected. |
+| Claude Code fails on one model (often the `haiku` / fast slot); the gateway says `rejected by condition(s): thinking`, and `acm use` warned `'X' has no thinking-capable model behind it` | Claude Code turns thinking on for every request to a gateway model, background ones included, and the gateway only routes such requests to a model that can think. Declare `thinking` on one of that virtual model's real models in the gateway (VMR: `model_defaults`), or point the role at a model that can think. |
 | Claude Code does not use the gateway | `acm status --verbose` shows whether `env.ANTHROPIC_BASE_URL` and `apiKeyHelper` are in sync. The key variable named in `config.yaml` must be exported in the shell that starts Claude Code, because the helper is `printenv VAR`. |
 | Agent `skipped` | It is not in the managed set. Select it in the checklist or name it: `acm use PROFILE AGENT`. |
 | Want ACM gone | `acm restore --baseline` per agent (or `acm rollback` repeatedly), then uninstall. Files stay valid at any point; ACM keeps no hooks into the agents. |

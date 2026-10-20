@@ -135,4 +135,18 @@ def resolve_target(
             members[label] = _resolve_model(config, catalog, text, protocols)
         except TargetError as e:
             warnings.append(ProjectionWarning(f"models.{label}", str(e), agent))
+    for field_name, m in [
+        ("default", default),
+        *((f"roles.{r}", rm) for r, rm in roles.items()),
+        *((f"models.{k}", mm) for k, mm in members.items()),
+    ]:
+        if m is not None and m.card.tool_call is False:
+            warnings.append(
+                ProjectionWarning(
+                    field_name,
+                    f"'{m.id}' has no tool-capable model behind it; coding agents send tools on "
+                    "every turn, so those requests will fail (a gateway refuses them)",
+                    agent,
+                )
+            )
     return ResolvedTarget(profile_name, default, roles, members, warnings)

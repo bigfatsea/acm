@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:45, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
 
 # ACM Agent 支持矩阵：配置细节、核实结论与三梯队决策
 
@@ -256,6 +256,7 @@ T2 成员的官方文档核实放在其实现任务中（Action Plan P6），以
 
 **坑**：
 - 官方 gateway 文档：未识别的 model id 只发送保守的请求字段（固定 budget thinking，无 effort / context management）——VMR 别名天然如此，ACM 写 `effortLevel` 对它可能无效。
+- **对不认识的模型 id（包括网关别名），每个请求都带 `thinking: {type: adaptive}` 和 `output_config.effort`，haiku 槽位的后台请求也一样**（2.1.304 实测，VMR 审计日志）。网关按 thinking 硬过滤时，每个槽位背后都需要能思考的模型；ACM 在 Manifest 表明某个槽位模型不能思考时告警。
 - 原生网关发现只保留 id 含 `claude`/`anthropic` 的条目，VMR 别名不会出现在 `/model` 选择器中（槽位写入不受影响）。
 - 更高优先级的 settings 来源（项目级 / managed）会静默覆盖用户级。
 
@@ -632,6 +633,7 @@ T2（家族成员）不执行第 2–3 步，只跑金样（1、4、5）；其�
 |---|---|---|
 | Claude Code：`env` 中置空串的 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` 是否视为未设置并回落 `apiKeyHelper`（§4.1） | **确认可用** | 真机测试（本地模拟网关，隔离 HOME）：`acm run claude` 用 `--settings` 内联 JSON 置空两者 + `apiKeyHelper: printenv VAR`，请求带期望的 key |
 | `apiKeyHelper` 子进程是否继承调用方环境变量（U4） | **确认继承** | 同上；`printenv <VAR>` 模板可用 |
+| OpenCode 模型条目缺省 `tool_call` 时是否还发工具 | **照常发送** | 真机（1.3.13）：`tool_call` 缺省与 `true` 两种情况下，主循环请求都带 10 个工具；ACM 在 Manifest 未声明时不写该字段，无副作用 |
 | OpenCode `small_model` 是否对应 `fast` 角色 | **确认被使用** | 真机：首个请求是标题生成，走 `small_model`；测试断言为模型集合 `{主模型, fast 模型}` |
 | Codex 自定义 catalog 的严格性 | **确认被严格解析** | 真机：不合规 catalog 被拒；已用金样固定合规结构（含 `base_instructions`） |
 | Pi 扩展 API 的每模型字段 | **新发现** | 真机：扩展注册模型时 `input / reasoning / contextWindow / maxTokens / cost` 必填；随包扩展 `acm_pi_provider.ts` 对未知值写保守默认 |

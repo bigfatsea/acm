@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 17:55, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 19:30, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
@@ -37,6 +37,8 @@
 - `main` @ `21b829e4`，工作区干净；`vmr-manifest` worktree 和 `feat/manifest` 分支已清理；尚未推送（领先 `origin/main` 两个提交，推送由用户决定）。
 - `c1b31619..21b829e4` 只改了文档和示例配置，没有 `.go` 文件（ACM 侧用 `git diff --name-only` 核实）。
 - VMR 的总结在 `/Users/stanford/code/vmr/archived/ACM_VMR_Summary_sonnet-5.5.md`，各轮回报在同目录。这是未跟踪且被 `.gitignore` 忽略的目录。
+
+2026-10-20 19:30：本地 `main` 前进到 `e51d815c`（thinking 路由，见 V7），尚未推送。
 
 **此后 ACM 侧联调只从 VMR `main` 构建**：`cd /Users/stanford/code/vmr && go build -o <输出目录>/vmr ./cmd/vmr`。
 
@@ -127,6 +129,21 @@ VMR 第三轮结论：
 - **B1 已做**：写入文档，`description` 是一行自由文本，按"定位 / 适合 / 不适合"组织，档次靠 `roles`。
 - **B2 不做**：价格属于账号，不属于虚拟模型；套餐账号的标价会误导用户；定价与实时路由已经解耦。ACM 侧接受，`cost` 不进契约，ACM 不再有对应待办。
 - **B3 不做**：选模型是客户端逻辑，在 VMR 的 CI 里也无法维护；VMR 建议如果要做就放在 ACM 一侧。是否在 ACM 做（`acm run pi` 已经随包带一个固定扩展）待用户决定。
+
+### V7 thinking 路由 —— 已实施（VMR `e51d815c`，本地提交，未推送）
+
+按用户决定实施：thinking 与 tools、image 一样做硬过滤，不去掉参数、不降级。
+
+- **识别**：只看请求的顶层开关，包括 `thinking.type` 为 enabled / adaptive、`reasoning.effort`、`reasoning_effort`、`reasoning.enabled`、`enable_thinking`；effort 为 `none` 不算，历史消息里的思考块也不算。
+- **路由**：只发给声明了 `thinking` 或未声明能力的候选；一个都没有时返回 503，并写明 `rejected by condition(s): thinking`。VMR 运行日志的 `ALL_FAILED` 行也带上这个原因。
+- **`vmr check`**：某个虚拟模型在某协议上没有任何候选声明 `tools` 时告警；在 `anthropic-messages` 上没有任何候选声明 `thinking` 时告警。
+- **能力解析**：由 config 统一提供，路由快照和 `vmr check` 共用同一份。
+- **验证**：
+  - VMR 门禁全部通过；
+  - 真实 Agent 联调 9/9：Pi、Codex 在混合候选的虚拟模型上绕开优先级更高的不支持思考的候选；OpenCode 不带思考参数，按优先级走；Claude Code 的 fast 槽位被拒绝，日志写明原因，热重载补上 thinking 声明后恢复。
+- **ACM 侧配套**：`guarantee` 用于推断"已知不支持"，Claude Code 槽位模型不能思考时告警（SPEC §4.2）。
+
+分析与取舍见 `docs/ACM_VMR_Capability_Routing_Analysis_opus-5.5.md`。
 
 ### V3 保持的不变量（无需改动，供后续修改时对照）
 

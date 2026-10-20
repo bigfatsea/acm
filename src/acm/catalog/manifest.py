@@ -43,6 +43,14 @@ class Modalities(_Lenient):
     input: list[str] = Field(default_factory=lambda: ["text"])
 
 
+class Guarantee(_Lenient):
+    """What holds on every candidate; present only when every candidate declared its
+    capabilities, so a missing capability next to it is known to be absent."""
+
+    tool_call: bool = False
+    reasoning: bool = False
+
+
 class ManifestModel(_Lenient):
     id: str
     display_name: str | None = None
@@ -53,6 +61,14 @@ class ManifestModel(_Lenient):
     modalities: Modalities | None = None
     tool_call: bool | None = None
     reasoning: bool | None = None
+    guarantee: Guarantee | None = None
+
+
+def _known(value: bool | None, guarantee: Guarantee | None) -> bool | None:
+    """The published union, or False when no candidate has it and all of them declared."""
+    if value is not None:
+        return value
+    return False if guarantee is not None else None
 
 
 class Manifest(_Lenient):
@@ -109,8 +125,8 @@ def manifest_to_cards(provider: str, m: Manifest, source: str) -> tuple[ModelCar
                 context_floor=lim.context_floor,
                 output=lim.output,
                 input=tuple(mm.modalities.input) if mm.modalities else ("text",),
-                tool_call=mm.tool_call,
-                reasoning=mm.reasoning,
+                tool_call=_known(mm.tool_call, mm.guarantee),
+                reasoning=_known(mm.reasoning, mm.guarantee),
             )
         )
     return tuple(cards)
