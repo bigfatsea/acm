@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 15:45, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 16:10, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
@@ -21,7 +21,7 @@
 | 未知即缺省 | 不知道的字段省略，不写 0 / false。ACM 忽略未知字段与未知角色 |
 | 语义 | `limit.*` 是模型的**能力上限**（超过即不提供服务）；Agent 每次请求实际用多少由 Agent 自己决定。ACM 只把上限写进 Agent 描述模型的字段（如 OpenCode `limit.context`、Claude Code `CLAUDE_CODE_MAX_CONTEXT_TOKENS`），从不写 Agent 的用量预算 |
 
-## 2. 参考实现（已复核，待合入）
+## 2. 参考实现（已复核，已 fast-forward 进 VMR `main`）
 
 | 项 | 值 |
 |---|---|
@@ -32,7 +32,7 @@
 | ACM 侧复核的门禁（只读运行） | `gofmt -l .` 无输出；`go vet ./...` 无输出；`go test -race ./...` exit 0（43 个包 ok） |
 | 设计取舍 | 清单每次由路由快照现算（无第二份真相）；`meta` 只描述、永不影响路由；直连名 `provider:model` 不列入；ETag = 文档内容哈希；角色冲突是**加载期错误**（启动拒绝、热重载保留旧配置）；不信任 `X-Forwarded-*`，代理后必须设 `public_base_url`（未设而见到转发头时 WARN 一次） |
 
-合入时机由 VMR 侧 / 用户决定。合入后该 worktree 可删除（`git worktree remove /Volumes/SSD2T/code/vmr-manifest`）。
+2026-10-20 16:05 只读检查：VMR `main` 已指向 `c1b31619`，远端没有 `feat/manifest`。用户已同意合入，并要求清理 worktree 和分支。清理交给 VMR 侧 Agent 做，见第三轮任务书 `/Users/stanford/code/vmr/docs/ACM_VMR_Task_Prompt_Round3_opus-5.5.md` §2。**此后 ACM 侧联调只从 VMR `main` 构建。**
 
 ## 3. 联调结果（2026-10-20）
 
@@ -89,6 +89,22 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
 
 （读代码得出，未运行复现。）`checkManifestRoles` 遍历 `cfg.Models[*].Endpoints`；`buildManifest` 会跳过所有 provider 都被禁用的协议。若 `main` 在某协议上的 provider 全部禁用、而该协议仍由别的模型提供，清单在该协议上实际没有 `default`，`vmr check` 却不告警。ACM 侧会把对应 Agent 置 ERROR 并说明原因，所以不会静默出错；VMR 若想在源头提示，可让该检查与 `buildManifest` 共用同一份"可路由协议"判断。
 
+### V6（中，已交给 VMR 第三轮）模型定位的表达
+
+用户的问题：模型名可以随意起，Manifest 怎么表达"快 / 主力 / 深度"这类档次？结论：
+
+- 档次由 `meta.roles` 表达（`fast` / `default` / `reasoning`），已经可用。
+- 按任务选模型在 Agent 内部完成：Agent 选槽位，ACM 按角色填槽位，VMR 路由模型名。
+- 不加自由的场景标签，不加档位数字。
+
+交给 VMR 的三项：
+
+- B1：`description` 写法约定，只改文档。
+- B2：可选字段 `cost`，每百万 token 的价格。OpenCode schema 和 Pi 的 `registerProvider` 都有对应字段；单位和多候选时的聚合规则由 VMR 决定。
+- B3：可选的 Pi `registerVirtualModel` 示例扩展，按角色路由。
+
+ACM 侧待办：VMR 定下 `cost` 的字段名和规则后，ACM 负责解析，投影到 OpenCode / Pi，在 SPEC §4.2 登记，并核实 Pi `models.json` 是否接受 `cost`。
+
 ### V3 保持的不变量（无需改动，供后续修改时对照）
 
 - 同一（协议, 角色）唯一，`vmr check` 继续把冲突当错误。
@@ -100,4 +116,4 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
 
 - **未验证**：真实上游链路（真实 key、工具调用、长上下文）；真实 TLS 终止代理（Caddy）。
 - **风险**：若 VMR 侧改动契约字段名或语义，需同步更新 ACM SPEC §4 与 ACM 的 Manifest 客户端；任何契约变更先在两边文档登记。
-- **下一步**：用户决定是否在 VMR 主工作区执行 `git merge --ff-only feat/manifest`；之后用真实 VMR 与真实 key，在临时 HOME 中跑一遍 `init → use → 真实 Agent 发起一次带工具调用的请求`。
+- **下一步**：等 VMR 第三轮回报（清理结果、B1–B3）；之后从 VMR `main` 构建，用真实 key 在临时 HOME 中跑一遍 `init → use → 真实 Agent 发起一次带工具调用的请求`。
