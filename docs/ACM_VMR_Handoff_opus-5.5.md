@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 23:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 23:45, by Opus 5.5 -->
 
 # ACM → VMR 交接：Manifest 发布端
 
@@ -136,6 +136,22 @@ ACM 侧独立复跑，不依赖 VMR 回报的结论。环境：VMR 构建到 ACM
 - **慢在上游**：所有慢请求都卡在 cliproxy（gemini 系列）。同一时段局域网里其他用户的 cliproxy 请求同样要 17–50 秒。VMR 和 ACM 都没有额外开销；默认模型 `agent` 把 cliproxy 放在 priority 1，所以默认路径会先等它。
 - **回退等待过长**：cliproxy 超时时，要等满 120 秒才回退。
 - VMR 日志的用户列，按各 Agent 写入的占位 key 区分：Claude Code 显示为 `key`，Pi 为 `dummy`，Codex 和 OpenCode 为 `-`。网关没开鉴权，这一列只用于展示。
+
+### 3.6 本机真实 HOME 下的 `acm run`（2026-10-20 23:36）
+
+- **前提**：本机 `~/.acm/config.yaml` 已迁移到 v4，`daily` 为 `vmr@default` 加四个角色；所有 Agent 仍为 UNMANAGED，即还没有执行过 `acm use`。
+- **做法**：在用户真实环境中逐个执行 `acm run <agent> -- <非交互命令>`，每个 Agent 跑一次简单回复和一次读文件往返。跑之前和之后各对配置文件做一次 SHA-256 比对，涉及 `~/.claude/settings.json`、`~/.codex/config.toml`、`~/.pi/agent/settings.json`、`~/.pi/agent/models.json`、`~/.config/opencode/opencode.json`、`~/.acm/config.yaml`。
+
+| 检查 | 结果 |
+|---|---|
+| Claude Code 简单回复 / 读文件往返 | 通过，8 秒 / 10 秒；`anthropic-messages:agent`，cliproxy 返回 429 后回退到火山 |
+| Pi 简单回复 / 读文件往返；`acm/auto --thinking high` | 通过，1–3 秒；分别走 `agent`，以及 `coding`（glm-5.3） |
+| OpenCode 简单回复 / 读文件往返 | 通过，3–4 秒；主请求走 `agent`，标题生成走 `fast` |
+| Codex 简单回复 / 读文件往返 | 通过，138 秒 / 19 秒；首个请求在 cliproxy 等满 120 秒超时，再回退到火山 |
+| 六个配置文件的 SHA-256 | 跑前跑后完全一致 |
+| `~/.acm/state/run`（启动时的临时目录） | Agent 退出后为空，没有残留进程 |
+
+OpenClaw 被检测到（有配置目录），但本机 PATH 上没有 `openclaw` 二进制，未测。
 
 ## 4. 建议 VMR 侧后续处理（按优先级）
 
