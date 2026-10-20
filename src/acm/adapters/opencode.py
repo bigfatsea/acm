@@ -166,12 +166,14 @@ class OpenCodeFamily(Adapter):
         warns = list(target.warnings)
         for role in ("reasoning", "subagent", "review"):
             if target.roles.get(role) is not None:
-                what = (
-                    "registered and selectable in the model picker"
-                    if role == "reasoning"
-                    else "has no slot"
+                warns.append(
+                    ProjectionWarning(
+                        f"roles.{role}",
+                        f"{self.name} has no dedicated slot for this role; the model is "
+                        "selectable in its model picker",
+                        self.id,
+                    )
                 )
-                warns.append(ProjectionWarning(f"roles.{role}", f"{self.name} {what}", self.id))
         return warns
 
     # --------------------------------------------------------------- persistent

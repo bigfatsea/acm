@@ -183,3 +183,37 @@ def test_unusable_manifest_is_not_cached(kctx, gateway):
     with pytest.raises(ConfigError, match="invalid manifest"):
         load(kctx, gateway)
     assert not (kctx.manifests_dir / "team.json").exists()
+
+
+def _from(base: str, source: str):
+    return provider_from_manifest(
+        "t", parse_manifest(team_manifest(base)), credential=parse_credential(""), headers={},
+        source=source,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("base", "source"),
+    [
+        ("http://127.0.0.1:8800", "http://127.0.0.1:8800/manifest"),
+        ("https://VMR.example.com:443", "https://vmr.example.com/manifest"),  # default port, case
+        ("http://anywhere.example", "/abs/manifest.json"),  # a file has no origin to compare
+    ],
+)
+def test_endpoints_on_the_manifest_origin_are_quiet(base, source):
+    assert _from(base, source).warnings == ()
+
+
+def test_endpoints_on_another_origin_are_surfaced():
+    p = _from("http://10.0.0.5:8800", "http://127.0.0.1:8800/manifest")
+    (w,) = p.warnings
+    assert "read from http://127.0.0.1:8800" in w and "http://10.0.0.5:8800" in w
+    assert "unencrypted" not in w and "public_base_url" in w
+    from acm.catalog.resolve import Catalog
+
+    assert Catalog(providers={"t": p}).notes() == [w]
+
+
+def test_https_manifest_with_http_endpoints_names_the_downgrade():
+    (w,) = _from("http://vmr.example.com", "https://vmr.example.com/manifest").warnings
+    assert "plain http" in w

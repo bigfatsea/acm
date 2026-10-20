@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 11:45, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 15:40, by Opus 5.5 -->
 
 # ACM 使用指南
 
@@ -183,7 +183,7 @@ VMR_URL=https://vmr.lan VMR_KEY=sk-... acm opencode      # 零配置
 
 ## 网关 Manifest
 
-Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bearer <api_key>` 获取，缓存到 `~/.acm/state/manifests/`，用 `If-None-Match` 做廉价刷新（超时 2 秒，可用 `ACM_MANIFEST_TIMEOUT` 调整）。不跟随重定向，因此凭据不会被转发到其他主机。
+Manifest 型 provider 指向网关发布的文档。ACM 带 `Authorization: Bearer <api_key>` 获取，缓存到 `~/.acm/state/manifests/`，用 `If-None-Match` 做廉价刷新（超时 2 秒，可用 `ACM_MANIFEST_TIMEOUT` 调整）。不跟随重定向，因此凭据不会被转发到其他主机。由于 key 会发往 Manifest 中 `endpoints` 指向的地址，当某个端点与 Manifest URL 本身不同源（scheme、主机或端口不同）时，ACM 会告警；https 的 Manifest 给出 http 端点时会明确指出明文风险。常见原因是网关部署在反向代理之后却没有配置对外地址（VMR：`public_base_url`）；如果确实有意分开，把 `manifest` 指向与端点相同的地址即可。
 
 | 情形 | `use` / `apply` / `run` | `status` |
 |---|---|---|

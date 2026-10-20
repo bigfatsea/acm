@@ -8,6 +8,7 @@ from acm.engine.evaluate import Evaluation, evaluate
 from acm.engine.history import HistoryLog, ObjectStore
 from acm.engine.managed import set_managed
 from acm.engine.model import (
+    NOT_EXIST,
     AdapterLike,
     ApplyResult,
     Diff,
@@ -15,7 +16,7 @@ from acm.engine.model import (
     Interaction,
     Plan,
 )
-from acm.formats.base import MISSING, fmt_path
+from acm.formats.base import MISSING, fmt_path, leaf_changes
 
 
 def _show(path: tuple[str | int, ...], value: object, show_secrets: bool) -> str:
@@ -27,11 +28,15 @@ def _show(path: tuple[str | int, ...], value: object, show_secrets: bool) -> str
 def describe_drift(items: list[DriftItem], show_secrets: bool = False) -> str:
     lines = []
     for d in items:
-        where = f"{d.file}" + (f" {fmt_path(d.path)}" if d.path else "")
-        lines.append(
-            f"  {where}: acm wrote {_show(d.path, d.expected, show_secrets)}, "
-            f"now {_show(d.path, d.found, show_secrets)}"
-        )
+        if not d.path:  # a file acm owns: the values are content hashes
+            gone = d.found == NOT_EXIST[:12]
+            lines.append(f"  {d.file}: {'deleted' if gone else 'changed'} since acm wrote it")
+            continue
+        for p, expected, found in leaf_changes(d.path, d.expected, d.found):
+            lines.append(
+                f"  {d.file} {fmt_path(p)}: acm wrote {_show(p, expected, show_secrets)}, "
+                f"now {_show(p, found, show_secrets)}"
+            )
     return "\n".join(lines)
 
 

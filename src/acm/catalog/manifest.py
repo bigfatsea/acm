@@ -137,6 +137,42 @@ def provider_from_manifest(
         origin="manifest",
         source=source,
         note=note,
+        warnings=origin_warnings(name, source, endpoints),
+    )
+
+
+def _origin(url: str) -> str | None:
+    """``scheme://host:port`` with the default port spelled out; None when not an http(s) URL."""
+    u = urlparse(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return None
+    try:
+        port = u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        return None
+    host = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
+    return f"{u.scheme}://{host.lower()}:{port}"
+
+
+def origin_warnings(name: str, source: str, endpoints: Mapping[str, str]) -> tuple[str, ...]:
+    """The key goes wherever the manifest's endpoints point. Redirects are refused for that
+    reason, so an endpoint on another origin than the manifest itself is surfaced too: usually
+    a gateway whose public address is misconfigured (behind a proxy: http instead of https)."""
+    home = _origin(source)
+    if home is None:
+        return ()  # a manifest file has no origin to compare with
+    foreign = sorted({o for o in map(_origin, endpoints.values()) if o and o != home})
+    if not foreign:
+        return ()
+    text = (
+        f"manifest '{name}' was read from {home} but its endpoints send requests and the key to "
+        f"{', '.join(foreign)}"
+    )
+    if home.startswith("https:") and any(o.startswith("http:") for o in foreign):
+        text += " (plain http: the key would travel unencrypted)"
+    return (
+        text + "; if that is intended, point `manifest` at that address, otherwise check the "
+        "gateway's public address (VMR: public_base_url)",
     )
 
 

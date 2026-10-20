@@ -1,12 +1,13 @@
 """Terminal output: stdout for results, stderr for warnings and errors."""
 
 import sys
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 
 from acm.core.masking import mask_value_at
-from acm.formats.base import MISSING, KeyPath, fmt_path
+from acm.formats.base import MISSING, KeyPath, fmt_path, leaf_changes
 
 _STYLES = {
     "SYNCED": "green", "OUT_OF_SYNC": "yellow", "DRIFTED": "red", "ERROR": "bold red",
@@ -48,6 +49,18 @@ def show_value(path: KeyPath, value: Any, show_secrets: bool) -> str:
 
 def field_line(path: KeyPath, before: Any, after: Any, show_secrets: bool) -> str:
     return (
-        f"{fmt_path(path) or '<file>'}: {show_value(path, before, show_secrets)} -> "
+        f"{fmt_path(path)}: {show_value(path, before, show_secrets)} -> "
         f"{show_value(path, after, show_secrets)}"
     )
+
+
+def field_lines(
+    path: KeyPath, before: Any, after: Any, show_secrets: bool, file: Path | None = None
+) -> list[str]:
+    """One line per changed leaf, so a managed subtree (a whole provider entry) does not print
+    as two near-identical dumps. An empty path is a whole file acm owns."""
+    if path == ():
+        name = file.name if file is not None else "file"
+        what = "created" if before is MISSING else "removed" if after is MISSING else "replaced"
+        return [f"{name}: {what}"]
+    return [field_line(p, a, b, show_secrets) for p, a, b in leaf_changes(path, before, after)]

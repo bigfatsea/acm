@@ -13,7 +13,7 @@ from acm.catalog.resolve import (
     profile_providers,
     resolve_target,
 )
-from acm.cli.output import Out, field_line
+from acm.cli.output import Out, field_lines
 from acm.config.schema import CoreConfig
 from acm.core.context import Ctx
 from acm.core.errors import ACMError, FormatError, NotFoundError, SafetyBlockedError
@@ -144,7 +144,8 @@ def interaction_for(out: Out, ctx: Ctx) -> Interaction:
         head = "first takeover of" if first else "new managed fields in"
         out.err(f"acm will change these fields ({head} {agent}):")
         for d in diffs:
-            out.err("  " + field_line(d.path, d.current, d.desired, ctx.show_secrets))
+            for line in field_lines(d.path, d.current, d.desired, ctx.show_secrets, d.file):
+                out.err("  " + line)
         return ask("Proceed? [y/N]").startswith("y")
 
     def confirm_file_restore(agent: str, paths: list[KeyPath]) -> bool:
@@ -176,7 +177,8 @@ def report(out: Out, results: list[ApplyResult], ctx: Ctx) -> int:
             out.err(f"{r.agent}: {r.message}")
         if r.status == "dry_run" or ctx.verbose:
             for d in r.diffs:
-                out.line("    " + field_line(d.path, d.current, d.desired, ctx.show_secrets))
+                for line in field_lines(d.path, d.current, d.desired, ctx.show_secrets, d.file):
+                    out.line("    " + line)
         code = max(code, r.code)
         if r.status in ("noop", "unmanaged") and not ctx.verbose:
             continue  # nothing was projected: the same warnings were shown when it was

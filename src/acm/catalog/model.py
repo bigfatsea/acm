@@ -44,6 +44,7 @@ class Provider:
     origin: Literal["static", "manifest"] = "static"
     source: str | None = None
     note: str | None = None  # e.g. "manifest served from cache (fetched 2h ago)"
+    warnings: tuple[str, ...] = ()  # e.g. endpoints on another origin than the manifest
 
     def card(self, model_id: str) -> ModelCard | None:
         for c in self.cards:

@@ -22,7 +22,7 @@ class Catalog:
     errors: dict[str, ACMError] = field(default_factory=dict)
 
     def notes(self) -> list[str]:
-        return [p.note for p in self.providers.values() if p.note]
+        return [n for p in self.providers.values() for n in (p.note, *p.warnings) if n]
 
 
 def build_catalog(ctx: Ctx, config: CoreConfig, needed: set[str] | None = None) -> Catalog:

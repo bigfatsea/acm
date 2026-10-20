@@ -111,6 +111,22 @@ def changed_paths(a: Any, b: Any, prefix: KeyPath = ()) -> Iterator[KeyPath]:
         yield prefix
 
 
+def leaf_changes(path: KeyPath, a: Any, b: Any) -> Iterator[tuple[KeyPath, Any, Any]]:
+    """Narrow a change of ``path`` from ``a`` to ``b`` down to the leaves that differ (for
+    display: a changed provider entry reads as its one changed field)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in [*a, *(k for k in b if k not in a)]:
+            av, bv = a.get(k, MISSING), b.get(k, MISSING)
+            if not strict_equal(av, bv):
+                yield from leaf_changes((*path, k), av, bv)
+    elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        for i, (x, y) in enumerate(zip(a, b, strict=True)):
+            if not strict_equal(x, y):
+                yield from leaf_changes((*path, i), x, y)
+    else:
+        yield path, a, b
+
+
 def path_covers(op_path: KeyPath, changed: KeyPath) -> bool:
     """True when an operation on ``op_path`` legitimately explains a change at ``changed``."""
     return changed[: len(op_path)] == op_path

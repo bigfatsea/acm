@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 11:45, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 15:40, by Opus 5.5 -->
 
 # ACM User Guide
 
@@ -183,7 +183,7 @@ Credentials are written as references whenever the agent supports them (`apiKeyH
 
 ## Gateway manifest
 
-A manifest provider points at a document served by your gateway. ACM fetches it with `Authorization: Bearer <api_key>`, caches it in `~/.acm/state/manifests/`, and uses `If-None-Match` for cheap refreshes (2-second timeout; `ACM_MANIFEST_TIMEOUT` to change). Redirects are not followed, so credentials cannot be forwarded to another host.
+A manifest provider points at a document served by your gateway. ACM fetches it with `Authorization: Bearer <api_key>`, caches it in `~/.acm/state/manifests/`, and uses `If-None-Match` for cheap refreshes (2-second timeout; `ACM_MANIFEST_TIMEOUT` to change). Redirects are not followed, so credentials cannot be forwarded to another host. Because the key is sent wherever the manifest's `endpoints` point, ACM warns when an endpoint is on a different origin (scheme, host or port) than the manifest URL itself, and says so explicitly when an https manifest hands out http endpoints. The usual cause is a gateway behind a reverse proxy without its public address configured (VMR: `public_base_url`); if the split is intended, point `manifest` at the same address as the endpoints.
 
 | Situation | `use` / `apply` / `run` | `status` |
 |---|---|---|

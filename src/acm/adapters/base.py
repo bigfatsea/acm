@@ -226,4 +226,4 @@ def run_key_vars(target: ResolvedTarget, ctx: Ctx) -> tuple[dict[str, str], dict
 def launch_notes(warnings: list[ProjectionWarning]) -> list[str]:
     """Warnings worth showing for a one-shot run. "Key written in plain text" does not apply:
     a run passes literal keys through environment variables and writes no agent file."""
-    return [w.reason for w in warnings if w.field != "api_key"]
+    return [f"{w.field}: {w.reason}" for w in warnings if w.field != "api_key"]

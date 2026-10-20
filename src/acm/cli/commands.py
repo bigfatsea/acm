@@ -9,7 +9,7 @@ from acm.adapters.registry import all_adapters
 from acm.catalog.probe import default_gateway_url, probe_gateway
 from acm.catalog.proposal import proposal_for
 from acm.cli.main import app
-from acm.cli.output import Out, field_line, show_value
+from acm.cli.output import Out, field_lines
 from acm.cli.support import (
     choose_agents,
     interaction_for,
@@ -23,7 +23,7 @@ from acm.core.context import Ctx
 from acm.core.errors import ConfigError, NotFoundError, SafetyBlockedError
 from acm.core.lock import WriteLock
 from acm.engine.active import read_active, write_active
-from acm.engine.apply import apply_agent
+from acm.engine.apply import apply_agent, describe_drift
 from acm.engine.fsio import cleanup_stale_tmp
 from acm.engine.history import HistoryLog, ObjectStore, Record
 from acm.engine.managed import load_managed, set_managed
@@ -32,7 +32,6 @@ from acm.engine.restore import RestoreRequest, restore_agent
 from acm.engine.status import SEVERITY, agent_status
 from acm.engine.views import prune as prune_history
 from acm.engine.views import record_changes, unmanaged_changes
-from acm.formats.base import fmt_path
 
 _Agents = Annotated[list[str] | None, typer.Argument(help="Limit to these agents.")]
 DryRun = Annotated[bool, typer.Option("--dry-run", help="Show what would change; write nothing.")]
@@ -262,15 +261,12 @@ def status(
             detail = f"{len(st.drift)} managed field(s) changed outside acm"
         label = ad.id + (" *" if ad.tier == "T2" else "")
         out.styled(f"{label.ljust(16)}{st.state.ljust(14)}{detail}", st.state)
-        for d in st.drift:
-            out.line(
-                f"    drift {fmt_path(d.path)}: acm wrote "
-                f"{show_value(d.path, d.expected, ctx.show_secrets)}, now "
-                f"{show_value(d.path, d.found, ctx.show_secrets)}"
-            )
+        for line in describe_drift(st.drift, ctx.show_secrets).splitlines():
+            out.line(f"    drift {line.strip()}")
         if ctx.verbose or st.state == "OUT_OF_SYNC":
             for df in st.diffs:
-                out.line("    " + field_line(df.path, df.current, df.desired, ctx.show_secrets))
+                for line in field_lines(df.path, df.current, df.desired, ctx.show_secrets, df.file):
+                    out.line("    " + line)
         if st.state == "ERROR" and "\n" in st.message:
             out.line("    " + st.message.split("\n", 1)[1])
         if ctx.verbose:
@@ -322,15 +318,21 @@ def history(
                 continue
             out.line(head)
             fmt = fmts.get(file)
-            for c in record_changes(store, r, fmt)[:6]:
-                out.line("        " + field_line(c.path, c.before, c.after, ctx.show_secrets))
+            changes = [
+                line
+                for c in record_changes(store, r, fmt)
+                for line in field_lines(c.path, c.before, c.after, ctx.show_secrets)
+            ]
+            for line in changes[:6]:
+                out.line("        " + line)
+            if len(changes) > 6:
+                out.line(f"        ... and {len(changes) - 6} more")
             if r.external_before:
                 out.line("        (the file had been changed outside acm before this write)")
             if full and fmt:
                 for c in unmanaged_changes(store, r, fmt):
-                    out.line(
-                        "        other " + field_line(c.path, c.before, c.after, ctx.show_secrets)
-                    )
+                    for line in field_lines(c.path, c.before, c.after, ctx.show_secrets):
+                        out.line("        other " + line)
     for w in log.warnings:
         out.warn(w)
 

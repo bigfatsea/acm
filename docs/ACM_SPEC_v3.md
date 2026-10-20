@@ -1,4 +1,4 @@
-<!-- // Ver 2026-10-20 11:30, by Opus 5.5 -->
+<!-- // Ver 2026-10-20 15:40, by Opus 5.5 -->
 
 # ACM 实现规格 v3
 
@@ -135,6 +135,7 @@ class ModelCard:
 
 - 来源：`https://…` 条件请求（`If-None-Match`，携带 `Authorization: Bearer <api_key>` 与 provider 的 `headers`）；本地文件 / `file://` 直接读取（无 ETag，无缓存）。
 - 缓存：`~/.acm/state/manifests/<provider>.json`（0600）：`{url, etag, fetched_at, body}`。超时 2 秒（`ACM_MANIFEST_TIMEOUT` 可调）。
+- 不跟随重定向（30x 等同不可达）。`endpoints` 中任一端点的源（`scheme://host:port`，默认端口补全）与 Manifest 自身 URL 的源不同 → stderr 告警（`use` / `apply` / `status` / `run` 都会显示），https 清单配 http 端点时额外指出明文风险；不阻断。文件来源无源可比，不检查。
 
 | 情形 | `use` / `apply` / `run` | `status` |
 |---|---|---|
